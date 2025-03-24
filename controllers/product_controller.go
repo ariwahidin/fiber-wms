@@ -3,6 +3,7 @@ package controllers
 import (
 	"errors"
 	"fiber-app/models"
+	"fmt"
 
 	"github.com/go-playground/validator"
 	"github.com/gofiber/fiber/v2"
@@ -21,6 +22,7 @@ var productInput struct {
 	GMC      string  `json:"gmc" validate:"required,min=6"`
 	Group    string  `json:"group" validate:"required,min=3"`
 	Category string  `json:"category" validate:"required,min=3"`
+	Serial   string  `json:"serial" validate:"required,min=1"`
 }
 
 func NewProductController(DB *gorm.DB) *ProductController {
@@ -28,6 +30,9 @@ func NewProductController(DB *gorm.DB) *ProductController {
 }
 
 func (c *ProductController) CreateProduct(ctx *fiber.Ctx) error {
+
+	// fmt.Println("Payload Data : ", string(ctx.Body()))
+	// return nil
 
 	// Parse Body
 	if err := ctx.BodyParser(&productInput); err != nil {
@@ -45,16 +50,16 @@ func (c *ProductController) CreateProduct(ctx *fiber.Ctx) error {
 		ItemCode:  productInput.ItemCode,
 		ItemName:  productInput.ItemName,
 		CBM:       productInput.CBM,
+		Barcode:   productInput.GMC,
 		GMC:       productInput.GMC,
 		Group:     productInput.Group,
 		Category:  productInput.Category,
+		HasSerial: productInput.Serial,
 		CreatedBy: int(ctx.Locals("userID").(float64)),
 	}
 
-	// Hanya menyimpan field yang dipilih dengan menggunakan Select
-	result := c.DB.Select("item_code", "item_name", "cbm", "gmc", "group", "category", "created_by").Create(&product)
-	if result.Error != nil {
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": result.Error.Error()})
+	if err := c.DB.Create(&product).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
 	// Respons sukses
@@ -62,7 +67,7 @@ func (c *ProductController) CreateProduct(ctx *fiber.Ctx) error {
 
 }
 
-func (c *ProductController) GetUserByID(ctx *fiber.Ctx) error {
+func (c *ProductController) GetProductByID(ctx *fiber.Ctx) error {
 	id, err := ctx.ParamsInt("id")
 	if err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid ID"})
@@ -81,6 +86,10 @@ func (c *ProductController) GetUserByID(ctx *fiber.Ctx) error {
 }
 
 func (c *ProductController) UpdateProduct(ctx *fiber.Ctx) error {
+
+	fmt.Println("Payload Edit Data : ", string(ctx.Body()))
+	// return nil
+
 	id, err := ctx.ParamsInt("id")
 	if err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid ID"})
@@ -111,12 +120,14 @@ func (c *ProductController) UpdateProduct(ctx *fiber.Ctx) error {
 	product.ItemName = productInput.ItemName
 	product.CBM = productInput.CBM
 	product.GMC = productInput.GMC
+	product.Barcode = productInput.GMC
 	product.Group = productInput.Group
 	product.Category = productInput.Category
+	product.HasSerial = productInput.Serial
 	product.UpdatedBy = int(ctx.Locals("userID").(float64))
 
 	// Hanya menyimpan field yang dipilih dengan menggunakan Select
-	result := c.DB.Select("item_code", "item_name", "cbm", "gmc", "group", "category", "updated_by").Where("id = ?", id).Updates(&product)
+	result := c.DB.Select("item_code", "item_name", "cbm", "gmc", "barcode", "group", "category", "has_serial", "updated_by").Where("id = ?", id).Updates(&product)
 	if result.Error != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": result.Error.Error()})
 	}

@@ -10,3 +10,19 @@ type Origin struct {
 	UpdatedBy int
 	DeletedBy int
 }
+
+type WarehouseCode struct {
+	gorm.Model
+	WarehouseCode string `json:"warehouse_code" gorm:"unique"`
+	CreatedBy     int
+	UpdatedBy     int
+	DeletedBy     int
+}
+
+type QaStatus struct {
+	gorm.Model
+	QaStatus  string `json:"qa_status" gorm:"unique"`
+	CreatedBy int
+	UpdatedBy int
+	DeletedBy int
+}

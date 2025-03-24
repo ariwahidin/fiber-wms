@@ -10,7 +10,7 @@ import (
 func SetupProductRoutes(app *fiber.App, productController *controllers.ProductController) {
 	api := app.Group("/api/v1/products", middleware.AuthMiddleware)
 	api.Post("/", productController.CreateProduct)
-	api.Get("/:id", productController.GetUserByID)
+	api.Get("/:id", productController.GetProductByID)
 	api.Put("/:id", productController.UpdateProduct)
 	api.Get("/", productController.GetAllProducts)
 	api.Delete("/:id", productController.DeleteProduct)

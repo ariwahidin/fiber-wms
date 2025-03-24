@@ -28,14 +28,19 @@ type InboundHeader struct {
 	CreatedBy       int
 	UpdatedBy       int
 	DeletedBy       int
+
+	// Relations
+	Details []InboundDetail `gorm:"foreignKey:InboundId" json:"details"`
 }
 
 type InboundDetail struct {
 	gorm.Model
-	InboundId     int    `json:"inbound_id"`
+	InboundId     int    `json:"inbound_id" gorm:"default:null"`
 	ReferenceCode string `json:"reference_code"`
+	ItemID        int    `json:"item_id"`
 	ItemCode      string `json:"item_code" required:"required"`
 	Quantity      int    `json:"quantity" required:"required"`
+	Location      string `json:"location" required:"required"`
 	Status        string `json:"status" gorm:"default:'draft'"`
 	WhsCode       string `json:"whs_code" required:"required"`
 	RecDate       string `json:"rec_date" required:"required"`
@@ -46,11 +51,15 @@ type InboundDetail struct {
 	CreatedBy     int
 	UpdatedBy     int
 	DeletedBy     int
+
+	// Relations
+	InboundBarcodes        []InboundBarcode        `gorm:"foreignKey:InboundDetailId;references:ID;constraint:OnDelete:CASCADE" json:"inbound_barcodes"`
+	InboundDetailHandlings []InboundDetailHandling `gorm:"foreignKey:InboundDetailId;references:ID;constraint:OnDelete:CASCADE" json:"inbound_detail_handlings"`
 }
 
 type InboundDetailHandling struct {
 	gorm.Model
-	InboundDetailId   int
+	InboundDetailId   int `gorm:"foreignKey:InboundDetailId" json:"inbound_detail_id"`
 	HandlingCombineId int
 	HandlingId        int
 	HandlingUsed      string
@@ -63,17 +72,22 @@ type InboundDetailHandling struct {
 	DeletedBy         int
 }
 
-type DetailResponse struct {
-	ID           uint    `json:"id"`
-	ItemCode     string  `json:"item_code"`
-	ItemName     string  `json:"item_name"`
-	CBM          float64 `json:"cbm"`
-	GMC          string  `json:"gmc"`
-	Quantity     int     `json:"quantity"`
-	WhsCode      string  `json:"whs_code"`
-	RecDate      string  `json:"rec_date"`
-	Uom          string  `json:"uom"`
-	Remarks      string  `json:"remarks"`
-	HandlingId   int     `json:"handling_id"`
-	HandlingUsed string  `json:"handling_used"`
+type InboundBarcode struct {
+	gorm.Model
+	InboundId       int    `json:"inbound_id"`
+	InboundDetailId int    `gorm:"foreignKey:InboundDetailId" json:"inbound_detail_id"`
+	ItemID          int    `json:"item_id"`
+	ItemCode        string `json:"item_code"`
+	ScanType        string `json:"scan_type"`
+	ScanData        string `json:"scan_data"`
+	Barcode         string `json:"barcode"`
+	SerialNumber    string `json:"serial_number"`
+	Location        string `json:"location"`
+	Quantity        int    `json:"quantity"`
+	WhsCode         string `json:"whs_code"`
+	QaStatus        string `json:"qa_status"`
+	Status          string `json:"status" gorm:"default:'pending'"`
+	CreatedBy       int
+	UpdatedBy       int
+	DeletedBy       int
 }
