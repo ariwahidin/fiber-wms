@@ -6,21 +6,21 @@ import (
 
 type InboundHeader struct {
 	gorm.Model
-	Code            string `json:"code" gorm:"unique"`
-	SupplierCode    string `json:"supplier_code" validate:"required" gorm:"not null"`
+	InboundNo       string `json:"inbound_no" gorm:"unique"`
+	SupplierId      int    `json:"supplier_id"`
 	Status          string `json:"status" gorm:"default:'draft'"`
 	InboundDate     string `gorm:"type:date" json:"inbound_date"`
 	InvoiceNo       string `json:"invoice"`
-	Transporter     string `json:"transporter_code"`
-	DriverName      string `json:"driver_name"`
-	TruckSize       string `json:"truck_size"`
+	TransporterID   int    `json:"transporter_id"`
+	Driver          string `json:"driver"`
+	TruckId         int    `json:"truck_id"`
 	TruckNo         string `json:"truck_no"`
 	ContainerNo     string `json:"container_no"`
 	BlNo            string `json:"bl_no"`
 	PoNo            string `json:"po_no"`
 	PoDate          string `gorm:"type:date" json:"po_date"`
 	SjNo            string `json:"sj_no"`
-	Origin          string `json:"origin"`
+	OriginId        int    `json:"origin_id"`
 	TimeArrival     string `json:"time_arrival"`
 	StartUnloading  string `json:"start_unloading"`
 	FinishUnloading string `json:"finish_unloading"`
@@ -30,27 +30,28 @@ type InboundHeader struct {
 	DeletedBy       int
 
 	// Relations
-	Details []InboundDetail `gorm:"foreignKey:InboundId" json:"details"`
+	Details []InboundDetail `gorm:"foreignKey:InboundId;references:ID;constraint:OnDelete:CASCADE" json:"details"`
 }
 
 type InboundDetail struct {
 	gorm.Model
-	InboundId     int    `json:"inbound_id" gorm:"default:null"`
-	ReferenceCode string `json:"reference_code"`
-	ItemID        int    `json:"item_id"`
-	ItemCode      string `json:"item_code" required:"required"`
-	Quantity      int    `json:"quantity" required:"required"`
-	Location      string `json:"location" required:"required"`
-	Status        string `json:"status" gorm:"default:'draft'"`
-	WhsCode       string `json:"whs_code" required:"required"`
-	RecDate       string `json:"rec_date" required:"required"`
-	Uom           string `json:"uom" required:"required"`
-	HandlingId    int    `json:"handling_id" required:"required"`
-	HandlingUsed  string `json:"handling_used"`
-	Remarks       string `json:"remarks"`
-	CreatedBy     int
-	UpdatedBy     int
-	DeletedBy     int
+	InboundId    int    `json:"inbound_id" gorm:"default:null"`
+	InboundNo    string `json:"inbound_no"`
+	ItemId       int    `json:"item_id"`
+	ItemCode     string `json:"item_code" required:"required"`
+	Quantity     int    `json:"quantity" required:"required"`
+	Location     string `json:"location" required:"required"`
+	Status       string `json:"status" gorm:"default:'draft'"`
+	WhsCode      string `json:"whs_code" required:"required"`
+	RecDate      string `json:"rec_date" required:"required"`
+	Uom          string `json:"uom" required:"required"`
+	HandlingId   int    `json:"handling_id" required:"required"`
+	HandlingUsed string `json:"handling_used"`
+	TotalVas     int    `json:"total_vas"`
+	Remarks      string `json:"remarks"`
+	CreatedBy    int
+	UpdatedBy    int
+	DeletedBy    int
 
 	// Relations
 	InboundBarcodes        []InboundBarcode        `gorm:"foreignKey:InboundDetailId;references:ID;constraint:OnDelete:CASCADE" json:"inbound_barcodes"`
@@ -82,6 +83,7 @@ type InboundBarcode struct {
 	ScanData        string `json:"scan_data"`
 	Barcode         string `json:"barcode"`
 	SerialNumber    string `json:"serial_number"`
+	Pallet          string `json:"pallet"`
 	Location        string `json:"location"`
 	Quantity        int    `json:"quantity"`
 	WhsCode         string `json:"whs_code"`
@@ -90,4 +92,23 @@ type InboundBarcode struct {
 	CreatedBy       int
 	UpdatedBy       int
 	DeletedBy       int
+}
+
+type FormItemInbound struct {
+	InboundDetailID int    `json:"inbound_detail_id"`
+	InboundID       int    `json:"inbound_id"`
+	InboundNo       string `json:"inbound_no"`
+	ItemID          int    `json:"item_id" validate:"required"`
+	ItemName        string `json:"item_name"`
+	Barcode         string `json:"barcode"`
+	ItemCode        string `json:"item_code"`
+	Quantity        int    `json:"quantity" validate:"required,min=1" `
+	Uom             string `json:"uom"`
+	RecDate         string `json:"rec_date"`
+	WhsCode         string `json:"whs_code"`
+	HandlingID      int    `json:"handling_id"`
+	HandlingUsed    string `json:"handling_used"`
+	Remarks         string `json:"remarks"`
+	Location        string `json:"location"`
+	TotalVas        int    `json:"total_vas"`
 }

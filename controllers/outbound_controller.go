@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/go-playground/validator"
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 )
@@ -20,6 +21,7 @@ type ReqHeaderOutbound struct {
 	OutboundNo   string `json:"outbound_no"`
 	OutboundDate string `json:"outbound_date" validate:"required"`
 	CustomerCode string `json:"customer_code" validate:"required,min=3"`
+	DeliveryNo   string `json:"delivery_no" validate:"required"`
 }
 
 type ReqItemOutbound struct {
@@ -76,6 +78,12 @@ func (c *OutboundController) SaveOutbound(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	// validate formHeader
+	validate := validator.New()
+	if err := validate.Struct(formHeader); err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
+
 	var header models.OutboundHeader
 	if err := c.DB.Where("id = ?", id).First(&header).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -90,6 +98,7 @@ func (c *OutboundController) SaveOutbound(ctx *fiber.Ctx) error {
 	if header.Status == "draft" {
 		header.Status = "open"
 	}
+	header.DeliveryNo = formHeader.DeliveryNo
 	header.UpdatedBy = int(ctx.Locals("userID").(float64))
 
 	if err := c.DB.Save(&header).Error; err != nil {
@@ -110,6 +119,12 @@ func (c *OutboundController) CreateItemOutbound(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	// validate formHeader
+	validate := validator.New()
+	if err := validate.Struct(FormSubmit.FormHeader); err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
+
 	outboundRepo := repositories.NewOutboundRepository(c.DB)
 	handlingRepo := repositories.NewHandlingRepository(c.DB)
 
@@ -127,6 +142,7 @@ func (c *OutboundController) CreateItemOutbound(ctx *fiber.Ctx) error {
 
 	header.OutboundDate = ReqHeaderOutbound.OutboundDate
 	header.CustomerCode = ReqHeaderOutbound.CustomerCode
+	header.DeliveryNo = ReqHeaderOutbound.DeliveryNo
 	if header.ID == 0 {
 		header.OutboundNo, _ = outboundRepo.GenerateOutboundNumber()
 		header.CreatedBy = int(ctx.Locals("userID").(float64))
@@ -239,6 +255,7 @@ func (c *OutboundController) GetOutboundByID(ctx *fiber.Ctx) error {
 	formHeader.OutboundID = int(outboundHeader.ID)
 	formHeader.OutboundNo = outboundHeader.OutboundNo
 	formHeader.CustomerCode = outboundHeader.CustomerCode
+	formHeader.DeliveryNo = outboundHeader.DeliveryNo
 	parsedTime, err := time.Parse(time.RFC3339, outboundHeader.OutboundDate)
 	if err != nil {
 		fmt.Println("Error parsing time:", err)
@@ -289,4 +306,126 @@ func (c *OutboundController) GetOutboundList(ctx *fiber.Ctx) error {
 		"message": "Outbound found",
 		"data":    rawOutboundList,
 	})
+}
+
+func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
+	id, err := ctx.ParamsInt("id")
+	if err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid ID"})
+	}
+
+	var outboundDetails []models.OutboundDetail
+	if err := c.DB.Debug().Where("outbound_id = ?", id).Find(&outboundDetails).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	tx := c.DB.Begin()
+
+	if tx.Error != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to start transaction"})
+	}
+
+	inventoryRepo := repositories.NewInventoryRepository(tx)
+
+	for _, outboundDetail := range outboundDetails {
+
+		stocks, err := inventoryRepo.GetStockByRequest(id)
+
+		if err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+
+		qtyReq := outboundDetail.Quantity
+		itemID := outboundDetail.ItemID
+		stockFound := false
+		sisaRequest := 0
+
+		for _, stock := range stocks {
+
+			if qtyReq <= 0 {
+				break
+			}
+
+			if itemID == stock.ItemID {
+
+				if stock.Available <= 0 {
+					continue
+				}
+
+				qtyPick := qtyReq
+				if qtyReq > stock.Available {
+					qtyPick = stock.Available
+				}
+
+				pickingSheet := models.PickingSheet{
+					InventoryID:      stock.InventoryID,
+					OutboundId:       id,
+					OutboundDetailId: int(outboundDetail.ID),
+					ItemID:           stock.ItemID,
+					ItemCode:         stock.ItemCode,
+					Location:         stock.Location,
+					WhsCode:          stock.WhsCode,
+					QaStatus:         stock.QaStatus,
+					Quantity:         qtyPick,
+					CreatedBy:        int(ctx.Locals("userID").(float64)),
+				}
+
+				if err := tx.Create(&pickingSheet).Error; err != nil {
+					tx.Rollback()
+					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to create picking sheet: " + err.Error()})
+				}
+				stockFound = true
+				qtyReq -= qtyPick
+				sisaRequest = qtyReq
+			}
+		}
+
+		if sisaRequest > 0 {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Stock not enough for item " + outboundDetail.ItemCode})
+		}
+
+		if !stockFound {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "No available stock for item " + outboundDetail.ItemCode})
+		}
+	}
+
+	// update outbound status
+	var outboundHeader models.OutboundHeader
+	if err := tx.Where("id = ?", id).First(&outboundHeader).Error; err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to get outbound header: " + err.Error()})
+	}
+
+	outboundHeader.Status = "picking"
+	outboundHeader.UpdatedBy = int(ctx.Locals("userID").(float64))
+
+	if err := tx.Save(&outboundHeader).Error; err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to update outbound header: " + err.Error()})
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Picking Outbound Success"})
+}
+
+func (c *OutboundController) GetPickingSheet(ctx *fiber.Ctx) error {
+	id, err := ctx.ParamsInt("id")
+	if err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid ID"})
+	}
+
+	var pickingSheets []repositories.PaperPickingSheet
+	outboundRepo := repositories.NewOutboundRepository(c.DB)
+	pickingSheets, err = outboundRepo.GetPickingSheet(id)
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Picking Sheet Found", "data": pickingSheets})
 }

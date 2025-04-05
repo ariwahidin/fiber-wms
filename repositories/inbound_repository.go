@@ -18,13 +18,13 @@ type InboundRepository struct {
 type listInbound struct {
 	ID              uint   `json:"id"`
 	InboundNo       string `json:"inbound_no"`
-	SupplierCode    string `json:"supplier_code"`
+	SupplierID      string `json:"supplier_id"`
 	SupplierName    string `json:"supplier_name"`
 	Status          string `json:"status"`
 	Invoice         string `json:"invoice"`
-	TransporterCode string `json:"transporter_code"`
+	TransporterID   string `json:"transporter_id"`
 	DriverName      string `json:"driver_name"`
-	TruckSize       string `json:"truck_size"`
+	TruckID         string `json:"truck_id"`
 	TruckNo         string `json:"truck_no"`
 	InboundDate     string `json:"inbound_date"`
 	ContainerNo     string `json:"container_no"`
@@ -32,6 +32,7 @@ type listInbound struct {
 	PoNo            string `json:"po_no"`
 	PoDate          string `json:"po_date"`
 	SjNo            string `json:"sj_no"`
+	OriginID        string `json:"origin_id"`
 	Origin          string `json:"origin"`
 	TimeArrival     string `json:"time_arrival"`
 	StartUnloading  string `json:"start_unloading"`
@@ -39,17 +40,18 @@ type listInbound struct {
 	RemarksHeader   string `json:"remarks_header"`
 	TotalLine       int    `json:"total_line"`
 	TotalQty        int    `json:"total_qty"`
+	QtyScan         int    `json:"qty_scan"`
 	TransporterName string `json:"transporter_name"`
 }
 
 type HeaderInbound struct {
-	ID              uint   `json:"id"`
+	InboundID       int    `json:"inbound_id"`
 	InboundNo       string `json:"inbound_no"`
-	SupplierCode    string `json:"supplier_code"`
+	SupplierID      int    `json:"supplier_id"`
 	SupplierName    string `json:"supplier_name"`
 	Invoice         string `json:"invoice"`
-	TransporterCode string `json:"transporter_code"`
-	DriverName      string `json:"driver_name"`
+	TransporterID   int    `json:"transporter_id"`
+	Driver          string `json:"driver"`
 	TruckSize       string `json:"truck_size"`
 	TruckNo         string `json:"truck_no"`
 	InboundDate     string `json:"inbound_date"`
@@ -58,7 +60,7 @@ type HeaderInbound struct {
 	PoNo            string `json:"po_no"`
 	PoDate          string `json:"po_date"`
 	SjNo            string `json:"sj_no"`
-	Origin          string `json:"origin"`
+	OriginID        int    `json:"origin_id"`
 	TimeArrival     string `json:"time_arrival"`
 	StartUnloading  string `json:"start_unloading"`
 	FinishUnloading string `json:"finish_unloading"`
@@ -105,14 +107,29 @@ func (r *InboundRepository) CreateInboundDetail(data *models.InboundDetail, hand
 		}
 	}()
 
-	// Insert ke Inbound Detail
-	if err := tx.Create(data).Error; err != nil {
-		tx.Rollback()
-		return 0, err
+	if data.ID > 0 {
+		if err := tx.Save(data).Error; err != nil {
+			tx.Rollback()
+			return 0, err
+		}
+
+		sqlDelete := `DELETE FROM inbound_detail_handlings WHERE inbound_detail_id = ?`
+		if err := tx.Exec(sqlDelete, data.ID).Error; err != nil {
+			tx.Rollback()
+			return 0, err
+		}
+
+	} else {
+		if err := tx.Create(data).Error; err != nil {
+			tx.Rollback()
+			return 0, err
+		}
 	}
 
 	// Ambil ID yang baru saja diinsert
 	inboundDetailID := data.ID
+
+	var total_vas int
 
 	// Insert ke Inbound Detail Handlings
 	for _, handling := range handlingUsed {
@@ -128,10 +145,19 @@ func (r *InboundRepository) CreateInboundDetail(data *models.InboundDetail, hand
 			CreatedBy:         int(data.CreatedBy),
 		}
 
+		total_vas = total_vas + handling.RateIDR
+
 		if err := tx.Create(&inboundDetailHandling).Error; err != nil {
 			tx.Rollback()
 			return 0, err
 		}
+	}
+
+	data.TotalVas = total_vas
+
+	if err := tx.Save(data).Error; err != nil {
+		tx.Rollback()
+		return 0, err
 	}
 
 	// Commit transaksi
@@ -196,22 +222,28 @@ func (r *InboundRepository) UpdateInboundDetail(data *models.InboundDetail, hand
 func (r *InboundRepository) GetAllInbound() ([]listInbound, error) {
 	var listInbound []listInbound
 	sql := `WITH detail AS (
-				SELECT reference_code, COUNT(item_code) as total_line,SUM(quantity) total_qty 
-				FROM inbound_details GROUP BY reference_code
-			)
-			SELECT a.id, a.code as inbound_no, a.supplier_code, 
-			a.invoice_no as invoice, a.transporter as transporter_code,
-			a.driver_name, a.truck_size, a.truck_no, a.inbound_date,
+				SELECT inbound_id, COUNT(item_code) as total_line,SUM(quantity) total_qty 
+				FROM inbound_details GROUP BY inbound_id
+			),
+	inbound_barcode AS(
+			select inbound_id, sum(quantity) as qty_scan from inbound_barcodes
+			group by inbound_id
+	)
+			SELECT a.id, a.inbound_no, a.supplier_id,
+			c.supplier_name, 
+			a.invoice_no as invoice, a.transporter_id,
+			a.driver, a.truck_id, a.truck_no, a.inbound_date,
 			a.container_no, a.bl_no, a.po_no, a.po_date, a.sj_no,
-			a.origin, a.time_arrival, a.start_unloading, a.finish_unloading,
+			a.origin_id, a.time_arrival, a.start_unloading, a.finish_unloading,
 			a.status, a.inbound_date, a.remarks as remarks_header,
-			b.total_line, b.total_qty,
+			b.total_line, b.total_qty, COALESCE(ib.qty_scan, 0) as qty_scan,
 			c.supplier_name, a.status, d.transporter_name
 			FROM 
 			inbound_headers a
-			INNER JOIN detail b ON a.code = b.reference_code
-			LEFT JOIN suppliers c ON a.supplier_code = c.supplier_code
-			LEFT JOIN transporters d ON a.transporter = d.transporter_code
+			INNER JOIN detail b ON a.id = b.inbound_id
+			LEFT JOIN suppliers c ON a.supplier_id = c.id
+			LEFT JOIN transporters d ON a.transporter_id = d.id
+			LEFT JOIN inbound_barcode ib ON a.id = ib.inbound_id
 			ORDER BY a.created_at DESC`
 
 	if err := r.db.Raw(sql).Scan(&listInbound).Error; err != nil {
@@ -226,21 +258,21 @@ func (r *InboundRepository) GetInboundHeaderByInboundID(inbound_id int) (HeaderI
 	var result HeaderInbound
 
 	sql := `WITH detail AS (
-		SELECT reference_code, COUNT(item_code) as total_line,SUM(quantity) total_qty 
-		FROM inbound_details GROUP BY reference_code
+		SELECT inbound_id, COUNT(item_code) as total_line,SUM(quantity) total_qty 
+		FROM inbound_details GROUP BY inbound_id
 	)
-	SELECT a.id, a.code as inbound_no, a.supplier_code, 
-	a.invoice_no as invoice, a.transporter as transporter_code,
-	a.driver_name, a.truck_size, a.truck_no, a.inbound_date,
+	SELECT a.id as inbound_id, a.inbound_no, a.supplier_id, 
+	a.invoice_no as invoice, a.transporter_id,
+	a.driver, a.truck_id, a.truck_no, a.inbound_date,
 	a.container_no, a.bl_no, a.po_no, a.po_date, a.sj_no,
-	a.origin, a.time_arrival, a.start_unloading, a.finish_unloading,
+	a.origin_id, a.time_arrival, a.start_unloading, a.finish_unloading,
 	a.status, a.inbound_date, a.remarks,
 	b.total_line, b.total_qty,
 	c.supplier_name, a.status
 	FROM 
 	inbound_headers a
-	INNER JOIN detail b ON a.code = b.reference_code
-	LEFT JOIN suppliers c ON a.supplier_code = c.supplier_code
+	INNER JOIN detail b ON a.id = b.inbound_id
+	LEFT JOIN suppliers c ON a.supplier_id = c.id
 	WHERE a.id = ?`
 
 	if err := r.db.Raw(sql, inbound_id).Scan(&result).Error; err != nil {
@@ -250,23 +282,35 @@ func (r *InboundRepository) GetInboundHeaderByInboundID(inbound_id int) (HeaderI
 	return result, nil
 }
 
-func (r *InboundRepository) GetDetailItemByInboundID(inbound_id int) ([]DetailItem, error) {
-	var result []DetailItem
+func (r *InboundRepository) GetDetailItemByInboundID(inbound_id int) ([]models.FormItemInbound, error) {
+	var result []models.FormItemInbound
 
-	sql := `WITH detail_handling AS
-	(
-		SELECT inbound_detail_id, SUM(rate_idr) as sum_rate_idr 
-		FROM inbound_detail_handlings
-		GROUP BY inbound_detail_id
-	)
-	SELECT a.id, a.inbound_id, a.item_code, a.quantity , b.item_name, b.cbm, b.gmc, a.whs_code, a.rec_date, a.uom, a.remarks, a.location,
-	a.handling_id, a.handling_used, c.sum_rate_idr
-	FROM inbound_details a
-	INNER JOIN products b ON a.item_code = b.item_code
-	LEFT JOIN detail_handling c ON a.id = c.inbound_detail_id
-	WHERE a.inbound_id = ?`
+	sql := `SELECT 
+		b.id as inbound_detail_id,
+		a.id as inbound_id,
+		a.inbound_no as inbound_no,
+		b.item_id,
+		p.item_name, 
+		p.barcode,
+		b.item_code,
+		b.quantity,
+		b.uom,
+		b.rec_date,
+		b.whs_code,
+		b.handling_id,
+		b.remarks,
+		b.location,
+		c.name as handling_used,
+		b.total_vas
+        FROM
+        inbound_headers a
+        INNER JOIN inbound_details b ON a.id = b.inbound_id
+		INNER JOIN products p on p.id = b.item_id
+		LEFT JOIN handlings c ON b.handling_id = c.id
+        WHERE a.id = ?
+		ORDER BY b.id ASC`
 
-	if err := r.db.Raw(sql, inbound_id).Scan(&result).Error; err != nil {
+	if err := r.db.Debug().Raw(sql, inbound_id).Scan(&result).Error; err != nil {
 		return nil, err
 	}
 
@@ -361,7 +405,7 @@ func (r *InboundRepository) GetInboundBarcode(inbound_id int) ([]InboundBarcode,
 func (r *InboundRepository) GetInboundBarcodeDetail(inbound_id int, inbound_detail_id int) ([]InboundBarcode, error) {
 
 	var result []InboundBarcode
-	sql := `select a.id, a.inbound_id, c.code as inbound_no, a.inbound_detail_id,
+	sql := `select a.id, a.inbound_id, c.inbound_no, a.inbound_detail_id,
 	a.item_code, a.barcode, a.quantity,
 	b.item_name, a.serial_number, a.location, a.quantity, a.status
 	from inbound_barcodes a
@@ -396,7 +440,7 @@ func (r *InboundRepository) GetAllInboundScannedByInboundID(inbound_id int) ([]I
 )
 	SELECT 
 
-		a.reference_code, 
+		i.inbound_no,
 		a.inbound_id,
 		a.id as inbound_detail_id,
 		a.item_code,
@@ -406,11 +450,9 @@ func (r *InboundRepository) GetAllInboundScannedByInboundID(inbound_id int) ([]I
 		COALESCE(b.qty_scan, 0) AS qty_scan,
 		(a.quantity - COALESCE(b.qty_scan, 0)) AS remaining_qty
 	FROM inbound_details a
-	LEFT JOIN barcode b 
-		ON a.inbound_id = b.inbound_id 
-		AND a.id = b.inbound_detail_id
-	LEFT JOIN products c
-		ON a.item_code = c.item_code
+	INNER JOIN inbound_headers i ON a.inbound_id = i.id
+	LEFT JOIN barcode b ON a.inbound_id = b.inbound_id AND a.id = b.inbound_detail_id
+	LEFT JOIN products c ON a.item_code = c.item_code
 	WHERE a.inbound_id = ?
 `
 	var result []InboundBarcodeScanned
@@ -487,6 +529,35 @@ func (r *InboundRepository) CreateInventories(inventories []models.Inventory, in
 	return true, nil
 }
 
+func (r *InboundRepository) GenerateInboundNo() (string, error) {
+	var lastInbound models.InboundHeader
+
+	// Ambil inbound terakhir
+	if err := r.db.Last(&lastInbound).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return "", err
+	}
+
+	// Ambil bulan dan tahun saat ini
+	currentYear := time.Now().Format("2006")
+	currentMonth := time.Now().Format("01")
+
+	// Generate nomor inbound baru
+	var inboundNo string
+	if lastInbound.InboundNo != "" {
+		lastInboundNo := lastInbound.InboundNo[len(lastInbound.InboundNo)-4:] // Ambil 4 digit terakhir
+		if currentMonth != lastInbound.InboundNo[8:10] {                      // Jika bulan berbeda
+			inboundNo = fmt.Sprintf("IN-%s-%s-%04d", currentYear, currentMonth, 1)
+		} else {
+			lastInboundNoInt, _ := strconv.Atoi(lastInboundNo)
+			inboundNo = fmt.Sprintf("IN-%s-%s-%04d", currentYear, currentMonth, lastInboundNoInt+1)
+		}
+	} else {
+		inboundNo = fmt.Sprintf("IN-%s-%s-%04d", currentYear, currentMonth, 1)
+	}
+
+	return inboundNo, nil
+}
+
 func (r *InboundRepository) CreateInboundOpen(inboundHeader models.InboundHeader, inboundDetails []models.InboundDetail) (models.InboundHeader, error) {
 	var lastInbound models.InboundHeader
 
@@ -501,9 +572,9 @@ func (r *InboundRepository) CreateInboundOpen(inboundHeader models.InboundHeader
 
 	// Generate nomor inbound baru
 	var inboundNo string
-	if lastInbound.Code != "" {
-		lastInboundNo := lastInbound.Code[len(lastInbound.Code)-4:] // Ambil 4 digit terakhir
-		if currentMonth != lastInbound.Code[8:10] {                 // Jika bulan berbeda
+	if lastInbound.InboundNo != "" {
+		lastInboundNo := lastInbound.InboundNo[len(lastInbound.InboundNo)-4:] // Ambil 4 digit terakhir
+		if currentMonth != lastInbound.InboundNo[8:10] {                      // Jika bulan berbeda
 			inboundNo = fmt.Sprintf("IN-%s-%s-%04d", currentYear, currentMonth, 1)
 		} else {
 			lastInboundNoInt, _ := strconv.Atoi(lastInboundNo)
@@ -514,7 +585,7 @@ func (r *InboundRepository) CreateInboundOpen(inboundHeader models.InboundHeader
 	}
 
 	// Update data inboundHeader dengan nomor inbound baru dan status "open"
-	inboundHeader.Code = inboundNo
+	inboundHeader.InboundNo = inboundNo
 	inboundHeader.Status = "open"
 
 	// Mulai transaksi
@@ -527,7 +598,7 @@ func (r *InboundRepository) CreateInboundOpen(inboundHeader models.InboundHeader
 	// Simpan data inboundDetail
 	for _, inboundDetail := range inboundDetails {
 		inboundDetail.InboundId = int(inboundHeader.ID)
-		inboundDetail.ReferenceCode = inboundHeader.Code
+		inboundDetail.InboundNo = inboundHeader.InboundNo
 		if err := tx.Create(&inboundDetail).Error; err != nil {
 			tx.Rollback()
 			return models.InboundHeader{}, err

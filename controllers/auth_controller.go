@@ -3,7 +3,6 @@ package controllers
 import (
 	"errors"
 	"fiber-app/models"
-	"fmt"
 	"os"
 	"time"
 
@@ -56,13 +55,12 @@ func (c *AuthController) Login(ctx *fiber.Ctx) error {
 		})
 	}
 
-	// Cetak hasil user
-	fmt.Println("User Found:", mUser)
-
 	// Buat token JWT
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"userID": mUser.ID,
 		"exp":    time.Now().Add(time.Hour * 24).Unix(), // Token berlaku 24 jam
+		// Setting 1 Menit untuk testing
+		// "exp": time.Now().Add(time.Second * 30).Unix(),
 	})
 
 	tokenString, err := token.SignedString([]byte(os.Getenv("JWT_SECRET")))
@@ -74,9 +72,10 @@ func (c *AuthController) Login(ctx *fiber.Ctx) error {
 
 	// Simpan token ke cookie
 	ctx.Cookie(&fiber.Cookie{
-		Name:     "token",
-		Value:    tokenString,
-		Expires:  time.Now().Add(60 * time.Minute * 24), // Cookie berlaku 24 jam
+		Name:    "token",
+		Value:   tokenString,
+		Expires: time.Now().Add(60 * time.Minute * 24), // Cookie berlaku 24 jam
+		// Expires:  time.Now().Add(time.Second * 50),
 		HTTPOnly: true,
 		Secure:   true,
 		// SameSite: "Strict",

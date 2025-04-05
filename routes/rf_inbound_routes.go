@@ -17,4 +17,6 @@ func SetupRfInboundRoutes(app *fiber.App, rfInboundController *controllers.RfInb
 	api.Get("/detail/barcode/:id/:detail_id", rfInboundController.GetInboundBarcodeDetail)
 	api.Post("/confirm/putaway", rfInboundController.ConfirmPutaway)
 	api.Post("/barcode/delete", rfInboundController.DeleteBarcode)
+	api.Get("/scan/pallet/:id", rfInboundController.ScanPallet)
+	api.Post("/scan/pallet/putaway", rfInboundController.PutawayPallet)
 }

@@ -14,8 +14,9 @@ func SetupRfOutboundRoutes(app *fiber.App, db *gorm.DB) {
 	api := app.Group("/api/v1/rf/outbound", middleware.AuthMiddleware)
 
 	api.Get("/scan/form", rfOutboundController.ScanForm)
-	api.Get("/scan/list", rfOutboundController.GetAllListOutboundOpen)
+	api.Get("/scan/list", rfOutboundController.GetAllListOutboundPicking)
 	api.Get("/scan/list/:id", rfOutboundController.GetOutboundByOutboundID)
+	api.Post("/scan/post/", rfOutboundController.PostScanForm)
 
 	// api.Get("/list", rfOutboundController.GetAllListInbound)
 	// api.Get("/:id", rfInboundController.GetInboundByInboundID)

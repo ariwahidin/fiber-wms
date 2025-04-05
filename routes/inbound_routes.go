@@ -14,6 +14,8 @@ func SetupInboundRoutes(app *fiber.App, inboundController *controllers.InboundCo
 
 	api := app.Group("/api/v1/inbound", middleware.AuthMiddleware, inboundMidleware.CheckPermission("create_inbound"))
 
+	api.Get("/create", inboundController.PreapareInbound)
+
 	api.Post("/", inboundController.CreateInbound)
 	api.Get("/", inboundController.GetAllListInbound)
 	api.Get("/:id", inboundController.GetInboundByID)

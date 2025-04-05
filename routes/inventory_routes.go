@@ -16,4 +16,7 @@ func SetupInventoryRoutes(app *fiber.App, inventoryController *controllers.Inven
 	// api.Get("/:id", customerController.GetCustomerByID)
 	// api.Put("/:id", customerController.UpdateCustomer)
 	// api.Delete("/:id", customerController.DeleteCustomer)
+
+	api.Post("/rf/pallet", inventoryController.GetInventoryByPalletAndLocation)
+	api.Post("/rf/move", inventoryController.MoveItem)
 }

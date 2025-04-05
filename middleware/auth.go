@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"fiber-app/models"
+	"fmt"
 	"os"
 	"time"
 
@@ -20,15 +21,15 @@ func NewAuthMiddleware(DB *gorm.DB) *AuthMiddlewareStruct {
 
 var secretKey = []byte(os.Getenv("JWT_SECRET")) // Ambil dari .env
 
-func AuthMiddleware(c *fiber.Ctx) error {
+func AuthMiddleware(ctx *fiber.Ctx) error {
 	// Ambil token dari header Authorization
 
 	// Ambil token dari cookie
-	tokenStringCookie := c.Cookies("token")
+	tokenStringCookie := ctx.Cookies("token")
 	// fmt.Println("tokenString: ", tokenStringCookie)
 
 	if tokenStringCookie == "" {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+		return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 			"message": "Unauthorized: Missing token",
 		})
 	}
@@ -45,10 +46,14 @@ func AuthMiddleware(c *fiber.Ctx) error {
 		return []byte(os.Getenv("JWT_SECRET")), nil
 	})
 
+	fmt.Println("token: ", token)
+	// check sisa waktu token dalam string
+	fmt.Println("token.Valid: ", token.Valid)
+
 	// Handle error saat parsing token
 	if err != nil {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-			"message": "Unauthorized: Invalid tokenx",
+		return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"message": "Unauthorized: Invalid token",
 			"error":   err.Error(),
 		})
 	}
@@ -61,44 +66,62 @@ func AuthMiddleware(c *fiber.Ctx) error {
 		// Cek waktu kedaluwarsa token
 		exp, ok := claims["exp"].(float64)
 		if !ok {
-			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 				"message": "Unauthorized: Invalid expiration time",
 			})
 		}
 		expTime := int64(exp)
 
-		// fmt.Println("expTime: ", expTime)
+		// Ambil waktu kedaluwarsa token
+		if exp, ok := claims["exp"].(float64); ok {
+			expTime := time.Unix(int64(exp), 0)
+			sisaWaktu := time.Until(expTime)
+
+			fmt.Println("Token masih valid")
+			fmt.Println("Waktu kedaluwarsa:", expTime)
+			fmt.Println("Sisa waktu:", sisaWaktu)
+		} else {
+			fmt.Println("Token tidak memiliki 'exp' claim")
+		}
 
 		currentTime := time.Now().Unix()
 
-		// fmt.Println("currentTime: ", currentTime)
 		remainingTime := expTime - currentTime
-
-		// fmt.Println("remainingTime: ", remainingTime)
-		// fmt.Printf("userID: %v\n", claims["userID"])
-
-		// Jika sisa waktu kurang dari 5 menit, buat token baru
-		if remainingTime < 5*60 {
+		// Jika sisa waktu kurang dari 2 jam
+		if remainingTime < 60*60*2 {
 			userID, ok := claims["userID"].(float64) // Sesuaikan tipe data dengan yang digunakan di token
 			if !ok {
-				return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 					"message": "Unauthorized: Invalid user ID",
 				})
 			}
 
 			newToken := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 				"userID": userID,
-				"exp":    time.Now().Add(60 * time.Minute).Unix(), // Perpanjang waktu ke 60 menit
+				"exp":    time.Now().Add(time.Hour * 24).Unix(), // Token berlaku 24 jam
+				// "exp":    time.Now().Add(60 * time.Minute).Unix(), // Perpanjang waktu ke 60 menit
 			})
 
 			newTokenString, err := newToken.SignedString(secretKey)
 			if err != nil {
-				return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 					"message": "Failed to generate new token",
 				})
 			}
 
-			c.Set("X-New-Token", newTokenString) // Kirim token baru di header response
+			// Simpan token baru ke cookie
+			ctx.Cookie(&fiber.Cookie{
+				Name:    "token",
+				Value:   newTokenString,
+				Expires: time.Now().Add(60 * time.Minute * 24),
+				// Expires:  time.Now().Add(time.Second * 50),
+				HTTPOnly: true,
+				Secure:   true,
+				// SameSite: "Strict",
+				SameSite: "None",
+			})
+
+			// ctx.Set("X-New-Token", newTokenString) // Kirim token baru di header response
 		}
 
 		// Simpan data user ke context
@@ -106,16 +129,16 @@ func AuthMiddleware(c *fiber.Ctx) error {
 		// fmt.Println("userID: ", userID)
 
 		if !ok {
-			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 				"message": "Unauthorized: Invalid user ID s",
 			})
 		}
 
-		c.Locals("userID", userID)
-		c.Locals("userData", claims)
-		return c.Next() // Lanjut ke handler berikutnya
+		ctx.Locals("userID", userID)
+		ctx.Locals("userData", claims)
+		return ctx.Next() // Lanjut ke handler berikutnya
 	} else {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+		return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 			"message": "Unauthorized: Invalid token",
 		})
 	}

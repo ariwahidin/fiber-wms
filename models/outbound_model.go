@@ -90,22 +90,47 @@ type OutboundDetailHandling struct {
 	DeletedBy         int
 }
 
+type PickingSheet struct {
+	gorm.Model
+	InventoryID       int    `json:"inventory_id"`
+	InventoryDetailID int    `json:"inventory_detail_id"`
+	OutboundId        int    `json:"outbound_id"`
+	OutboundDetailId  int    `gorm:"foreignKey:OutboundDetailId" json:"outbound_detail_id"`
+	ItemID            int    `json:"item_id"`
+	ItemCode          string `json:"item_code"`
+	ScanType          string `json:"scan_type"`
+	ScanData          string `json:"scan_data"`
+	Barcode           string `json:"barcode"`
+	SerialNumber      string `json:"serial_number"`
+	Location          string `json:"location"`
+	Quantity          int    `json:"quantity"`
+	WhsCode           string `json:"whs_code"`
+	QaStatus          string `json:"qa_status"`
+	Status            string `json:"status" gorm:"default:'pending'"`
+	CreatedBy         int
+	UpdatedBy         int
+	DeletedBy         int
+}
+
 type OutboundBarcode struct {
 	gorm.Model
-	OutboundId       int    `json:"outbound_id"`
-	OutboundDetailId int    `gorm:"foreignKey:OutboundDetailId" json:"outbound_detail_id"`
-	ItemID           int    `json:"item_id"`
-	ItemCode         string `json:"item_code"`
-	ScanType         string `json:"scan_type"`
-	ScanData         string `json:"scan_data"`
-	Barcode          string `json:"barcode"`
-	SerialNumber     string `json:"serial_number"`
-	Location         string `json:"location"`
-	Quantity         int    `json:"quantity"`
-	WhsCode          string `json:"whs_code"`
-	QaStatus         string `json:"qa_status"`
-	Status           string `json:"status" gorm:"default:'pending'"`
-	CreatedBy        int
-	UpdatedBy        int
-	DeletedBy        int
+	InvetoryID        int    `json:"inventory_id"`
+	InventoryDetailID int    `json:"inventory_detail_id"`
+	OutboundId        int    `json:"outbound_id"`
+	OutboundDetailId  int    `gorm:"foreignKey:OutboundDetailId" json:"outbound_detail_id"`
+	SeqBox            int    `json:"seq_box"`
+	ItemID            int    `json:"item_id"`
+	ItemCode          string `json:"item_code"`
+	ScanType          string `json:"scan_type"`
+	ScanData          string `json:"scan_data"`
+	Barcode           string `json:"barcode"`
+	SerialNumber      string `json:"serial_number"`
+	Location          string `json:"location"`
+	Quantity          int    `json:"quantity"`
+	WhsCode           string `json:"whs_code"`
+	QaStatus          string `json:"qa_status"`
+	Status            string `json:"status" gorm:"default:'pending'"`
+	CreatedBy         int
+	UpdatedBy         int
+	DeletedBy         int
 }

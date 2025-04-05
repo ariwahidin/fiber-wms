@@ -25,6 +25,9 @@ func SetupOutboundRoutes(app *fiber.App, db *gorm.DB) {
 	api.Get("/:id", outboundController.GetOutboundByID)
 	api.Delete("/item/:id", outboundController.DeleteItemOutbound)
 
+	api.Post("/picking/:id", outboundController.PickingOutbound)
+	api.Get("/picking/sheet/:id", outboundController.GetPickingSheet)
+
 	// api.Get("/", inboundController.GetAllListInbound)
 	// api.Get("/:id", inboundController.GetInboundByID)
 	// api.Put("/:id", inboundController.UpdateInboundByID)
