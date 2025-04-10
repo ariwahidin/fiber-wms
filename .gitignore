@@ -5,6 +5,7 @@
 # Ignore actual sensitive files
 .env
 config/config.go
+config/db.go
 
 # Do not ignore example/template files
 !.env.example
