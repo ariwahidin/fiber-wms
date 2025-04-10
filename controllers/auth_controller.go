@@ -105,8 +105,11 @@ func (c *AuthController) Logout(ctx *fiber.Ctx) error {
 		Value:    "",
 		Expires:  time.Now(),
 		HTTPOnly: true,
-		Secure:   true,
-		SameSite: "Strict",
+		// Secure:   true,
+		// SameSite: "Strict",
+
+		SameSite: "Lax",
+		Secure:   false,
 	})
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
