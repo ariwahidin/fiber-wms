@@ -111,14 +111,21 @@ func AuthMiddleware(ctx *fiber.Ctx) error {
 
 			// Simpan token baru ke cookie
 			ctx.Cookie(&fiber.Cookie{
-				Name:    "token",
-				Value:   newTokenString,
-				Expires: time.Now().Add(60 * time.Minute * 24),
-				// Expires:  time.Now().Add(time.Second * 50),
+				// Name:    "token",
+				// Value:   newTokenString,
+				// Expires: time.Now().Add(60 * time.Minute * 24),
+				// // Expires:  time.Now().Add(time.Second * 50),
+				// HTTPOnly: true,
+				// Secure:   true,
+				// // SameSite: "Strict",
+				// SameSite: "None",
+
+				Name:     "token",
+				Value:    newTokenString,
+				Expires:  time.Now().Add(60 * time.Minute * 24), // Cookie berlaku 24 jam
 				HTTPOnly: true,
-				Secure:   true,
-				// SameSite: "Strict",
-				SameSite: "None",
+				SameSite: "Lax",
+				Secure:   false,
 			})
 
 			// ctx.Set("X-New-Token", newTokenString) // Kirim token baru di header response

@@ -77,9 +77,11 @@ func (c *AuthController) Login(ctx *fiber.Ctx) error {
 		Expires: time.Now().Add(60 * time.Minute * 24), // Cookie berlaku 24 jam
 		// Expires:  time.Now().Add(time.Second * 50),
 		HTTPOnly: true,
-		Secure:   true,
 		// SameSite: "Strict",
-		SameSite: "None",
+		// Secure:   true,
+		// SameSite: "None",
+		SameSite: "Lax",
+		Secure:   false,
 	})
 
 	// Return data user (opsional, jangan kirim password)

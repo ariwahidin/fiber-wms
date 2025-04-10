@@ -2,6 +2,9 @@
 # /config/db.go
 # .env
 
+# ignore temporary build log
+tmp/build-errors.log
+
 # Ignore actual sensitive files
 .env
 config/config.go
