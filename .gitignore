@@ -2,6 +2,13 @@
 # /config/db.go
 # .env
 
+# Ignore actual sensitive files
+.env
+config/config.go
+
+# Do not ignore example/template files
+!.env.example
+!config/config.example.go
 
 # Binaries
 *.exe
