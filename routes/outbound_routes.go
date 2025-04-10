@@ -27,6 +27,7 @@ func SetupOutboundRoutes(app *fiber.App, db *gorm.DB) {
 
 	api.Post("/picking/:id", outboundController.PickingOutbound)
 	api.Get("/picking/sheet/:id", outboundController.GetPickingSheet)
+	api.Post("/picking/complete/:id", outboundController.PickingComplete)
 
 	// api.Get("/", inboundController.GetAllListInbound)
 	// api.Get("/:id", inboundController.GetInboundByID)

@@ -342,22 +342,22 @@ func (c *RfInboundController) ConfirmPutaway(ctx *fiber.Ctx) error {
 	// check status inbound barcode is pending
 	var inboundBarcodes []models.InboundBarcode
 
-	if err := c.DB.Where("id IN (?)", request.IDs).Find(&inboundBarcodes).Error; err != nil {
+	if err := c.DB.Where("id IN (?) AND status = 'pending'", request.IDs).Find(&inboundBarcodes).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	var inboundDetail models.InboundDetail
-	var inventory models.Inventory
-
 	for _, inboundBarcode := range inboundBarcodes {
+
 		if inboundBarcode.Status != "pending" {
 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Item already confirmed"})
 		}
 
+		var inboundDetail models.InboundDetail
 		if err := c.DB.Where("id = ?", inboundBarcode.InboundDetailId).First(&inboundDetail).Error; err != nil {
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
 
+		var inventory models.Inventory
 		inventory.InboundDetailId = int(inboundDetail.ID)
 		inventory.InboundBarcodeId = int(inboundBarcode.ID)
 		inventory.RecDate = inboundDetail.RecDate

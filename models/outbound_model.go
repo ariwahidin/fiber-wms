@@ -41,6 +41,7 @@ type OutboundDetail struct {
 	WhsCode      string `json:"whs_code" required:"required"`
 	Uom          string `json:"uom" required:"required"`
 	HandlingId   int    `json:"handling_id" required:"required"`
+	TotalVas     int    `json:"total_vas" gorm:"default:0"`
 	HandlingUsed string `json:"handling_used"`
 	Remarks      string `json:"remarks"`
 	FileName     string `json:"file_name"`
@@ -102,11 +103,14 @@ type PickingSheet struct {
 	ScanData          string `json:"scan_data"`
 	Barcode           string `json:"barcode"`
 	SerialNumber      string `json:"serial_number"`
+	Pallet            string `json:"pallet"`
 	Location          string `json:"location"`
 	Quantity          int    `json:"quantity"`
+	ScannedQty        int    `json:"scanned_qty" gorm:"default:0"`
 	WhsCode           string `json:"whs_code"`
 	QaStatus          string `json:"qa_status"`
 	Status            string `json:"status" gorm:"default:'pending'"`
+	IsSuggestion      string `json:"is_suggestion" gorm:"default:'N'"`
 	CreatedBy         int
 	UpdatedBy         int
 	DeletedBy         int

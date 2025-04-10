@@ -84,6 +84,7 @@ type ResGetStockByRequest struct {
 	ItemID       int    `json:"item_id"`
 	ItemCode     string `json:"item_code"`
 	WhsCode      string `json:"whs_code"`
+	Pallet       string `json:"pallet"`
 	Location     string `json:"location"`
 	QaStatus     string `json:"qa_status"`
 	SerialNumber string `json:"serial_number"`
@@ -97,7 +98,7 @@ func (r *InventoryRepository) GetStockByRequest(inbound_id int) ([]ResGetStockBy
 
 	sql := `with obd AS(
 	select item_id from outbound_details where outbound_id = ?)
-	select a.id as inventory_id, a.rec_date, a.item_id, a.item_code, a.whs_code, 
+	select a.id as inventory_id, a.rec_date, a.item_id, a.item_code, a.whs_code, a.pallet, 
 	a.location, a.qa_status, a.serial_number, a.quantity as stock, coalesce(b.quantity, 0) as alocated,
 	a.quantity - coalesce(b.quantity, 0) as available
 	from inventories a

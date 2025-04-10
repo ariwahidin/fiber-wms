@@ -123,6 +123,7 @@ func (r *OutboundRepository) CreateItemOutbound(header *models.OutboundHeader, d
 	outboundDetailID := data.ID
 
 	// Insert ke Inbound Detail Handlings
+	total_idr := 0
 	for _, handling := range handlingUsed {
 		inboundDetailHandling := models.OutboundDetailHandling{
 			OutboundDetailId:  int(outboundDetailID),
@@ -136,10 +137,18 @@ func (r *OutboundRepository) CreateItemOutbound(header *models.OutboundHeader, d
 			CreatedBy:         int(data.CreatedBy),
 		}
 
+		total_idr += handling.RateIDR
+
 		if err := tx.Create(&inboundDetailHandling).Error; err != nil {
 			tx.Rollback()
 			return 0, err
 		}
+	}
+
+	// Update total_idr di outbound_detail
+	if err := tx.Model(data).Where("id = ?", outboundDetailID).Update("total_vas", total_idr).Error; err != nil {
+		tx.Rollback()
+		return 0, err
 	}
 
 	// Commit transaksi
@@ -159,14 +168,14 @@ func (r *OutboundRepository) GetAllOutboundList() ([]OutboundList, error) {
 		from outbound_details od
 		group by outbound_id),
 		item_scanned as (
-			select outbound_id, sum(quantity) as picked_qty 
-			from outbound_barcodes
-			where status = 'picked'
+			select outbound_id, sum(scanned_qty) as picked_qty 
+			from picking_sheets
 			group by outbound_id
 		),
 		plan_pick as(
 			select outbound_id, sum(quantity) as plan_pick 
 			from picking_sheets
+			where is_suggestion = 'Y'
 			group by outbound_id
 		)
 			select a.id, a.outbound_no, a.delivery_no, a.status,
@@ -244,6 +253,7 @@ type PaperPickingSheet struct {
 	Quantity     int    `json:"quantity"`
 	Barcode      string `json:"barcode"`
 	ItemName     string `json:"item_name"`
+	Pallet       string `json:"pallet"`
 	Location     string `json:"location"`
 	Cbm          int    `json:"cbm"`
 	WhsCode      string `json:"whs_code"`
@@ -257,7 +267,7 @@ type PaperPickingSheet struct {
 func (r *OutboundRepository) GetPickingSheet(outbound_id int) ([]PaperPickingSheet, error) {
 	var outboundList []PaperPickingSheet
 
-	sql := `select a.item_id, a.item_code, sum(a.quantity) as quantity, a.location,
+	sql := `select a.item_id, a.item_code, sum(a.quantity) as quantity, a.pallet, a.location,
 	b.barcode, b.item_name, b.cbm, d.rec_date, c.whs_code, e.outbound_no, e.customer_code,
 	e.outbound_date, e.delivery_no,
 	f.customer_name
@@ -268,7 +278,8 @@ func (r *OutboundRepository) GetPickingSheet(outbound_id int) ([]PaperPickingShe
 	inner join outbound_headers e on a.outbound_id = e.id
 	inner join customers f on e.customer_code = f.customer_code
 	where a.outbound_id = ?
-	group by a.item_id, a.item_code, a.location,
+	AND a.is_suggestion = 'Y'
+	group by a.item_id, a.item_code, a.pallet,a.location,
 	b.barcode, b.item_name, b.cbm, d.rec_date, c.whs_code,
 	e.outbound_no, e.customer_code, f.customer_name, e.outbound_date, e.delivery_no`
 

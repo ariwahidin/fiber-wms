@@ -7,7 +7,7 @@ type Product struct {
 	ItemCode       string  `json:"item_code" gorm:"unique"`
 	ItemName       string  `json:"item_name"`
 	Barcode        string  `json:"barcode" gorm:"unique"`
-	GMC            string  `json:"gmc" gorm:"unique"`
+	GMC            string  `json:"gmc"`
 	Width          float64 `json:"width" gorm:"default:0"`
 	Length         float64 `json:"length" gorm:"default:0"`
 	Height         float64 `json:"height" gorm:"default:0"`

@@ -1,3 +1,26 @@
-/config/config.go
-/config/db.go
+# /config/config.go
+# /config/db.go
+# .env
+
+
+# Binaries
+*.exe
+*.out
+*.test
+/app
+/main
+
+# Environment files
 .env
+.env.*
+
+# IDE/editor config
+.vscode/
+.idea/
+
+# System files
+.DS_Store
+Thumbs.db
+
+# (optional) kalau kamu gak pakai vendor
+/vendor/
