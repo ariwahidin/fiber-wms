@@ -545,14 +545,14 @@ func (r *InboundRepository) GenerateInboundNo() (string, error) {
 	var inboundNo string
 	if lastInbound.InboundNo != "" {
 		lastInboundNo := lastInbound.InboundNo[len(lastInbound.InboundNo)-4:] // Ambil 4 digit terakhir
-		if currentMonth != lastInbound.InboundNo[8:10] {                      // Jika bulan berbeda
-			inboundNo = fmt.Sprintf("IN-%s-%s-%04d", currentYear, currentMonth, 1)
+		if currentMonth != lastInbound.InboundNo[6:8] {                       // Jika bulan berbeda
+			inboundNo = fmt.Sprintf("IN%s%s%04d", currentYear, currentMonth, 1)
 		} else {
 			lastInboundNoInt, _ := strconv.Atoi(lastInboundNo)
-			inboundNo = fmt.Sprintf("IN-%s-%s-%04d", currentYear, currentMonth, lastInboundNoInt+1)
+			inboundNo = fmt.Sprintf("IN%s%s%04d", currentYear, currentMonth, lastInboundNoInt+1)
 		}
 	} else {
-		inboundNo = fmt.Sprintf("IN-%s-%s-%04d", currentYear, currentMonth, 1)
+		inboundNo = fmt.Sprintf("IN%s%s%04d", currentYear, currentMonth, 1)
 	}
 
 	return inboundNo, nil
@@ -574,14 +574,14 @@ func (r *InboundRepository) CreateInboundOpen(inboundHeader models.InboundHeader
 	var inboundNo string
 	if lastInbound.InboundNo != "" {
 		lastInboundNo := lastInbound.InboundNo[len(lastInbound.InboundNo)-4:] // Ambil 4 digit terakhir
-		if currentMonth != lastInbound.InboundNo[8:10] {                      // Jika bulan berbeda
-			inboundNo = fmt.Sprintf("IN-%s-%s-%04d", currentYear, currentMonth, 1)
+		if currentMonth != lastInbound.InboundNo[6:8] {                       // Jika bulan berbeda
+			inboundNo = fmt.Sprintf("IN%s%s%04d", currentYear, currentMonth, 1)
 		} else {
 			lastInboundNoInt, _ := strconv.Atoi(lastInboundNo)
-			inboundNo = fmt.Sprintf("IN-%s-%s-%04d", currentYear, currentMonth, lastInboundNoInt+1)
+			inboundNo = fmt.Sprintf("IN%s%s%04d", currentYear, currentMonth, lastInboundNoInt+1)
 		}
 	} else {
-		inboundNo = fmt.Sprintf("IN-%s-%s-%04d", currentYear, currentMonth, 1)
+		inboundNo = fmt.Sprintf("IN%s%s%04d", currentYear, currentMonth, 1)
 	}
 
 	// Update data inboundHeader dengan nomor inbound baru dan status "open"

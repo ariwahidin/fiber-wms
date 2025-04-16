@@ -391,65 +391,6 @@ func (c *RfInboundController) ConfirmPutaway(ctx *fiber.Ctx) error {
 
 	}
 
-	// sqlIB := `select inbound_detail_id, item_id, item_code, SUM(quantity) as quantity, whs_code
-	// from inbound_barcodes
-	// where id in (?)
-	// group by inbound_detail_id, item_id, item_code, whs_code `
-
-	// if err := c.DB.Raw(sqlIB, request.IDs).Scan(&inboundBarcodes).Error; err != nil {
-	// 	return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-	// }
-
-	// var inventories []models.Inventory
-
-	// for _, inboundBarcode := range inboundBarcodes {
-	// 	inventories = append(inventories, models.Inventory{
-	// 		InboundDetailId: inboundBarcode.InboundDetailId,
-	// 		ItemId:          inboundBarcode.ItemID,
-	// 		ItemCode:        inboundBarcode.ItemCode,
-	// 		WhsCode:         inboundBarcode.WhsCode,
-	// 		Quantity:        inboundBarcode.Quantity,
-	// 		CreatedBy:       int(ctx.Locals("userID").(float64)),
-	// 	})
-	// }
-
-	// sqlIBD := `select inbound_detail_id, item_id, item_code, SUM(quantity) as quantity, whs_code, scan_data, location, qa_status
-	// from inbound_barcodes
-	// where id in (?)
-	// group by inbound_detail_id, item_id, item_code, whs_code, scan_data, location, qa_status `
-
-	// if err := c.DB.Raw(sqlIBD, request.IDs).Scan(&inboundBarcodes).Error; err != nil {
-	// 	return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-	// }
-
-	// var inventoryDetails []models.InventoryDetail
-
-	// for _, inboundBarcode := range inboundBarcodes {
-	// 	inventoryDetails = append(inventoryDetails, models.InventoryDetail{
-	// 		InboundDetailId: inboundBarcode.InboundDetailId,
-	// 		SerialNumber:    inboundBarcode.ScanData,
-	// 		Quantity:        inboundBarcode.Quantity,
-	// 		Location:        inboundBarcode.Location,
-	// 		QaStatus:        inboundBarcode.QaStatus,
-	// 		CreatedBy:       int(ctx.Locals("userID").(float64)),
-	// 	})
-	// }
-
-	// inboundRepo := repositories.NewInboundRepository(c.DB)
-	// res, err := inboundRepo.CreateInventories(inventories, inventoryDetails)
-	// if err != nil {
-	// 	return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-	// }
-
-	// updated_at := time.Now()
-
-	// if res {
-	// 	sqlUpdate := `UPDATE inbound_barcodes SET status = 'in stock', updated_at = ?, updated_by = ? WHERE id IN (?)`
-	// 	if err := c.DB.Exec(sqlUpdate, updated_at, ctx.Locals("userID").(float64), request.IDs).Error; err != nil {
-	// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-	// 	}
-	// }
-
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Inbound detail confirmed successfully"})
 }
 
@@ -478,10 +419,6 @@ func (c *RfInboundController) ScanPallet(ctx *fiber.Ctx) error {
 	if err := c.DB.Raw(sql, id).Scan(&scanPallets).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
-
-	// if len(scanPallets) == 0 {
-	// 	return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "No data found"})
-	// }
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "data": fiber.Map{"scan_pallet": scanPallets}})
 
@@ -563,15 +500,6 @@ func (c *RfInboundController) PutawayPallet(ctx *fiber.Ctx) error {
 		}
 
 	}
-
-	// inboundRepo := repositories.NewInboundRepository(c.DB)
-
-	// Update lokasi rak untuk setiap pallet yang diberikan
-	// for _, pallet := range request.Pallets {
-	// 	if err := inboundRepo.UpdatePalletLocation(request.InboundID, pallet, request.RackLocation); err != nil {
-	// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-	// 	}
-	// }
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Pallet putaway successfully", "data": fiber.Map{"inbound_barcodes": inboundBarcodes}})
 }

@@ -74,6 +74,8 @@ func main() {
 	routes.SetupOutboundRoutes(app, db)
 	routes.SetupRfOutboundRoutes(app, db)
 
+	routes.SetupMobileInboundRoutes(app, controllers.NewMobileInboundController(db))
+
 	// Route login (tidak perlu middleware auth)
 	api.Post("/v1/login", authController.Login)
 	api.Get("/v1/logout", authController.Logout)

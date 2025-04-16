@@ -40,6 +40,7 @@ type InboundDetail struct {
 	ItemId       int    `json:"item_id"`
 	ItemCode     string `json:"item_code" required:"required"`
 	Quantity     int    `json:"quantity" required:"required"`
+	ScanQty      int    `json:"scan_qty" gorm:"default:0"`
 	Location     string `json:"location" required:"required"`
 	Status       string `json:"status" gorm:"default:'draft'"`
 	WhsCode      string `json:"whs_code" required:"required"`

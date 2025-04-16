@@ -4,6 +4,7 @@
 
 # ignore temporary build log
 tmp/build-errors.log
+tmp/main.exe
 
 # Ignore actual sensitive files
 .env
