@@ -10,18 +10,21 @@ type Inventory struct {
 	InboundDetailId  int    `json:"inbound_detail_id"`
 	InboundBarcodeId int    `json:"inbound_barcode_id"`
 	RecDate          string `json:"rec_date"`
-	ItemId           int    `json:"item_id"`
-	ItemCode         string `json:"item_code"`
-	WhsCode          string `json:"whs_code"`
 	Owner            string `json:"owner"`
+	WhsCode          string `json:"whs_code"`
 	Pallet           string `json:"pallet"`
 	Location         string `json:"location"`
-	QaStatus         string `json:"qa_status"`
+	ItemId           int    `json:"item_id"`
+	ItemCode         string `json:"item_code"`
+	Barcode          string `json:"barcode" gorm:"not null" validate:"required"`
 	SerialNumber     string `json:"serial_number"`
-	Quantity         int    `json:"quantity"`
+	QaStatus         string `json:"qa_status"`
+	QtyOrigin        int    `json:"qty_origin" gorm:"default:0"`
 	QtyOnhand        int    `json:"qty_onhand" gorm:"default:0"`
 	QtyAvailable     int    `json:"qty_available" gorm:"default:0"`
 	QtyAllocated     int    `json:"qty_allocated" gorm:"default:0"`
+	QtySuspend       int    `json:"qty_suspend" gorm:"default:0"`
+	QtyShipped       int    `json:"qty_shipped" gorm:"default:0"`
 	Trans            string `json:"trans"`
 	CreatedBy        int
 	UpdatedBy        int

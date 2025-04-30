@@ -369,7 +369,7 @@ func (c *RfInboundController) ConfirmPutaway(ctx *fiber.Ctx) error {
 		inventory.Location = inboundBarcode.Location
 		inventory.QaStatus = inboundBarcode.QaStatus
 		inventory.SerialNumber = inboundBarcode.ScanData
-		inventory.Quantity = inboundBarcode.Quantity
+		inventory.QtyOrigin = inboundBarcode.Quantity
 		inventory.QtyOnhand = inboundBarcode.Quantity
 		inventory.QtyAvailable = inboundBarcode.Quantity
 		inventory.QtyAllocated = 0
@@ -472,6 +472,7 @@ func (c *RfInboundController) PutawayPallet(ctx *fiber.Ctx) error {
 		inventory.InboundBarcodeId = int(inboundBarcode.ID)
 		inventory.RecDate = inboundDetail.RecDate
 		inventory.ItemId = int(inboundBarcode.ItemID)
+		inventory.Barcode = inboundBarcode.Barcode
 		inventory.ItemCode = inboundBarcode.ItemCode
 		inventory.WhsCode = inboundBarcode.WhsCode
 		// inventory.Owner = inboundDetail.Owner
@@ -479,7 +480,7 @@ func (c *RfInboundController) PutawayPallet(ctx *fiber.Ctx) error {
 		inventory.Location = request.RackLocation
 		inventory.QaStatus = inboundBarcode.QaStatus
 		inventory.SerialNumber = inboundBarcode.ScanData
-		inventory.Quantity = inboundBarcode.Quantity
+		inventory.QtyOrigin = inboundBarcode.Quantity
 		inventory.QtyOnhand = inboundBarcode.Quantity
 		inventory.QtyAvailable = inboundBarcode.Quantity
 		inventory.QtyAllocated = 0

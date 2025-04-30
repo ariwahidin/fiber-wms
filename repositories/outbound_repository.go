@@ -65,14 +65,14 @@ func (r *OutboundRepository) GenerateOutboundNumber() (string, error) {
 	var outboundNo string
 	if lastOutbound.OutboundNo != "" {
 		lastOutboundNo := lastOutbound.OutboundNo[len(lastOutbound.OutboundNo)-4:] // Ambil 4 digit terakhir
-		if currentMonth != lastOutbound.OutboundNo[8:10] {                         // Jika bulan berbeda
-			outboundNo = fmt.Sprintf("OB-%s-%s-%04d", currentYear, currentMonth, 1)
+		if currentMonth != lastOutbound.OutboundNo[6:8] {                          // Jika bulan berbeda
+			outboundNo = fmt.Sprintf("OB%s%s%04d", currentYear, currentMonth, 1)
 		} else {
 			lastOutboundNoInt, _ := strconv.Atoi(lastOutboundNo)
-			outboundNo = fmt.Sprintf("OB-%s-%s-%04d", currentYear, currentMonth, lastOutboundNoInt+1)
+			outboundNo = fmt.Sprintf("OB%s%s%04d", currentYear, currentMonth, lastOutboundNoInt+1)
 		}
 	} else {
-		outboundNo = fmt.Sprintf("OB-%s-%s-%04d", currentYear, currentMonth, 1)
+		outboundNo = fmt.Sprintf("OB%s%s%04d", currentYear, currentMonth, 1)
 	}
 
 	return outboundNo, nil
@@ -163,32 +163,26 @@ func (r *OutboundRepository) GetAllOutboundList() ([]OutboundList, error) {
 	var outboundList []OutboundList
 
 	sql := `with details as
-		(select outbound_id, count(outbound_id) as total_line,
-		sum(quantity) as total_qty_req
-		from outbound_details od
-		group by outbound_id),
-		item_scanned as (
-			select outbound_id, sum(scanned_qty) as picked_qty 
-			from picking_sheets
-			group by outbound_id
-		),
-		plan_pick as(
-			select outbound_id, sum(quantity) as plan_pick 
-			from picking_sheets
-			where is_suggestion = 'Y'
-			group by outbound_id
-		)
-			select a.id, a.outbound_no, a.delivery_no, a.status,
-			a.outbound_date, a.customer_code, c.customer_name,
-			b.total_line, b.total_qty_req, 
-			coalesce(e.plan_pick, 0) as plan_pick,
-			coalesce(d.picked_qty, 0) as picked_qty
-			from outbound_headers a
-			inner join details b on a.id = b.outbound_id
-			inner join customers c on a.customer_code = c.customer_code
-			left join item_scanned d on a.id = d.outbound_id
-			left join plan_pick e on e.outbound_id = a.id
-			order by a.id desc`
+    (select outbound_id, count(outbound_id) as total_line,
+    sum(quantity) as total_qty_req, sum(scan_qty) as scan_qty
+    from outbound_details od
+    group by outbound_id),
+    plan_pick as(
+            select outbound_id, sum(qty_onhand) as plan_pick
+            from picking_sheets
+            where is_suggestion = 'Y'
+            group by outbound_id
+    )
+            select a.id, a.outbound_no, a.delivery_no, a.status,
+            a.outbound_date, a.customer_code, c.customer_name,
+            b.total_line, b.total_qty_req,
+            coalesce(e.plan_pick, 0) as plan_pick,
+            coalesce(b.scan_qty, 0) as picked_qty
+            from outbound_headers a
+            inner join details b on a.id = b.outbound_id
+            inner join customers c on a.customer_code = c.customer_code
+            left join plan_pick e on e.outbound_id = a.id
+            order by a.id desc`
 
 	if err := r.db.Raw(sql).Scan(&outboundList).Error; err != nil {
 		return nil, err
@@ -267,20 +261,19 @@ type PaperPickingSheet struct {
 func (r *OutboundRepository) GetPickingSheet(outbound_id int) ([]PaperPickingSheet, error) {
 	var outboundList []PaperPickingSheet
 
-	sql := `select a.item_id, a.item_code, sum(a.quantity) as quantity, a.pallet, a.location,
-	b.barcode, b.item_name, b.cbm, d.rec_date, c.whs_code, e.outbound_no, e.customer_code,
-	e.outbound_date, e.delivery_no,
+	sql := `select a.item_id, a.item_code, sum(a.qty_onhand) as quantity, a.pallet, a.location,
+	b.barcode, b.item_name, b.cbm, 
+	c.rec_date, c.whs_code, e.outbound_no, e.customer_code, e.outbound_date, e.delivery_no,
 	f.customer_name
 	from picking_sheets a
 	inner join products b on a.item_id = b.id
 	inner join inventories c on a.inventory_id = c.id
-	inner join inbound_details d on c.inbound_detail_id = d.id
 	inner join outbound_headers e on a.outbound_id = e.id
 	inner join customers f on e.customer_code = f.customer_code
 	where a.outbound_id = ?
 	AND a.is_suggestion = 'Y'
-	group by a.item_id, a.item_code, a.pallet,a.location,
-	b.barcode, b.item_name, b.cbm, d.rec_date, c.whs_code,
+	group by a.location, a.pallet, a.item_id, a.item_code,
+	b.barcode, b.item_name, b.cbm, c.rec_date, c.whs_code,
 	e.outbound_no, e.customer_code, f.customer_name, e.outbound_date, e.delivery_no`
 
 	if err := r.db.Raw(sql, outbound_id).Scan(&outboundList).Error; err != nil {

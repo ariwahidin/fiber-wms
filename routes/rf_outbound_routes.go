@@ -16,14 +16,5 @@ func SetupRfOutboundRoutes(app *fiber.App, db *gorm.DB) {
 	api.Get("/scan/form", rfOutboundController.ScanForm)
 	api.Get("/scan/list", rfOutboundController.GetAllListOutboundPicking)
 	api.Get("/scan/list/:id", rfOutboundController.GetOutboundByOutboundID)
-	api.Post("/scan/post/", rfOutboundController.PostScanForm)
-
-	// api.Get("/list", rfOutboundController.GetAllListInbound)
-	// api.Get("/:id", rfInboundController.GetInboundByInboundID)
-	// api.Post("/:id", rfInboundController.PostInboundByInboundID)
-	// api.Get("/detail/scanned/:id", rfInboundController.GetInboundDetailScanned)
-	// api.Delete("/detail/scanned/:id", rfInboundController.DeleteBarcode)
-	// api.Get("/detail/barcode/:id/:detail_id", rfInboundController.GetInboundBarcodeDetail)
-	// api.Post("/confirm/putaway", rfInboundController.ConfirmPutaway)
-	// api.Post("/barcode/delete", rfInboundController.DeleteBarcode)
+	// api.Post("/scan/post/", rfOutboundController.PostScanForm)
 }

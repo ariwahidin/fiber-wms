@@ -115,9 +115,6 @@ func (c *InboundController) PreapareInbound(ctx *fiber.Ctx) error {
 
 func (c *InboundController) AddNewItemInbound(ctx *fiber.Ctx) error {
 
-	// fmt.Println("Payload Item Inbound : ", string(ctx.Body()))
-	// return nil
-
 	var Form Form
 
 	if err := ctx.BodyParser(&Form); err != nil {
@@ -129,23 +126,12 @@ func (c *InboundController) AddNewItemInbound(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	fmt.Println(Form.FormHeader)
-	fmt.Println(Form.FormItem)
-
 	formHeader := Form.FormHeader
 	formItem := Form.FormItem
 
 	inboundRepo := repositories.NewInboundRepository(c.DB)
 
 	var inboundHeader models.InboundHeader
-
-	// if err := c.DB.Debug().First(&inboundHeader, formHeader.InboundID).Error; err != nil {
-	// 	if errors.Is(err, gorm.ErrRecordNotFound) {
-	// 		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Inbound not found"})
-	// 	}
-	// 	return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-	// }
-
 	inboundHeader.SupplierId = formHeader.SupplierID
 	inboundHeader.TransporterID = formHeader.TransporterID
 	inboundHeader.TruckId = formHeader.TruckID
@@ -178,24 +164,25 @@ func (c *InboundController) AddNewItemInbound(ctx *fiber.Ctx) error {
 		inboundHeader.ID = uint(formHeader.InboundID)
 		inboundHeader.InboundNo = formHeader.InboundNo
 		inboundHeader.UpdatedBy = int(ctx.Locals("userID").(float64))
-		// if err := c.DB.Save(&inboundHeader).Error; err != nil {
-		// 	return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-		// }
 
 		if err := c.DB.Model(&models.InboundHeader{}).Where("id = ?", inboundHeader.ID).Updates(inboundHeader).Error; err != nil {
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
 	}
 
-	// return nil
-
 	var inboundDetail models.InboundDetail
-
-	// Get Handling From DB Using ID
 	var handling models.Handling
 	if err := c.DB.Debug().First(&handling, formItem.HandlingID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Handling not found"})
+		}
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	var product models.Product
+	if err := c.DB.Debug().First(&product, formItem.ItemID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Product not found"})
 		}
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -205,6 +192,7 @@ func (c *InboundController) AddNewItemInbound(ctx *fiber.Ctx) error {
 	inboundDetail.HandlingId = int(handling.ID)
 	inboundDetail.ItemId = formItem.ItemID
 	inboundDetail.ItemCode = formItem.ItemCode
+	inboundDetail.Barcode = product.Barcode
 	inboundDetail.Quantity = formItem.Quantity
 	inboundDetail.Location = formItem.Location
 	inboundDetail.HandlingUsed = handling.Name
@@ -679,8 +667,9 @@ func (c *InboundController) ProcessingInboundComplete(ctx *fiber.Ctx) error {
 			InboundBarcodeId: int(inboundBarcode.InboundBarcode.ID),
 			ItemId:           inboundBarcode.InboundBarcode.ItemID,
 			ItemCode:         inboundBarcode.InboundBarcode.ItemCode,
+			Barcode:          inboundBarcode.InboundBarcode.Barcode,
 			WhsCode:          inboundBarcode.InboundBarcode.WhsCode,
-			Quantity:         inboundBarcode.InboundBarcode.Quantity,
+			QtyOrigin:        inboundBarcode.InboundBarcode.Quantity,
 			QtyOnhand:        inboundBarcode.InboundBarcode.Quantity,
 			Trans:            "inbound",
 			RecDate:          inboundBarcode.RecDate,

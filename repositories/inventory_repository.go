@@ -13,21 +13,24 @@ func NewInventoryRepository(db *gorm.DB) *InventoryRepository {
 }
 
 type listInventory struct {
-	ItemCode  string `json:"item_code"`
-	ItemName  string `json:"item_name"`
-	Location  string `json:"location"`
-	WhsCode   string `json:"whs_code"`
-	QaStatus  string `json:"qa_status"`
-	QtyOnhand int    `json:"qty_onhand"`
+	ItemCode     string `json:"item_code"`
+	ItemName     string `json:"item_name"`
+	Location     string `json:"location"`
+	WhsCode      string `json:"whs_code"`
+	QaStatus     string `json:"qa_status"`
+	QtyOnhand    int    `json:"qty_onhand"`
+	QtyAvailable int    `json:"qty_available"`
 }
 
 func (r *InventoryRepository) GetInventory() ([]listInventory, error) {
 
 	sqlInventory := `select a.whs_code, a.location, 
-b.item_code, b.item_name, a.qa_status, sum(a.qty_onhand) as qty_onhand
-from inventories a
-inner join products b on a.item_id = b.id
-group by a.whs_code, a.location, b.item_code, b.item_name, a.qa_status
+	b.item_code, b.item_name, a.qa_status, 
+	sum(a.qty_onhand) as qty_onhand,
+	sum(a.qty_available) as qty_available
+	from inventories a
+	inner join products b on a.item_id = b.id
+	group by a.whs_code, a.location, b.item_code, b.item_name, a.qa_status
 	`
 
 	var inventories []listInventory

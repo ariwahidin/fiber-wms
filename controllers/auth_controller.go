@@ -94,6 +94,7 @@ func (c *AuthController) Login(ctx *fiber.Ctx) error {
 			"email":    mUser.Email,
 			"username": mUser.Username,
 			"name":     mUser.Name,
+			"base_url": mUser.BaseRoute,
 		},
 	})
 }

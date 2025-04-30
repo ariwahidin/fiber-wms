@@ -35,7 +35,9 @@ type OutboundDetail struct {
 	LineNumber   string `json:"line_number"`
 	ItemID       int    `json:"item_id"`
 	ItemCode     string `json:"item_code" required:"required"`
+	Barcode      string `json:"barcode"`
 	Quantity     int    `json:"quantity" required:"required"`
+	ScanQty      int    `json:"scan_qty" gorm:"default:0"`
 	Location     string `json:"location" required:"required"`
 	Status       string `json:"status" gorm:"default:'draft'"`
 	WhsCode      string `json:"whs_code" required:"required"`
@@ -105,8 +107,9 @@ type PickingSheet struct {
 	SerialNumber      string `json:"serial_number"`
 	Pallet            string `json:"pallet"`
 	Location          string `json:"location"`
-	Quantity          int    `json:"quantity"`
-	ScannedQty        int    `json:"scanned_qty" gorm:"default:0"`
+	QtyOnhand         int    `json:"qty_onhand" gorm:"default:0"`
+	QtyAvailable      int    `json:"qty_available" gorm:"default:0"`
+	QtyAllocated      int    `json:"qty_allocated" gorm:"default:0"`
 	WhsCode           string `json:"whs_code"`
 	QaStatus          string `json:"qa_status"`
 	Status            string `json:"status" gorm:"default:'pending'"`
@@ -118,10 +121,11 @@ type PickingSheet struct {
 
 type OutboundBarcode struct {
 	gorm.Model
-	InvetoryID        int    `json:"inventory_id"`
+	InventoryID       int    `json:"inventory_id"`
 	InventoryDetailID int    `json:"inventory_detail_id"`
 	OutboundId        int    `json:"outbound_id"`
 	OutboundDetailId  int    `gorm:"foreignKey:OutboundDetailId" json:"outbound_detail_id"`
+	PickingSheetId    int    `json:"picking_sheet_id" gorm:"default:0"`
 	SeqBox            int    `json:"seq_box"`
 	ItemID            int    `json:"item_id"`
 	ItemCode          string `json:"item_code"`
@@ -130,6 +134,7 @@ type OutboundBarcode struct {
 	Barcode           string `json:"barcode"`
 	SerialNumber      string `json:"serial_number"`
 	Location          string `json:"location"`
+	Pallet            string `json:"pallet"`
 	Quantity          int    `json:"quantity"`
 	WhsCode           string `json:"whs_code"`
 	QaStatus          string `json:"qa_status"`

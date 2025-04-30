@@ -488,7 +488,7 @@ func (r *InboundRepository) CreateInventories(inventories []models.Inventory, in
 			ItemId:          inventory.ItemId,
 			ItemCode:        inventory.ItemCode,
 			WhsCode:         inventory.WhsCode,
-			Quantity:        inventory.Quantity,
+			QtyOrigin:       inventory.QtyOrigin,
 			CreatedBy:       inventory.CreatedBy,
 		}
 

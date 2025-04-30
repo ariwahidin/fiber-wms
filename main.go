@@ -3,6 +3,7 @@ package main
 import (
 	"fiber-app/config"
 	"fiber-app/controllers"
+	"fiber-app/controllers/mobiles"
 	"fiber-app/middleware"
 	"fiber-app/models"
 	"fiber-app/routes"
@@ -75,6 +76,10 @@ func main() {
 	routes.SetupRfOutboundRoutes(app, db)
 
 	routes.SetupMobileInboundRoutes(app, controllers.NewMobileInboundController(db))
+	routes.SetupMobileInventoryRoutes(app, mobiles.NewMobileInventoryController(db))
+	routes.SetupMobileOutboundRoutes(app, mobiles.NewMobileOutboundController(db))
+
+	routes.SetupShippingRoutes(app, db)
 
 	// Route login (tidak perlu middleware auth)
 	api.Post("/v1/login", authController.Login)

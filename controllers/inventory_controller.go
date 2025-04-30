@@ -106,7 +106,7 @@ func (c *InventoryController) MoveItem(ctx *fiber.Ctx) error {
 		// Update the source inventory
 		oldInventory.QtyAvailable -= item.Quantity
 		oldInventory.QtyOnhand -= item.Quantity
-		oldInventory.Quantity -= item.Quantity
+		oldInventory.QtyOrigin -= item.Quantity
 		oldInventory.UpdatedBy = int(ctx.Locals("userID").(float64))
 		oldInventory.UpdatedAt = time.Now()
 
@@ -129,7 +129,7 @@ func (c *InventoryController) MoveItem(ctx *fiber.Ctx) error {
 			Location:         movePayload.TargetLocation,
 			QaStatus:         oldInventory.QaStatus,
 			SerialNumber:     oldInventory.SerialNumber,
-			Quantity:         item.Quantity,
+			QtyOrigin:        item.Quantity,
 			QtyOnhand:        item.Quantity,
 			QtyAvailable:     item.Quantity,
 			QtyAllocated:     0,

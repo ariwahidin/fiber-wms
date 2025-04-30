@@ -23,12 +23,38 @@ func (c *MobileInboundController) GetListInbound(ctx *fiber.Ctx) error {
 		ID           uint      `json:"id"`
 		InboundNo    string    `json:"inbound_no"`
 		SupplierName string    `json:"supplier_name"`
+		InvoiceNo    string    `json:"invoice_no"`
+		ReqQty       int       `json:"req_qty"`
+		ScanQty      int       `json:"scan_qty"`
+		QtyStock     int       `json:"qty_stock"`
 		Status       string    `json:"status"`
 		UpdatedAt    time.Time `json:"updated_at"`
 	}
 
-	sql := `SELECT a.id, a.inbound_no, b.supplier_name, a.status, a.updated_at FROM inbound_headers a
-			INNER JOIN suppliers b ON a.supplier_id = b.id`
+	// sql := `SELECT a.id, a.inbound_no, b.supplier_name, a.status, a.updated_at FROM inbound_headers a
+	// 		INNER JOIN suppliers b ON a.supplier_id = b.id`
+
+	sql := `WITH id AS
+	(SELECT inbound_id, SUM(quantity) AS req_qty, SUM(scan_qty) as scan_qty 
+	FROM inbound_details
+	GROUP BY inbound_id),
+
+	ib AS (select inbound_id, SUM(quantity) qty_stock 
+	from inbound_barcodes
+	where status = 'in stock'
+	group by inbound_id)
+
+	SELECT a.id, a.inbound_no, b.supplier_name, a.invoice_no, 
+	COALESCE(id.req_qty, 0) as req_qty, COALESCE(id.scan_qty, 0) as scan_qty, 
+	COALESCE(ib.qty_stock,0) as qty_stock,
+	a.status, a.updated_at 
+	FROM inbound_headers a
+	INNER JOIN suppliers b ON a.supplier_id = b.id
+	LEFT JOIN id ON a.id = id.inbound_id
+	LEFT JOIN ib ON a.id = ib.inbound_id
+	ORDER by a.id DESC
+	`
+
 	var listInbound []listInboundResponse
 	if err := c.DB.Raw(sql).Scan(&listInbound).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
@@ -147,7 +173,7 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true})
 }
 
-func (c *MobileInboundController) GetScanInbound(ctx *fiber.Ctx) error {
+func (c *MobileInboundController) GetInboundDetail(ctx *fiber.Ctx) error {
 
 	inbound_no := ctx.Params("inbound_no")
 
@@ -156,9 +182,21 @@ func (c *MobileInboundController) GetScanInbound(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Inbound not found"})
 	}
 
+	var inboundDetail []models.InboundDetail
+	if err := c.DB.Where("inbound_id = ?", inboundHeader.ID).Find(&inboundDetail).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "data": inboundDetail})
+}
+
+func (c *MobileInboundController) GetScanInbound(ctx *fiber.Ctx) error {
+
+	id := ctx.Params("id")
+
 	var inboundBarcode []models.InboundBarcode
 
-	if err := c.DB.Order("created_at DESC").Where("inbound_id = ?", inboundHeader.ID).Find(&inboundBarcode).Error; err != nil {
+	if err := c.DB.Order("created_at DESC").Where("inbound_detail_id = ?", id).Find(&inboundBarcode).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
@@ -243,12 +281,6 @@ func (c *MobileInboundController) ConfirmPutaway(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	fmt.Println("Scan Inbound : ", scanInbound)
-
-	// return nil
-
-	fmt.Println("Inbound No : ", inbound_no)
-
 	// start db transaction
 	tx := c.DB.Begin()
 	if tx.Error != nil {
@@ -269,7 +301,7 @@ func (c *MobileInboundController) ConfirmPutaway(ctx *fiber.Ctx) error {
 
 	var inboundBarcodes []models.InboundBarcode
 
-	if err := tx.Order("created_at DESC").Where("inbound_id = ? AND status = ? AND location = ?", inboundHeader.ID, "pending", scanInbound.Location).Find(&inboundBarcodes).Error; err != nil {
+	if err := tx.Order("created_at DESC").Where("inbound_id = ? AND status = ?", inboundHeader.ID, "pending").Find(&inboundBarcodes).Error; err != nil {
 		tx.Rollback()
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -296,16 +328,156 @@ func (c *MobileInboundController) ConfirmPutaway(ctx *fiber.Ctx) error {
 		inventory.RecDate = inboundDetail.RecDate
 		inventory.ItemId = int(inboundBarcode.ItemID)
 		inventory.ItemCode = inboundBarcode.ItemCode
+		inventory.Barcode = inboundBarcode.Barcode
 		inventory.WhsCode = inboundBarcode.WhsCode
 		inventory.Pallet = inboundBarcode.Pallet
 		inventory.Location = inboundBarcode.Location
 		inventory.QaStatus = inboundBarcode.QaStatus
 		inventory.SerialNumber = inboundBarcode.ScanData
-		inventory.Quantity = inboundBarcode.Quantity
+		inventory.QtyOrigin = inboundBarcode.Quantity
 		inventory.QtyOnhand = inboundBarcode.Quantity
 		inventory.QtyAvailable = inboundBarcode.Quantity
 		inventory.QtyAllocated = 0
 		inventory.Trans = "inbound"
+		inventory.CreatedBy = int(ctx.Locals("userID").(float64))
+
+		// save to inventory table
+		if err := tx.Create(&inventory).Error; err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+
+		// update inbound barcode status to in stock
+		inboundBarcode.Status = "in stock"
+		inboundBarcode.UpdatedAt = time.Now()
+		inboundBarcode.UpdatedBy = int(ctx.Locals("userID").(float64))
+		if err := tx.Where("id = ?", inboundBarcode.ID).Updates(&inboundBarcode).Error; err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Confirm putaway successfully"})
+}
+
+func (c *MobileInboundController) GetInboundBarcodeByLocation(ctx *fiber.Ctx) error {
+
+	// get from post body
+	var input struct {
+		InboundNo string `json:"inbound_no"`
+		Location  string `json:"location"`
+		Barcode   string `json:"barcode"`
+	}
+
+	if err := ctx.BodyParser(&input); err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	if input.InboundNo == "" || input.Location == "" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Inbound No and Location are required"})
+	}
+
+	if input.Barcode == "" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Barcode is required"})
+	}
+
+	var inboundHeader models.InboundHeader
+	if err := c.DB.Where("inbound_no = ?", input.InboundNo).First(&inboundHeader).Error; err != nil {
+		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Inbound not found"})
+	}
+
+	var inboundBarcodes []models.InboundBarcode
+	if err := c.DB.Where("inbound_id = ? AND location = ? AND barcode = ? AND status = ?", inboundHeader.ID, input.Location, input.Barcode, "pending").Find(&inboundBarcodes).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	// if len(inboundBarcodes) < 1 {
+	// 	return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "No barcode found for the given location"})
+	// }
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Get Inbound Barcode By Location", "data": inboundBarcodes})
+}
+
+func (c *MobileInboundController) ConfirmPutawayByLocation(ctx *fiber.Ctx) error {
+	// inbound_no := ctx.Params("inbound_no")
+
+	var input struct {
+		InboundNo          string `json:"inbound_no"`
+		FromLocation       string `json:"from_location"`
+		ToLocation         string `json:"to_location"`
+		ListInboundScanned []struct {
+			ID int `json:"id"`
+		} `json:"list_inbound_scanned"`
+	}
+
+	if err := ctx.BodyParser(&input); err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	if input.InboundNo == "" || input.FromLocation == "" || input.ToLocation == "" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Inbound No, From Location and To Location are required"})
+	}
+
+	fmt.Println("Input : ", input)
+
+	// start db transaction
+	tx := c.DB.Begin()
+	if tx.Error != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": tx.Error.Error()})
+	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	var inboundHeader models.InboundHeader
+	if err := tx.Where("inbound_no = ?", input.InboundNo).First(&inboundHeader).Error; err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Inbound not found"})
+	}
+
+	for _, scanned := range input.ListInboundScanned {
+		var inboundBarcode models.InboundBarcode
+		if err := tx.Where("id = ?", scanned.ID).First(&inboundBarcode).Error; err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Inbound barcode not found"})
+		}
+
+		if inboundBarcode.Status != "pending" {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Item already confirmed"})
+		}
+
+		var inboundDetail models.InboundDetail
+		if err := tx.Where("id = ?", inboundBarcode.InboundDetailId).First(&inboundDetail).Error; err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+
+		var inventory models.Inventory
+		inventory.InboundDetailId = int(inboundDetail.ID)
+		inventory.InboundBarcodeId = int(inboundBarcode.ID)
+		inventory.RecDate = inboundDetail.RecDate
+		inventory.ItemId = int(inboundBarcode.ItemID)
+		inventory.ItemCode = inboundBarcode.ItemCode
+		inventory.Barcode = inboundBarcode.Barcode
+		inventory.WhsCode = inboundBarcode.WhsCode
+		inventory.Pallet = inboundBarcode.Pallet
+		inventory.Location = input.ToLocation
+		inventory.QaStatus = inboundBarcode.QaStatus
+		inventory.SerialNumber = inboundBarcode.ScanData
+		inventory.QtyOrigin = inboundBarcode.Quantity
+		inventory.QtyOnhand = inboundBarcode.Quantity
+		inventory.QtyAvailable = inboundBarcode.Quantity
+		inventory.QtyAllocated = 0
+		inventory.Trans = "putaway"
 		inventory.CreatedBy = int(ctx.Locals("userID").(float64))
 
 		// save to inventory table

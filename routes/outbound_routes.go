@@ -28,13 +28,4 @@ func SetupOutboundRoutes(app *fiber.App, db *gorm.DB) {
 	api.Post("/picking/:id", outboundController.PickingOutbound)
 	api.Get("/picking/sheet/:id", outboundController.GetPickingSheet)
 	api.Post("/picking/complete/:id", outboundController.PickingComplete)
-
-	// api.Get("/", inboundController.GetAllListInbound)
-	// api.Get("/:id", inboundController.GetInboundByID)
-	// api.Put("/:id", inboundController.UpdateInboundByID)
-	// api.Put("/detail/:id", inboundController.UpdateDetailByID)
-	// api.Post("/detail/", inboundController.AddNewItemInbound)
-	// api.Get("/detail/draft", inboundController.GetInboundDetailDraftByUserID)
-	// api.Delete("/detail/:id", inboundController.DeleteInboundDetail)
-	// api.Post("/complete/:id", inboundController.ProcessingInboundComplete)
 }

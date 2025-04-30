@@ -103,6 +103,10 @@ func (c *HandlingController) GetAll(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	if len(handlings) == 0 {
+		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Handlings not found", "data": result})
+	}
+
 	// mapping handlingResponse dari handling
 	for _, handling := range handlings {
 		result = append(result, handlingResponse{
