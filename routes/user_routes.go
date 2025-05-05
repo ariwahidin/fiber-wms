@@ -22,9 +22,12 @@ func SetupUserRoutes(app *fiber.App, userController *controllers.UserController)
 	role := app.Group("/api/v1/roles", middleware.AuthMiddleware)
 	role.Get("/", userController.GetRoles)
 	role.Post("/", userController.CreateRole)
+	role.Put("/permissions/:id", userController.UpdatePermissionsForRole)
+
 	permission := app.Group("/api/v1/permissions", middleware.AuthMiddleware)
 	permission.Get("/", userController.GetPermissions)
 	permission.Get("/:id", userController.GetPermissionByID)
 	permission.Post("/", userController.CreatePermission)
 	permission.Put("/:id", userController.UpdatePermission)
+
 }

@@ -11,7 +11,6 @@ import (
 	"log"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/gofiber/fiber/v2/middleware/cors"
 )
 
 // Model untuk Receiving
@@ -50,13 +49,7 @@ func main() {
 	RfInboundController := controllers.NewRfInboundController(db)
 
 	// Setup CORS middleware
-	app.Use(cors.New(cors.Config{
-		// AllowOrigins:     "http://127.0.0.1:3000", // Tentukan origin spesifik
-		AllowOrigins:     "http://127.0.0.1:3000, http://103.111.191.152:8011, http://103.111.191.152:8012", // Tentukan origin spesifik
-		AllowMethods:     "GET,POST,PUT,DELETE,OPTIONS",
-		AllowHeaders:     "Origin, Content-Type, Accept, Authorization",
-		AllowCredentials: true, // Bisa digunakan dengan origin spesifik
-	}))
+	config.SetupCORS(app)
 
 	// Setup routes
 	api := app.Group("/api")
