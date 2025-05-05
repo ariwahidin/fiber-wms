@@ -23,6 +23,14 @@ type ListDNOpen struct {
 	Volume         float64 `json:"volume"`
 }
 
+type OrderDetail struct {
+	OrderID         int    `json:"order_id"`
+	DeliveryNumber  string `json:"delivery_number"`
+	DestinationCity string `json:"destination_city"`
+	TotalQty        int    `json:"total_qty"`
+	TotalItem       int    `json:"total_item"`
+}
+
 func NewShippingController(DB *gorm.DB) *ShippingController {
 	return &ShippingController{DB: DB}
 }
@@ -59,6 +67,10 @@ func (c *ShippingController) GetListDNOpen(ctx *fiber.Ctx) error {
 
 	if err := c.DB.Raw(sql).Scan(&listDNOpen).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	if len(listDNOpen) == 0 {
+		return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "data": []ListDNOpen{}})
 	}
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "data": listDNOpen})
@@ -217,15 +229,37 @@ func (c *ShippingController) GetOrderByID(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	var orderDetails []models.OrderDetail
-	if err := c.DB.Where("order_id = ?", orderHeader.ID).Find(&orderDetails).Error; err != nil {
+	sql := `WITH lop AS(
+	SELECT order_id, count(item_id) AS total_item, customer_code, customer_name 
+	FROM list_order_parts
+	WHERE order_id > 0
+	GROUP BY order_id, customer_code, customer_name
+	)
+	SELECT a.order_id, a.delivery_number, a.destination_city, SUM(a.qty) AS total_qty, b.total_item  
+	FROM order_details a
+	INNER JOIN lop b ON a.order_id = b.order_id
+	WHERE a.order_id = ? 
+	group BY a.order_id, a.delivery_number, a.destination_city, b.total_item`
+
+	var orderDetails []OrderDetail
+	if err := c.DB.Raw(sql, orderHeader.ID).Scan(&orderDetails).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
+
+	if len(orderDetails) == 0 {
+		return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Order found", "data": []OrderDetail{}})
+	}
+
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Order found", "data": orderDetails})
 }
 
 func (c *ShippingController) UnGroupOrder(ctx *fiber.Ctx) error {
-	var ReqOrderDetails []models.OrderDetail
+
+	fmt.Println(ctx.Body())
+
+	// return nil
+
+	var ReqOrderDetails []OrderDetail
 	if err := ctx.BodyParser(&ReqOrderDetails); err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -245,7 +279,7 @@ func (c *ShippingController) UnGroupOrder(ctx *fiber.Ctx) error {
 	// update ListOrderPart
 	for _, item := range ReqOrderDetails {
 		if err := tx.Model(&models.ListOrderPart{}).
-			Where("id = ?", item.ListOrderPartID).
+			Where("order_id = ?", item.OrderID).
 			Updates(map[string]interface{}{
 				"order_id":   0,
 				"order_no":   "",
@@ -258,10 +292,10 @@ func (c *ShippingController) UnGroupOrder(ctx *fiber.Ctx) error {
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
 
-		sqlDelete := "DELETE FROM order_details WHERE list_order_part_id = ?"
+		sqlDelete := "DELETE FROM order_details WHERE order_id = ?"
 
 		// Delete corresponding record from order_details
-		if err := tx.Exec(sqlDelete, item.ListOrderPartID).Error; err != nil {
+		if err := tx.Exec(sqlDelete, item.OrderID).Error; err != nil {
 			tx.Rollback()
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}

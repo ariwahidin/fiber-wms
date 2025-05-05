@@ -82,6 +82,9 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	fmt.Println("scanInbound : ", scanInbound)
+	// return nil
+
 	// start db transaction
 	tx := c.DB.Begin()
 	if tx.Error != nil {
@@ -104,6 +107,10 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 	if err := tx.Where("barcode = ?", scanInbound.Barcode).First(&product).Error; err != nil {
 		tx.Rollback()
 		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Product not found"})
+	}
+
+	if product.HasSerial == "Y" && scanInbound.ScanType != "SERIAL" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Scan type must be serial"})
 	}
 
 	var inboundDetail models.InboundDetail
@@ -138,7 +145,7 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 		}
 	}
 
-	if checkInboundBarcode.ID > 0 {
+	if checkInboundBarcode.ID > 0 && scanInbound.ScanType == "SERIAL" {
 		tx.Rollback()
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Serial number already scanned"})
 	}
@@ -372,6 +379,7 @@ func (c *MobileInboundController) GetInboundBarcodeByLocation(ctx *fiber.Ctx) er
 		InboundNo string `json:"inbound_no"`
 		Location  string `json:"location"`
 		Barcode   string `json:"barcode"`
+		Quantity  int    `json:"quantity"`
 	}
 
 	if err := ctx.BodyParser(&input); err != nil {
