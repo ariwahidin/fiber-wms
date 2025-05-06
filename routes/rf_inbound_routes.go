@@ -9,7 +9,7 @@ import (
 
 func SetupRfInboundRoutes(app *fiber.App, rfInboundController *controllers.RfInboundController) {
 	api := app.Group("/api/v1/rf/inbound", middleware.AuthMiddleware)
-	api.Get("/list", rfInboundController.GetAllListInbound)
+	// api.Get("/list", rfInboundController.GetAllListInbound)
 	api.Get("/:id", rfInboundController.GetInboundByInboundID)
 	api.Post("/:id", rfInboundController.PostInboundByInboundID)
 	api.Get("/detail/scanned/:id", rfInboundController.GetInboundDetailScanned)

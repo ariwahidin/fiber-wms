@@ -11,12 +11,14 @@ type Origin struct {
 	DeletedBy int
 }
 
-type WarehouseCode struct {
+type Warehouse struct {
 	gorm.Model
-	WarehouseCode string `json:"warehouse_code" gorm:"unique"`
-	CreatedBy     int
-	UpdatedBy     int
-	DeletedBy     int
+	Code        string `json:"code" gorm:"unique"`
+	Name        string `json:"name" gorm:"unique"`
+	Description string `json:"description"`
+	CreatedBy   int
+	UpdatedBy   int
+	DeletedBy   int
 }
 
 type QaStatus struct {

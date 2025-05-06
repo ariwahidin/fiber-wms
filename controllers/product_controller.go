@@ -23,6 +23,7 @@ var productInput struct {
 	Group    string  `json:"group" validate:"required,min=3"`
 	Category string  `json:"category" validate:"required,min=3"`
 	Serial   string  `json:"serial" validate:"required,min=1"`
+	Uom      string  `json:"uom" validate:"required,min=3"`
 }
 
 func NewProductController(DB *gorm.DB) *ProductController {
@@ -45,6 +46,12 @@ func (c *ProductController) CreateProduct(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	Uom := models.Uom{}
+	c.DB.Where("code = ?", productInput.Uom).First(&Uom)
+	if Uom.ID == 0 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Uom not found"})
+	}
+
 	// Membuat user dengan memasukkan data ke struct models.Product
 	product := models.Product{
 		ItemCode:  productInput.ItemCode,
@@ -55,6 +62,8 @@ func (c *ProductController) CreateProduct(ctx *fiber.Ctx) error {
 		Group:     productInput.Group,
 		Category:  productInput.Category,
 		HasSerial: productInput.Serial,
+		Uom:       productInput.Uom,
+		BaseUomID: Uom.ID,
 		CreatedBy: int(ctx.Locals("userID").(float64)),
 	}
 
@@ -115,21 +124,29 @@ func (c *ProductController) UpdateProduct(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	// Membuat user dengan memasukkan data ke struct models.Product
-	product.ItemCode = productInput.ItemCode
-	product.ItemName = productInput.ItemName
-	product.CBM = productInput.CBM
-	product.GMC = productInput.GMC
-	product.Barcode = productInput.GMC
-	product.Group = productInput.Group
-	product.Category = productInput.Category
-	product.HasSerial = productInput.Serial
-	product.UpdatedBy = int(ctx.Locals("userID").(float64))
+	Uom := models.Uom{}
+	c.DB.Where("code = ?", productInput.Uom).First(&Uom)
+	if Uom.ID == 0 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Uom not found"})
+	}
 
-	// Hanya menyimpan field yang dipilih dengan menggunakan Select
-	result := c.DB.Select("item_code", "item_name", "cbm", "gmc", "barcode", "group", "category", "has_serial", "updated_by").Where("id = ?", id).Updates(&product)
-	if result.Error != nil {
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": result.Error.Error()})
+	if err := c.DB.Debug().
+		Model(&models.Product{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"item_code":   productInput.ItemCode,
+			"item_name":   productInput.ItemName,
+			"cbm":         productInput.CBM,
+			"gmc":         productInput.GMC,
+			"barcode":     productInput.GMC,
+			"group":       productInput.Group,
+			"category":    productInput.Category,
+			"has_serial":  productInput.Serial,
+			"uom":         productInput.Uom,
+			"base_uom_id": Uom.ID,
+			"updated_by":  int(ctx.Locals("userID").(float64)),
+		}).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
 	// Respons sukses
@@ -175,4 +192,13 @@ func (c *ProductController) DeleteProduct(ctx *fiber.Ctx) error {
 
 	// Respons sukses
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Product deleted successfully", "data": product})
+}
+
+func (c *ProductController) GetAllUOM(ctx *fiber.Ctx) error {
+	var uoms []models.Uom
+	if err := c.DB.Find(&uoms).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Uoms found", "data": uoms})
 }

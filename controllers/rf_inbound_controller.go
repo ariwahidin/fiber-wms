@@ -20,32 +20,32 @@ func NewRfInboundController(DB *gorm.DB) *RfInboundController {
 	return &RfInboundController{DB: DB}
 }
 
-func (c *RfInboundController) GetAllListInbound(ctx *fiber.Ctx) error {
-	inboundRepo := repositories.NewInboundRepository(c.DB)
-	result, err := inboundRepo.GetAllInbound()
-	if err != nil {
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-	}
+// func (c *RfInboundController) GetAllListInbound(ctx *fiber.Ctx) error {
+// 	inboundRepo := repositories.NewInboundRepository(c.DB)
+// 	result, err := inboundRepo.GetAllInbound()
+// 	if err != nil {
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+// 	}
 
-	var whCode []models.WarehouseCode
-	if err := c.DB.Find(&whCode).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Warehouse not found"})
-		}
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-	}
+// 	var whCode []models.WarehouseCode
+// 	if err := c.DB.Find(&whCode).Error; err != nil {
+// 		if errors.Is(err, gorm.ErrRecordNotFound) {
+// 			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Warehouse not found"})
+// 		}
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+// 	}
 
-	var qaStatus []models.QaStatus
+// 	var qaStatus []models.QaStatus
 
-	if err := c.DB.Find(&qaStatus).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Qa Status not found"})
-		}
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-	}
+// 	if err := c.DB.Find(&qaStatus).Error; err != nil {
+// 		if errors.Is(err, gorm.ErrRecordNotFound) {
+// 			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Qa Status not found"})
+// 		}
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+// 	}
 
-	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "data": fiber.Map{"inbound": result, "wh": whCode, "qa": qaStatus}})
-}
+// 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "data": fiber.Map{"inbound": result, "wh": whCode, "qa": qaStatus}})
+// }
 
 func (c *RfInboundController) GetInboundByInboundID(ctx *fiber.Ctx) error {
 	inbound_id, err := ctx.ParamsInt("id")
