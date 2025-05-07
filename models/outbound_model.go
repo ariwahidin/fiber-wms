@@ -52,6 +52,7 @@ type OutboundDetail struct {
 	DeletedBy    int
 
 	OutboundDetailHandlings []OutboundDetailHandling `gorm:"foreignKey:OutboundDetailId;references:ID;constraint:OnDelete:CASCADE" json:"outbound_detail_handlings"`
+	PickingSheets           []PickingSheet           `gorm:"foreignKey:OutboundDetailId;references:ID;constraint:OnDelete:CASCADE" json:"picking_sheets"`
 	OutboundBarcodes        []OutboundBarcode        `gorm:"foreignKey:OutboundDetailId;references:ID;constraint:OnDelete:CASCADE" json:"outbound_barcodes"`
 }
 

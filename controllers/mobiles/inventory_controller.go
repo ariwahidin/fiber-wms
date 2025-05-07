@@ -99,8 +99,19 @@ func (c *MobileInventoryController) GetItemsByLocationAndBarcode(ctx *fiber.Ctx)
 	}
 
 	var inventories []models.Inventory
-	if err := c.DB.Where("location = ? AND barcode = ? AND qty_available > 0", req.Location, req.Barcode).Find(&inventories).Error; err != nil {
+	if err := c.DB.Where("barcode = ? AND qty_available > 0", req.Barcode).Find(&inventories).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	totalAllocated := 0
+	for _, inv := range inventories {
+		totalAllocated += inv.QtyAllocated
+	}
+
+	fmt.Println("Total Allocated : ", totalAllocated)
+
+	if totalAllocated > 0 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Item already allocated"})
 	}
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "data": inventories})
@@ -152,6 +163,11 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 		if err := tx.Where("id = ? AND location = ? AND qty_available > 0", inv.ID, input.FromLocation).First(&inventory).Error; err != nil {
 			tx.Rollback()
 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Inventory not found or not available"})
+		}
+
+		if inventory.QtyAllocated > 0 {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Inventory already allocated"})
 		}
 
 		if inventory.Location != input.FromLocation {
@@ -249,6 +265,11 @@ func (c *MobileInventoryController) ConfirmTransferBySerial(ctx *fiber.Ctx) erro
 
 	if inventory.Location != input.FromLocation {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Inventory not found or not available"})
+	}
+
+	if inventory.QtyAllocated > 0 {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Inventory already allocated"})
 	}
 
 	var newInventory models.Inventory

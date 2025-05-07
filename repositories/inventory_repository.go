@@ -20,6 +20,7 @@ type listInventory struct {
 	QaStatus     string `json:"qa_status"`
 	QtyOnhand    int    `json:"qty_onhand"`
 	QtyAvailable int    `json:"qty_available"`
+	QtyAllocated int    `json:"qty_allocated"`
 }
 
 func (r *InventoryRepository) GetInventory() ([]listInventory, error) {
@@ -27,7 +28,8 @@ func (r *InventoryRepository) GetInventory() ([]listInventory, error) {
 	sqlInventory := `select a.whs_code, a.location, 
 	b.item_code, b.item_name, a.qa_status, 
 	sum(a.qty_onhand) as qty_onhand,
-	sum(a.qty_available) as qty_available
+	sum(a.qty_available) as qty_available,
+	sum(a.qty_allocated) as qty_allocated
 	from inventories a
 	inner join products b on a.item_id = b.id
 	group by a.whs_code, a.location, b.item_code, b.item_name, a.qa_status

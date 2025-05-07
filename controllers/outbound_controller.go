@@ -569,6 +569,33 @@ func (c *OutboundController) PickingComplete(ctx *fiber.Ctx) error {
 		}
 	}
 
+	var outboundBarcodes []models.OutboundBarcode
+	if err := tx.Debug().Where("outbound_id = ?", inputBody.OutboundID).Find(&outboundBarcodes).Error; err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	if len(outboundBarcodes) == 0 {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Outbound scanned not found"})
+	}
+
+	for _, outboundBarcode := range outboundBarcodes {
+		// update inventory
+		if err := tx.Debug().
+			Model(&models.Inventory{}).
+			Where("id = ?", outboundBarcode.InventoryID).
+			Updates(map[string]interface{}{
+				"qty_onhand":    gorm.Expr("qty_onhand - ?", outboundBarcode.Quantity),
+				"qty_allocated": gorm.Expr("qty_allocated - ?", outboundBarcode.Quantity),
+				"qty_shipped":   gorm.Expr("qty_shipped + ?", outboundBarcode.Quantity),
+				"updated_by":    int(ctx.Locals("userID").(float64)),
+			}).Error; err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+	}
+
 	if err := tx.Commit().Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}

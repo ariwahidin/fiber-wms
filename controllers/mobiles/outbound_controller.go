@@ -272,12 +272,13 @@ func (c *MobileOutboundController) ScanPicking(ctx *fiber.Ctx) error {
 
 		fmt.Println("MASUK BARCODE")
 		var pickingSheets []models.PickingSheet
-		if err := tx.Debug().Where("outbound_detail_id = ? AND location = ? AND qty_available > 0 AND qty_available >= ?", outboundDetail.ID, inputScan.Location, inputScan.Qty).Find(&pickingSheets).Error; err != nil {
+		if err := tx.Debug().Where("outbound_detail_id = ? AND location = ? AND qty_available > 0", outboundDetail.ID, inputScan.Location).Find(&pickingSheets).Error; err != nil {
 			tx.Rollback()
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 
 		}
 
+		// Tidak ketemu di PickingSheet
 		if len(pickingSheets) == 0 {
 			// Tidak ketemu di PickingSheet, cari di Inventory
 			fmt.Println("TIDAK KETEMU DI PICKING SHEET CARI DI INVENTORY")
@@ -370,58 +371,85 @@ func (c *MobileOutboundController) ScanPicking(ctx *fiber.Ctx) error {
 			}
 		}
 
-		// else {
 		// Ketemu di PickingSheet
-		// var outboundBarcode models.OutboundBarcode
-		// outboundBarcode.InventoryID = pickingSheet.InventoryID
-		// outboundBarcode.OutboundId = int(outboundHeader.ID)
-		// outboundBarcode.OutboundDetailId = int(outboundDetail.ID)
-		// outboundBarcode.PickingSheetId = int(pickingSheet.ID)
-		// outboundBarcode.ItemID = int(product.ID)
-		// outboundBarcode.ItemCode = outboundDetail.ItemCode
-		// outboundBarcode.ScanData = inputScan.SerialNo
-		// outboundBarcode.Barcode = product.Barcode
-		// outboundBarcode.Quantity = inputScan.Qty
-		// outboundBarcode.WhsCode = pickingSheet.WhsCode
-		// outboundBarcode.QaStatus = pickingSheet.QaStatus
-		// outboundBarcode.SeqBox = inputScan.SeqBox
-		// outboundBarcode.Status = "picking"
-		// outboundBarcode.ScanType = inputScan.ScanType
-		// outboundBarcode.Location = pickingSheet.Location
-		// outboundBarcode.Pallet = pickingSheet.Pallet
-		// outboundBarcode.SerialNumber = pickingSheet.SerialNumber
-		// outboundBarcode.CreatedBy = int(ctx.Locals("userID").(float64))
+		if len(pickingSheets) > 0 {
 
-		// if err := tx.Debug().Create(&outboundBarcode).Error; err != nil {
-		// 	tx.Rollback()
-		// 	return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-		// }
+			totalAvail := 0
+			for _, pickingSheet := range pickingSheets {
+				totalAvail += pickingSheet.QtyAvailable
+			}
 
-		// if err := tx.Debug().
-		// 	Model(&models.PickingSheet{}).
-		// 	Where("id = ?", pickingSheet.ID).
-		// 	Updates(map[string]interface{}{
-		// 		"qty_available": pickingSheet.QtyAvailable - inputScan.Qty,
-		// 		"qty_allocated": pickingSheet.QtyAllocated + inputScan.Qty,
-		// 		"updated_by":    int(ctx.Locals("userID").(float64)),
-		// 		"updated_at":    time.Now(),
-		// 	}).Error; err != nil {
-		// 	tx.Rollback()
-		// 	return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-		// }
-		// }
+			if totalAvail < inputScan.Qty {
+				tx.Rollback()
+				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Not enough stock in picking sheet"})
+			}
 
-		// if err := tx.Debug().
-		// 	Model(&models.OutboundDetail{}).
-		// 	Where("id = ?", outboundDetail.ID).
-		// 	Updates(map[string]interface{}{
-		// 		"scan_qty":   outboundDetail.ScanQty + inputScan.Qty,
-		// 		"updated_by": int(ctx.Locals("userID").(float64)),
-		// 		"updated_at": time.Now(),
-		// 	}).Error; err != nil {
-		// 	tx.Rollback()
-		// 	return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-		// }
+			qtyReq := inputScan.Qty
+			for _, pickingSheet := range pickingSheets {
+				if qtyReq == 0 {
+					break
+				}
+
+				qtyPick := 0
+				if pickingSheet.QtyAvailable >= qtyReq {
+					qtyPick = qtyReq
+				} else {
+					qtyPick = pickingSheet.QtyAvailable
+				}
+
+				var outboundBarcode models.OutboundBarcode
+				outboundBarcode.InventoryID = pickingSheet.InventoryID
+				outboundBarcode.PickingSheetId = int(pickingSheet.ID)
+				outboundBarcode.OutboundId = int(outboundHeader.ID)
+				outboundBarcode.OutboundDetailId = int(outboundDetail.ID)
+				outboundBarcode.ItemID = int(product.ID)
+				outboundBarcode.ItemCode = outboundDetail.ItemCode
+				outboundBarcode.ScanData = inputScan.SerialNo
+				outboundBarcode.Barcode = product.Barcode
+				outboundBarcode.Quantity = qtyPick
+				outboundBarcode.WhsCode = pickingSheet.WhsCode
+				outboundBarcode.QaStatus = pickingSheet.QaStatus
+				outboundBarcode.SeqBox = inputScan.SeqBox
+				outboundBarcode.Status = "picking"
+				outboundBarcode.ScanType = inputScan.ScanType
+				outboundBarcode.Location = pickingSheet.Location
+				outboundBarcode.Pallet = pickingSheet.Pallet
+				outboundBarcode.SerialNumber = pickingSheet.SerialNumber
+				outboundBarcode.CreatedBy = int(ctx.Locals("userID").(float64))
+
+				if err := tx.Debug().Create(&outboundBarcode).Error; err != nil {
+					tx.Rollback()
+					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+				}
+
+				if err := tx.Debug().
+					Model(&models.PickingSheet{}).
+					Where("id = ?", pickingSheet.ID).
+					Updates(map[string]interface{}{
+						"qty_available": pickingSheet.QtyAvailable - qtyPick,
+						"qty_allocated": pickingSheet.QtyAllocated + qtyPick,
+						"updated_by":    int(ctx.Locals("userID").(float64)),
+						"updated_at":    time.Now(),
+					}).Error; err != nil {
+					tx.Rollback()
+					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+				}
+
+				if err := tx.Debug().
+					Model(&models.OutboundDetail{}).
+					Where("id = ?", outboundDetail.ID).
+					Updates(map[string]interface{}{
+						"scan_qty":   gorm.Expr("scan_qty + ?", qtyPick),
+						"updated_by": int(ctx.Locals("userID").(float64)),
+						"updated_at": time.Now(),
+					}).Error; err != nil {
+					tx.Rollback()
+					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+				}
+				qtyReq -= qtyPick
+			}
+
+		}
 
 	}
 
