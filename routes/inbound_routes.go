@@ -14,6 +14,8 @@ func SetupInboundRoutes(app *fiber.App, inboundController *controllers.InboundCo
 
 	api := app.Group("/api/v1/inbound", middleware.AuthMiddleware, inboundMidleware.CheckPermission("create_inbound"))
 
+	api.Post("/upload", inboundController.UploadInboundFromExcel)
+
 	api.Get("/create", inboundController.PreapareInbound)
 
 	api.Post("/", inboundController.CreateInbound)

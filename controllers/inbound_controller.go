@@ -5,6 +5,7 @@ import (
 	"fiber-app/models"
 	"fiber-app/repositories"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/go-playground/validator"
@@ -881,4 +882,133 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 	}
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Inbound detail added successfully", "data": inputHeader})
+}
+
+func (c *InboundController) UploadInboundFromExcel(ctx *fiber.Ctx) error {
+	type InboundExcel struct {
+		Date     string `json:"Date"`
+		Invoice  string `json:"Invoice"`
+		Supplier string `json:"SupplierCode"`
+		ItemCode string `json:"ItemCode"`
+		Qty      int    `json:"Qty"`
+	}
+
+	var inboundExcel []InboundExcel
+	// Parse Body
+	if err := ctx.BodyParser(&inboundExcel); err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	// start DB transaction
+	tx := c.DB.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	var supplier models.Supplier
+	if err := tx.Debug().First(&supplier, "supplier_code = ?", inboundExcel[0].Supplier).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Supplier not found"})
+		}
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	for _, inbound := range inboundExcel {
+
+		// check item code
+		var item models.Product
+		if err := tx.Debug().First(&item, "item_code = ?", inbound.ItemCode).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Item " + inbound.ItemCode + " not found"})
+			}
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+
+	}
+
+	inboundRepo := repositories.NewInboundRepository(tx)
+	inboundNo, _ := inboundRepo.GenerateInboundNo()
+
+	receiveDate := inboundExcel[0].Date
+	parsed, err := time.Parse("2006-01-02", strings.TrimSpace(receiveDate))
+	if err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
+	receiveDate = parsed.Format("2006-01-02")
+
+	fmt.Println("receiveDate : ", receiveDate)
+
+	inboundHeader := models.InboundHeader{
+		InboundNo:   inboundNo,
+		InvoiceNo:   inboundExcel[0].Invoice,
+		SupplierId:  int(supplier.ID),
+		InboundDate: receiveDate,
+		PoDate:      receiveDate,
+		Status:      "open",
+		CreatedBy:   int(ctx.Locals("userID").(float64)),
+		UpdatedBy:   int(ctx.Locals("userID").(float64)),
+	}
+
+	// insert inbound header
+	if err := tx.Debug().Create(&inboundHeader).Error; err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	// insert inbound detail
+
+	for _, inbound := range inboundExcel {
+
+		// check item code
+		var item models.Product
+		if err := tx.Debug().First(&item, "item_code = ?", inbound.ItemCode).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Item " + inbound.ItemCode + " not found"})
+			}
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+
+		receiveDateItem := inbound.Date
+		parsed, err := time.Parse("2006-01-02", strings.TrimSpace(receiveDateItem))
+		if err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		}
+		receiveDateItem = parsed.Format("2006-01-02")
+
+		inboundDetail := models.InboundDetail{
+
+			InboundNo: inboundHeader.InboundNo,
+			InboundId: int(inboundHeader.ID),
+			ItemId:    int(item.ID),
+			ItemCode:  item.ItemCode,
+			Barcode:   item.Barcode,
+			Location:  "RCVDOCK",
+			Status:    "open",
+			RecDate:   receiveDateItem,
+			Quantity:  int(inbound.Qty),
+			Uom:       item.Uom,
+			CreatedBy: int(ctx.Locals("userID").(float64)),
+			UpdatedBy: int(ctx.Locals("userID").(float64)),
+		}
+
+		// insert inbound detail
+		if err := tx.Debug().Create(&inboundDetail).Error; err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+
+	}
+
+	// commit transaction
+	if err := tx.Commit().Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	fmt.Println("Payload Data Mentah Inbound : ", inboundExcel)
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Inbound detail added successfully"})
 }

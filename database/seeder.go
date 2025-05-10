@@ -1,4 +1,5 @@
-package seed
+// database/seeder.go
+package database
 
 import (
 	"fiber-app/models"
@@ -37,4 +38,9 @@ func SeedWarehouse(db *gorm.DB) {
 			}
 		}
 	}
+}
+
+func RunSeeders(db *gorm.DB) {
+	SeedUoms(db)
+	SeedWarehouse(db)
 }
