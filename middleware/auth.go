@@ -3,7 +3,6 @@ package middleware
 import (
 	"fiber-app/config"
 	"fiber-app/models"
-	"os"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -19,7 +18,7 @@ func NewAuthMiddleware(DB *gorm.DB) *AuthMiddlewareStruct {
 	return &AuthMiddlewareStruct{DB: DB}
 }
 
-var secretKey = []byte(os.Getenv("JWT_SECRET")) // Ambil dari .env
+var secretKey = []byte(config.JWTSecret) // Ambil dari .env
 
 func AuthMiddleware(ctx *fiber.Ctx) error {
 	// Ambil token dari header Authorization
@@ -43,7 +42,7 @@ func AuthMiddleware(ctx *fiber.Ctx) error {
 			return nil, fiber.NewError(fiber.StatusUnauthorized, "Unauthorized: Invalid signing method")
 		}
 		// Kembalikan secret key untuk verifikasi
-		return []byte(os.Getenv("JWT_SECRET")), nil
+		return []byte(config.JWTSecret), nil
 	})
 
 	// fmt.Println("token: ", token)

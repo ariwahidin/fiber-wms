@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fiber-app/config"
 	"fiber-app/models"
-	"os"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -64,7 +63,7 @@ func (c *AuthController) Login(ctx *fiber.Ctx) error {
 		// "exp": time.Now().Add(time.Second * 30).Unix(),
 	})
 
-	tokenString, err := token.SignedString([]byte(os.Getenv("JWT_SECRET")))
+	tokenString, err := token.SignedString([]byte(config.JWTSecret))
 	if err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"message": "Failed to generate token",
