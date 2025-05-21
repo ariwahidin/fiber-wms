@@ -2,10 +2,18 @@
 package database
 
 import (
+	"errors"
 	"fiber-app/models"
+	"log"
 
 	"gorm.io/gorm"
 )
+
+func RunSeeders(db *gorm.DB) {
+	SeedMenus(db)
+	SeedUoms(db)
+	SeedWarehouse(db)
+}
 
 func SeedUoms(db *gorm.DB) {
 	uoms := []models.Uom{
@@ -40,7 +48,58 @@ func SeedWarehouse(db *gorm.DB) {
 	}
 }
 
-func RunSeeders(db *gorm.DB) {
-	SeedUoms(db)
-	SeedWarehouse(db)
+func SeedMenus(db *gorm.DB) error {
+	menus := []models.Menu{
+		{
+			Name:      "Master Data",
+			Path:      "#",
+			Icon:      "Database",
+			MenuOrder: 1,
+		},
+		{
+			Name:      "Product",
+			Path:      "/master/product",
+			Icon:      "Box",
+			MenuOrder: 1,
+			ParentID:  getMenuIDByName(db, "Master Data"), // ambil ID parent
+		},
+		{
+			Name:      "Supplier",
+			Path:      "/master/supplier",
+			Icon:      "Truck",
+			MenuOrder: 2,
+			ParentID:  getMenuIDByName(db, "Master Data"),
+		},
+		{
+			Name:      "Handling",
+			Path:      "/master/handling",
+			Icon:      "Truck",
+			MenuOrder: 3,
+			ParentID:  getMenuIDByName(db, "Master Data"),
+		},
+	}
+
+	for _, menu := range menus {
+		var existing models.Menu
+		err := db.Where("name = ? AND path = ?", menu.Name, menu.Path).First(&existing).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			if err := db.Create(&menu).Error; err != nil {
+				log.Println("Gagal insert menu:", menu.Name, err)
+			} else {
+				log.Println("Insert menu:", menu.Name)
+			}
+		}
+	}
+
+	return nil
+}
+
+func getMenuIDByName(db *gorm.DB, name string) *uint {
+	var parent models.Menu
+	err := db.Where("name = ?", name).First(&parent).Error
+	if err == nil {
+		id := uint(parent.ID)
+		return &id
+	}
+	return nil
 }

@@ -44,5 +44,7 @@ func Migrate(db *gorm.DB) error {
 		&models.StockTake{},
 		&models.StockTakeItem{},
 		&models.StockTakeBarcode{},
+		&models.Menu{},
+		&models.OrderConsole{},
 	)
 }

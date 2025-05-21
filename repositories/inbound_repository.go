@@ -240,7 +240,7 @@ func (r *InboundRepository) GetAllInbound() ([]listInbound, error) {
 			c.supplier_name, a.status, d.transporter_name
 			FROM 
 			inbound_headers a
-			INNER JOIN detail b ON a.id = b.inbound_id
+			LEFT JOIN detail b ON a.id = b.inbound_id
 			LEFT JOIN suppliers c ON a.supplier_id = c.id
 			LEFT JOIN transporters d ON a.transporter_id = d.id
 			LEFT JOIN inbound_barcode ib ON a.id = ib.inbound_id
@@ -271,7 +271,7 @@ func (r *InboundRepository) GetInboundHeaderByInboundID(inbound_id int) (HeaderI
 	c.supplier_name, a.status
 	FROM 
 	inbound_headers a
-	INNER JOIN detail b ON a.id = b.inbound_id
+	LEFT JOIN detail b ON a.id = b.inbound_id
 	LEFT JOIN suppliers c ON a.supplier_id = c.id
 	WHERE a.id = ?`
 

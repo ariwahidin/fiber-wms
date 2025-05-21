@@ -191,7 +191,7 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true})
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Scan item success"})
 }
 
 func (c *MobileInboundController) GetInboundDetail(ctx *fiber.Ctx) error {

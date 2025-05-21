@@ -4,9 +4,9 @@ import "gorm.io/gorm"
 
 type Product struct {
 	gorm.Model
-	ItemCode       string  `json:"item_code" gorm:"unique"`
+	ItemCode       string  `json:"item_code"`
 	ItemName       string  `json:"item_name"`
-	Barcode        string  `json:"barcode" gorm:"unique"`
+	Barcode        string  `json:"barcode"`
 	GMC            string  `json:"gmc"`
 	Width          float64 `json:"width" gorm:"default:0"`
 	Length         float64 `json:"length" gorm:"default:0"`

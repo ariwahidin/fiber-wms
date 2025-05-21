@@ -17,9 +17,12 @@ func SetupShippingRoutes(app *fiber.App, db *gorm.DB) {
 		// inboundMidleware.CheckPermission("create_inbound"),
 	)
 
+	api.Put("/order/:id", shippingController.UpdateOrderHeaderByID)
 	api.Get("/list-order-part", shippingController.GetListDNOpen)
 	api.Post("/combine-order", shippingController.CreateOrder)
 	api.Get("/list-order", shippingController.GetListOrder)
 	api.Get("/order/:order_no", shippingController.GetOrderByID)
 	api.Post("/order/ungroup", shippingController.UnGroupOrder)
+	api.Put("/order/detail/:id", shippingController.UpdateOrderDetailByID)
+	api.Get("/order/detail/:order_no", shippingController.GetOrderDetailItemsByOrderNo)
 }

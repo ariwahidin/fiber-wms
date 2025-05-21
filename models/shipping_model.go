@@ -37,29 +37,45 @@ type ListOrderPart struct {
 
 type OrderHeader struct {
 	gorm.Model
-	OrderNo   string `json:"order_no" gorm:"unique"`
-	Status    string `json:"status" gorm:"default:'open'"`
-	ShipMode  string `json:"ship_mode"`
-	OrderType string `json:"order_type"`
-	TruckerID uint   `json:"trucker_id"`
-	Driver    string `json:"driver"`
-	CreatedBy int    `json:"created_by"`
-	UpdatedBy int    `json:"updated_by"`
-	DeletedBy int    `json:"deleted_by"`
+	OrderNo      string `json:"order_no" gorm:"unique"`
+	Status       string `json:"status" gorm:"default:'open'"`
+	ShipMode     string `json:"ship_mode"`
+	DeliveryDate string `json:"delivery_date"`
+	OrderType    string `json:"order_type"`
+	TruckerID    uint   `json:"trucker_id"`
+	Driver       string `json:"driver"`
+	TruckNo      string `json:"truck_no"`
+	Transporter  string `json:"transporter"`
+	TotalOrder   int    `json:"total_order"`
+	CreatedBy    int    `json:"created_by"`
+	UpdatedBy    int    `json:"updated_by"`
+	DeletedBy    int    `json:"deleted_by"`
+
+	Details []OrderDetail `gorm:"foreignKey:OrderID;references:ID;constraint:OnDelete:CASCADE" json:"details"`
 }
 
 type OrderDetail struct {
 	gorm.Model
-	OrderID         uint    `json:"order_id"`
-	ListOrderPartID uint    `json:"list_order_part_id"`
-	OrderNo         string  `json:"order_no"`
-	ShipTo          string  `json:"ship_to"`
-	DestinationCity string  `json:"destination_city"`
-	DeliveryNumber  string  `json:"delivery_number"`
-	Qty             int     `json:"qty"`
-	Volume          float64 `json:"volume"`
-	UnitPrice       int     `json:"unit_price"`
-	CreatedBy       int     `json:"created_by"`
-	UpdatedBy       int     `json:"updated_by"`
-	DeletedBy       int     `json:"deleted_by"`
+	OrderID        uint   `json:"order_id"`
+	OrderNo        string `json:"order_no"`
+	DeliveryNumber string `json:"delivery_number"`
+	Customer       string `json:"customer"`
+	ShipTo         string `json:"ship_to"`
+	Status         string `json:"status" gorm:"default:'open'"`
+	CreatedBy      int    `json:"created_by"`
+	UpdatedBy      int    `json:"updated_by"`
+	DeletedBy      int    `json:"deleted_by"`
+
+	// Parts []ListOrderPart `gorm:"foreignKey:OrderID;references:ID;constraint:OnDelete:CASCADE" json:"parts"`
+}
+
+type OrderConsole struct {
+	gorm.Model
+	OrderID   uint    `json:"order_id"`
+	OrderNo   string  `json:"order_no"`
+	Status    string  `json:"status" gorm:"default:'open'"`
+	Driver    string  `json:"driver"`
+	Longitude float64 `json:"longitude"`
+	Latitude  float64 `json:"latitude"`
+	Remarks   string  `json:"remarks"`
 }

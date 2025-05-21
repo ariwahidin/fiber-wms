@@ -83,6 +83,15 @@ func (c *ShippingController) CreateOrder(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	if len(request) == 0 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request"})
+	}
+
+	listDeliveryNumber := make([]string, len(request))
+	for i, item := range request {
+		listDeliveryNumber[i] = item.DeliveryNumber
+	}
+
 	// Generate Order No
 	orderNo, err := GenerateOrderNo(c.DB)
 	if err != nil {
@@ -112,54 +121,75 @@ func (c *ShippingController) CreateOrder(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	type orderOpenSelected struct {
+		DeliveryNumber string
+		Status         string
+		CustomerCode   string
+		ShipTo         string
+	}
+
+	var orderOpenSelecteds []orderOpenSelected
+
+	sql := `SELECT delivery_number, status, customer_code, ship_to
+	FROM 
+	list_order_parts
+	WHERE status = 'open'
+	AND delivery_number IN (?)
+	GROUP BY delivery_number, status, customer_code, ship_to`
+
+	if err := tx.Debug().Raw(sql, listDeliveryNumber).Scan(&orderOpenSelecteds).Error; err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	if len(orderOpenSelecteds) == 0 {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "ListOrderPart not found"})
+	}
+
 	// Create Order Details
-	for _, item := range request {
+	for _, item := range orderOpenSelecteds {
+		orderDetail := models.OrderDetail{
+			OrderID:        orderHeader.ID,
+			OrderNo:        orderNo,
+			DeliveryNumber: item.DeliveryNumber,
+			Customer:       item.CustomerCode,
+			ShipTo:         item.ShipTo,
+			CreatedBy:      int(ctx.Locals("userID").(float64)),
+		}
 
-		var listOrderParts []models.ListOrderPart
-
-		if err := tx.Where("outbound_id = ?", item.OutboundID).Find(&listOrderParts).Error; err != nil {
+		if err := tx.Create(&orderDetail).Error; err != nil {
 			tx.Rollback()
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
+	}
 
-		if len(listOrderParts) == 0 {
+	// Update ListOrderPart
+	for _, item := range orderOpenSelecteds {
+		if err := tx.Model(&models.ListOrderPart{}).
+			Where("status = 'open' AND delivery_number = ?", item.DeliveryNumber).
+			Updates(map[string]interface{}{
+				"order_id":   orderHeader.ID,
+				"order_no":   orderNo,
+				"status":     "order",
+				"updated_by": int(ctx.Locals("userID").(float64)),
+				"updated_at": time.Now(),
+			}).Error; err != nil {
 			tx.Rollback()
-			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "ListOrderPart not found"})
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
+	}
 
-		for _, do := range listOrderParts {
-			orderDetail := models.OrderDetail{
-				OrderID:         orderHeader.ID,
-				OrderNo:         orderNo,
-				DeliveryNumber:  do.DeliveryNumber,
-				ListOrderPartID: do.ID,
-				ShipTo:          do.ShipTo,
-				Volume:          do.Volume,
-				Qty:             do.Qty,
-				UnitPrice:       0,
-				DestinationCity: do.CustomerName,
-				CreatedBy:       int(ctx.Locals("userID").(float64)),
-			}
-
-			if err := tx.Create(&orderDetail).Error; err != nil {
-				tx.Rollback()
-				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-			}
-
-			if err := tx.Model(&models.ListOrderPart{}).
-				Where("id = ?", do.ID).
-				Updates(map[string]interface{}{
-					"order_id":   orderHeader.ID,
-					"order_no":   orderNo,
-					"status":     "order",
-					"updated_by": int(ctx.Locals("userID").(float64)),
-					"updated_at": time.Now(),
-				}).
-				Error; err != nil {
-				tx.Rollback()
-				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-			}
-		}
+	// Update Total Order In Order Header
+	if err := tx.Model(&models.OrderHeader{}).
+		Where("id = ?", orderHeader.ID).
+		Updates(map[string]interface{}{
+			"total_order": len(orderOpenSelecteds),
+			"updated_by":  int(ctx.Locals("userID").(float64)),
+			"updated_at":  time.Now(),
+		}).Error; err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
 	if err := tx.Commit().Error; err != nil {
@@ -229,28 +259,46 @@ func (c *ShippingController) GetOrderByID(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	sql := `WITH lop AS(
-	SELECT order_id, count(item_id) AS total_item, customer_code, customer_name 
-	FROM list_order_parts
-	WHERE order_id > 0
-	GROUP BY order_id, customer_code, customer_name
-	)
-	SELECT a.order_id, a.delivery_number, a.destination_city, SUM(a.qty) AS total_qty, b.total_item  
-	FROM order_details a
-	INNER JOIN lop b ON a.order_id = b.order_id
-	WHERE a.order_id = ? 
-	group BY a.order_id, a.delivery_number, a.destination_city, b.total_item`
+	sql := `WITH lop AS (
+				SELECT 
+					order_id, 
+					delivery_number, 
+					COUNT(item_id) AS total_item, 
+					SUM(qty) AS total_qty, 
+					customer_code, 
+					customer_name 
+				FROM list_order_parts
+				WHERE order_id = ?
+				GROUP BY order_id, customer_code, customer_name, delivery_number
+			)
+			SELECT 
+				a.id,
+				a.order_id, 
+				a.delivery_number, 
+				a.customer,
+				a.ship_to,
+				b.total_qty, 
+				b.total_item  
+			FROM order_details a
+			INNER JOIN lop b ON a.order_id = b.order_id AND a.delivery_number = b.delivery_number
+			WHERE a.order_id = ?`
+
+	type OrderDetail struct {
+		ID             int    `json:"id"`
+		OrderID        int    `json:"order_id"`
+		DeliveryNumber string `json:"delivery_number"`
+		TotalItem      int    `json:"total_item"`
+		TotalQty       int    `json:"total_qty"`
+		Customer       string `json:"customer"`
+		ShipTo         string `json:"ship_to"`
+	}
 
 	var orderDetails []OrderDetail
-	if err := c.DB.Raw(sql, orderHeader.ID).Scan(&orderDetails).Error; err != nil {
+	if err := c.DB.Raw(sql, orderHeader.ID, orderHeader.ID).Scan(&orderDetails).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	if len(orderDetails) == 0 {
-		return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Order found", "data": []OrderDetail{}})
-	}
-
-	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Order found", "data": orderDetails})
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Order found", "data": fiber.Map{"order_header": orderHeader, "order_details": orderDetails}})
 }
 
 func (c *ShippingController) UnGroupOrder(ctx *fiber.Ctx) error {
@@ -306,4 +354,117 @@ func (c *ShippingController) UnGroupOrder(ctx *fiber.Ctx) error {
 	}
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Ungroup Order successfully"})
+}
+
+func (c *ShippingController) UpdateOrderDetailByID(ctx *fiber.Ctx) error {
+	type UpdateOrderRequest struct {
+		ID         int    `json:"id"`
+		DeliveryNo string `json:"delivery_number"`
+		Customer   string `json:"customer"`
+		ShipTo     string `json:"ship_to"`
+		TotalItem  int    `json:"total_item"`
+		TotalQty   int    `json:"total_qty"`
+	}
+
+	id := ctx.Params("id") // misal URL: /shipping/order/:id
+
+	var req UpdateOrderRequest
+	if err := ctx.BodyParser(&req); err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "Invalid request payload",
+			"error":   err.Error(),
+		})
+	}
+
+	// Update the order in the database
+	result := c.DB.Model(&models.OrderDetail{}).Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"delivery_number": req.DeliveryNo,
+			"customer":        req.Customer,
+			"ship_to":         req.ShipTo,
+			"updated_by":      int(ctx.Locals("userID").(float64)),
+			"updated_at":      time.Now(),
+		})
+
+	if result.Error != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to update order",
+			"error":   result.Error.Error(),
+		})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": "Order updated successfully",
+	})
+}
+
+func (c *ShippingController) UpdateOrderHeaderByID(ctx *fiber.Ctx) error {
+	id := ctx.Params("id") // misal URL: /shipping/order/:id
+
+	var req models.OrderHeader
+	if err := ctx.BodyParser(&req); err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "Invalid request payload",
+			"error":   err.Error(),
+		})
+	}
+
+	// Update the order in the database
+	result := c.DB.Model(&models.OrderHeader{}).Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"driver":        req.Driver,
+			"truck_no":      req.TruckNo,
+			"transporter":   req.Transporter,
+			"delivery_date": req.DeliveryDate,
+			"updated_by":    int(ctx.Locals("userID").(float64)),
+			"updated_at":    time.Now(),
+		})
+
+	if result.Error != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to update order",
+			"error":   result.Error.Error(),
+		})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": "Order updated successfully",
+	})
+}
+
+func (c *ShippingController) GetOrderDetailItemsByOrderNo(ctx *fiber.Ctx) error {
+	order_no := ctx.Params("order_no") // misal URL: /shipping/order/:id
+
+	orderHeader := models.OrderHeader{}
+	if err := c.DB.Where("order_no = ?", order_no).First(&orderHeader).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	if orderHeader.ID == 0 {
+		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Order not found"})
+	}
+
+	var orderDetails []models.OrderDetail
+	// pake preload
+	if err := c.DB.Where("order_id = ?", orderHeader.ID).Find(&orderDetails).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	var orderDetailItems []models.ListOrderPart
+	if err := c.DB.Where("order_id = ?", orderHeader.ID).Find(&orderDetailItems).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	var orderConsoles []models.OrderConsole
+	if err := c.DB.Where("order_id = ?", orderHeader.ID).Find(&orderConsoles).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "data": fiber.Map{"order_header": orderHeader, "order_details": orderDetails, "order_detail_items": orderDetailItems, "order_consoles": orderConsoles}})
 }

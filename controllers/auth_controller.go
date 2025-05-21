@@ -84,6 +84,37 @@ func (c *AuthController) Login(ctx *fiber.Ctx) error {
 		Secure:   false,
 	})
 
+	var menus []models.Menu
+	errMenu := c.DB.
+		Preload("Children").
+		Where("parent_id IS NULL").
+		Order("menu_order asc").
+		Find(&menus).Error
+	if errMenu != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": errMenu.Error()})
+	}
+
+	// Map ke bentuk frontend
+	var resultMenu []map[string]interface{}
+	for _, menu := range menus {
+		children := []map[string]interface{}{}
+		for _, child := range menu.Children {
+			children = append(children, map[string]interface{}{
+				"title": child.Name,
+				"url":   child.Path,
+			})
+		}
+
+		resultMenu = append(resultMenu, map[string]interface{}{
+			"title": menu.Name,
+			"url":   menu.Path,
+			"icon":  menu.Icon, // pastikan icon-nya string, misalnya "InboxIcon"
+			// "isActive": menu.IsActive, // boolean
+			"isActive": true,
+			"items":    children, // anak-anak menu
+		})
+	}
+
 	// Return data user (opsional, jangan kirim password)
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
 		"success": true,
@@ -96,6 +127,7 @@ func (c *AuthController) Login(ctx *fiber.Ctx) error {
 			"name":     mUser.Name,
 			"base_url": mUser.BaseRoute,
 		},
+		"menus": resultMenu,
 	})
 }
 

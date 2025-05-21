@@ -18,12 +18,14 @@ func SetupInboundRoutes(app *fiber.App, inboundController *controllers.InboundCo
 
 	api.Get("/create", inboundController.PreapareInbound)
 
-	api.Post("/", inboundController.CreateInbound)
-	api.Get("/", inboundController.GetAllListInbound)
 	api.Get("/:id", inboundController.GetInboundByID)
+	api.Get("/putaway/sheet/:id", inboundController.GetPutawaySheet)
+
+	api.Post("/", inboundController.SaveHeaderInbound)
+	api.Get("/", inboundController.GetAllListInbound)
 	api.Put("/:id", inboundController.UpdateInboundByID)
 	api.Put("/detail/:id", inboundController.UpdateDetailByID)
-	api.Post("/detail/", inboundController.AddNewItemInbound)
+	api.Post("/detail/", inboundController.CreateOrUpdateItemInbound)
 	api.Get("/detail/draft", inboundController.GetInboundDetailDraftByUserID)
 	api.Delete("/detail/:id", inboundController.DeleteInboundDetail)
 	api.Post("/complete/:id", inboundController.ProcessingInboundComplete)

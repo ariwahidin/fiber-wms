@@ -53,6 +53,8 @@ func main() {
 
 	// Setup routes
 	api := app.Group("/api")
+	// guestApi := app.Group("/guest/api")
+	// Aplikasikan middleware auth ke semua route di bawah /api
 
 	routes.SetupUserRoutes(app, userController)
 	routes.SetupProductRoutes(app, productController)
@@ -71,14 +73,17 @@ func main() {
 	routes.SetupMobileInboundRoutes(app, controllers.NewMobileInboundController(db))
 	routes.SetupMobileInventoryRoutes(app, mobiles.NewMobileInventoryController(db))
 	routes.SetupMobileOutboundRoutes(app, mobiles.NewMobileOutboundController(db))
+
 	routes.SetupShippingRoutes(app, db)
+	routes.SetupMenuRoutes(app, db)
+
+	routes.SetupMobileShippingGuestRoutes(app, mobiles.NewShippingGuestController(db))
 
 	// Route login (tidak perlu middleware auth)
 	api.Post("/v1/login", authController.Login)
 	api.Get("/v1/logout", authController.Logout)
 	api.Get("/v1/isLoggedIn", middleware.AuthMiddleware, authController.IsLoggedIn)
 
-	// Aplikasikan middleware auth ke semua route di bawah /api
 	api.Use(middleware.AuthMiddleware)
 
 	port := config.APP_PORT

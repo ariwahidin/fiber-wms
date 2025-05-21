@@ -36,4 +36,6 @@ type Permission struct {
 	CreatedBy   int
 	UpdatedBy   int
 	DeletedBy   int
+
+	Menus []Menu `gorm:"many2many:menu_permissions;"`
 }

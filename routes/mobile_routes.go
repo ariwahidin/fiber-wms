@@ -37,3 +37,10 @@ func SetupMobileOutboundRoutes(app *fiber.App, mobileOutboundController *mobiles
 	api.Get("/outbound/picking/scan/:id", mobileOutboundController.GetListOutboundBarcode)
 	api.Delete("/outbound/picking/scan/:id", mobileOutboundController.DeleteOutboundBarcode)
 }
+
+func SetupMobileShippingGuestRoutes(app *fiber.App, shippingGuestController *mobiles.ShippingGuestController) {
+	// api := app.Group("/api/v1/mobile/", middleware.AuthMiddleware)
+	api := app.Group("/guest/api/v1")
+	api.Get("/shipping/open/:spk", shippingGuestController.GetListShippingOpenBySPK)
+	api.Put("/shipping/update/:order_no", shippingGuestController.UpdateShipping)
+}
