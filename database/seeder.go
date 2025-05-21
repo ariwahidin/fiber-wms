@@ -94,6 +94,30 @@ func SeedMenus(db *gorm.DB) error {
 	return nil
 }
 
+func SeedUserMaster(db *gorm.DB) {
+	users := []models.User{
+		{
+			Username: "admin",
+			Password: "admin",
+			Name:     "Admin",
+			Email:    "admin@example.com",
+			// Role:     "admin",
+		},
+	}
+
+	for _, user := range users {
+		var existing models.User
+		err := db.Where("email = ?", user.Email).First(&existing).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			if err := db.Create(&user).Error; err != nil {
+				log.Println("Gagal insert user:", user.Username, err)
+			} else {
+				log.Println("Insert user:", user.Username)
+			}
+		}
+	}
+}
+
 func getMenuIDByName(db *gorm.DB, name string) *uint {
 	var parent models.Menu
 	err := db.Where("name = ?", name).First(&parent).Error
