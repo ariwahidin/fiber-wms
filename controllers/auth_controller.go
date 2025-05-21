@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"errors"
+	"fiber-app/config"
 	"fiber-app/models"
 	"os"
 	"time"
@@ -71,18 +72,7 @@ func (c *AuthController) Login(ctx *fiber.Ctx) error {
 	}
 
 	// Simpan token ke cookie
-	ctx.Cookie(&fiber.Cookie{
-		Name:    "token",
-		Value:   tokenString,
-		Expires: time.Now().Add(60 * time.Minute * 24), // Cookie berlaku 24 jam
-		// Expires:  time.Now().Add(time.Second * 50),
-		HTTPOnly: true,
-		// SameSite: "Strict",
-		// Secure:   true,
-		// SameSite: "None",
-		SameSite: "Lax",
-		Secure:   false,
-	})
+	ctx.Cookie(config.GetTokenCookie(tokenString))
 
 	var menus []models.Menu
 	errMenu := c.DB.
@@ -133,17 +123,7 @@ func (c *AuthController) Login(ctx *fiber.Ctx) error {
 
 func (c *AuthController) Logout(ctx *fiber.Ctx) error {
 	// Hapus token dari cookie
-	ctx.Cookie(&fiber.Cookie{
-		Name:     "token",
-		Value:    "",
-		Expires:  time.Now(),
-		HTTPOnly: true,
-		// Secure:   true,
-		// SameSite: "Strict",
-
-		SameSite: "Lax",
-		Secure:   false,
-	})
+	ctx.Cookie(config.GetTokenCookie(""))
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
 		"success": true,

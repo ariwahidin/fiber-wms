@@ -1,8 +1,8 @@
 package middleware
 
 import (
+	"fiber-app/config"
 	"fiber-app/models"
-	"fmt"
 	"os"
 	"time"
 
@@ -46,9 +46,9 @@ func AuthMiddleware(ctx *fiber.Ctx) error {
 		return []byte(os.Getenv("JWT_SECRET")), nil
 	})
 
-	fmt.Println("token: ", token)
+	// fmt.Println("token: ", token)
 	// check sisa waktu token dalam string
-	fmt.Println("token.Valid: ", token.Valid)
+	// fmt.Println("token.Valid: ", token.Valid)
 
 	// Handle error saat parsing token
 	if err != nil {
@@ -72,17 +72,17 @@ func AuthMiddleware(ctx *fiber.Ctx) error {
 		}
 		expTime := int64(exp)
 
-		// Ambil waktu kedaluwarsa token
-		if exp, ok := claims["exp"].(float64); ok {
-			expTime := time.Unix(int64(exp), 0)
-			sisaWaktu := time.Until(expTime)
+		// // Ambil waktu kedaluwarsa token
+		// if exp, ok := claims["exp"].(float64); ok {
+		// 	expTime := time.Unix(int64(exp), 0)
+		// 	sisaWaktu := time.Until(expTime)
 
-			fmt.Println("Token masih valid")
-			fmt.Println("Waktu kedaluwarsa:", expTime)
-			fmt.Println("Sisa waktu:", sisaWaktu)
-		} else {
-			fmt.Println("Token tidak memiliki 'exp' claim")
-		}
+		// 	fmt.Println("Token masih valid")
+		// 	fmt.Println("Waktu kedaluwarsa:", expTime)
+		// 	fmt.Println("Sisa waktu:", sisaWaktu)
+		// } else {
+		// 	fmt.Println("Token tidak memiliki 'exp' claim")
+		// }
 
 		currentTime := time.Now().Unix()
 
@@ -110,23 +110,7 @@ func AuthMiddleware(ctx *fiber.Ctx) error {
 			}
 
 			// Simpan token baru ke cookie
-			ctx.Cookie(&fiber.Cookie{
-				// Name:    "token",
-				// Value:   newTokenString,
-				// Expires: time.Now().Add(60 * time.Minute * 24),
-				// // Expires:  time.Now().Add(time.Second * 50),
-				// HTTPOnly: true,
-				// Secure:   true,
-				// // SameSite: "Strict",
-				// SameSite: "None",
-
-				Name:     "token",
-				Value:    newTokenString,
-				Expires:  time.Now().Add(60 * time.Minute * 24), // Cookie berlaku 24 jam
-				HTTPOnly: true,
-				SameSite: "Lax",
-				Secure:   false,
-			})
+			ctx.Cookie(config.GetTokenCookie(newTokenString))
 
 			// ctx.Set("X-New-Token", newTokenString) // Kirim token baru di header response
 		}
