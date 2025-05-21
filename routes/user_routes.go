@@ -5,9 +5,11 @@ import (
 	"fiber-app/middleware"
 
 	"github.com/gofiber/fiber/v2"
+	"gorm.io/gorm"
 )
 
-func SetupUserRoutes(app *fiber.App, userController *controllers.UserController) {
+func SetupUserRoutes(app *fiber.App, db *gorm.DB) {
+	userController := controllers.NewUserController(db)
 
 	api := app.Group("/api/v1/users", middleware.AuthMiddleware)
 

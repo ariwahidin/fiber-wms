@@ -38,7 +38,6 @@ func main() {
 
 	// authMiddleware := middleware.NewAuthMiddleware(db)
 	authController := controllers.NewAuthController(db)
-	userController := controllers.NewUserController(db)
 	productController := controllers.NewProductController(db)
 	customerController := controllers.NewCustomerController(db)
 	supplierController := controllers.NewSupplierController(db)
@@ -56,7 +55,6 @@ func main() {
 	// guestApi := app.Group("/guest/api")
 	// Aplikasikan middleware auth ke semua route di bawah /api
 
-	routes.SetupUserRoutes(app, userController)
 	routes.SetupProductRoutes(app, productController)
 	routes.SetupCustomerRoutes(app, customerController)
 	routes.SetupSupplierRoutes(app, supplierController)
@@ -76,6 +74,7 @@ func main() {
 	routes.SetupMobileOutboundRoutes(app, mobiles.NewMobileOutboundController(db))
 
 	routes.SetupShippingRoutes(app, db)
+	routes.SetupUserRoutes(app, db)
 	routes.SetupMenuRoutes(app, db)
 
 	routes.SetupMobileShippingGuestRoutes(app, mobiles.NewShippingGuestController(db))

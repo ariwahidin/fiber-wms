@@ -9,13 +9,12 @@ import (
 )
 
 func SetupMenuRoutes(app *fiber.App, db *gorm.DB) {
+	menuController := controllers.NewMenuController(db)
 
 	api := app.Group(
 		"/api/v1/menus",
 		middleware.AuthMiddleware,
 	)
-
-	menuController := controllers.NewMenuController(db)
 
 	api.Get("/permissions/:id", menuController.GetMenuPermission)
 	api.Post("/permissions/:id", menuController.UpdatePermissionMenus)
