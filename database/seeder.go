@@ -13,6 +13,7 @@ func RunSeeders(db *gorm.DB) {
 	SeedMenus(db)
 	SeedUoms(db)
 	SeedWarehouse(db)
+	SeedUserMaster(db)
 }
 
 func SeedUoms(db *gorm.DB) {
