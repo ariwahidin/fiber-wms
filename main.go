@@ -70,6 +70,7 @@ func main() {
 	routes.SetupOutboundRoutes(app, db)
 	routes.SetupStockTakeRoutes(app, db)
 	routes.SetupRfOutboundRoutes(app, db)
+
 	routes.SetupMobileInboundRoutes(app, controllers.NewMobileInboundController(db))
 	routes.SetupMobileInventoryRoutes(app, mobiles.NewMobileInventoryController(db))
 	routes.SetupMobileOutboundRoutes(app, mobiles.NewMobileOutboundController(db))

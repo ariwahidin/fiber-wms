@@ -8,6 +8,7 @@ import (
 )
 
 func SetupUserRoutes(app *fiber.App, userController *controllers.UserController) {
+
 	api := app.Group("/api/v1/users", middleware.AuthMiddleware)
 
 	api.Post("/", userController.CreateUser)
