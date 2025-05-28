@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"fiber-app/config"
 	"fiber-app/controllers"
 	"fiber-app/controllers/mobiles"
 	"fiber-app/middleware"
@@ -9,7 +10,7 @@ import (
 )
 
 func SetupMobileInboundRoutes(app *fiber.App, mobileInboundController *controllers.MobileInboundController) {
-	api := app.Group("/api/v1/mobile/", middleware.AuthMiddleware)
+	api := app.Group(config.MAIN_ROUTES+"/mobile", middleware.AuthMiddleware)
 	api.Get("/inbound/list/open", mobileInboundController.GetListInbound)
 	api.Post("/inbound/scan", mobileInboundController.ScanInbound)
 	api.Get("/inbound/scan/:id", mobileInboundController.GetScanInbound)
@@ -21,7 +22,7 @@ func SetupMobileInboundRoutes(app *fiber.App, mobileInboundController *controlle
 }
 
 func SetupMobileInventoryRoutes(app *fiber.App, mobileInventoryController *mobiles.MobileInventoryController) {
-	api := app.Group("/api/v1/mobile/", middleware.AuthMiddleware)
+	api := app.Group(config.MAIN_ROUTES, middleware.AuthMiddleware)
 	api.Get("/inventory/location/:location", mobileInventoryController.GetItemsByLocation)
 	api.Post("/inventory/dummy", mobileInventoryController.CreateDummyInventory)
 	api.Post("/inventory/location/barcode", mobileInventoryController.GetItemsByLocationAndBarcode)
@@ -30,7 +31,7 @@ func SetupMobileInventoryRoutes(app *fiber.App, mobileInventoryController *mobil
 }
 
 func SetupMobileOutboundRoutes(app *fiber.App, mobileOutboundController *mobiles.MobileOutboundController) {
-	api := app.Group("/api/v1/mobile/", middleware.AuthMiddleware)
+	api := app.Group(config.MAIN_ROUTES+"/mobile", middleware.AuthMiddleware)
 	api.Get("/outbound/list/open", mobileOutboundController.GetListOutbound)
 	api.Get("/outbound/detail/:outbound_no", mobileOutboundController.GetListOutboundDetail)
 	api.Post("/outbound/picking/scan", mobileOutboundController.ScanPicking)
@@ -43,4 +44,13 @@ func SetupMobileShippingGuestRoutes(app *fiber.App, shippingGuestController *mob
 	api := app.Group("/guest/api/v1")
 	api.Get("/shipping/open/:spk", shippingGuestController.GetListShippingOpenBySPK)
 	api.Put("/shipping/update/:order_no", shippingGuestController.UpdateShipping)
+}
+
+func SetupMobilePackingRoutes(app *fiber.App, packingController *mobiles.MobilePackingController) {
+	api := app.Group(config.MAIN_ROUTES+"/mobile", middleware.AuthMiddleware)
+	api.Post("/packing/generate", packingController.GenerateKoli)
+	api.Get("/packing/koli/:outbound_no", packingController.GetKoliByOutbound)
+	api.Post("/packing/add", packingController.AddToKoli)
+	api.Delete("/packing/koli/detail/:id", packingController.RemoveItemFromKoli)
+	api.Delete("/packing/koli/:id", packingController.RemoveKoliByID)
 }

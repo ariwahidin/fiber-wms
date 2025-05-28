@@ -38,14 +38,13 @@ func main() {
 
 	// authMiddleware := middleware.NewAuthMiddleware(db)
 	authController := controllers.NewAuthController(db)
-	productController := controllers.NewProductController(db)
-	customerController := controllers.NewCustomerController(db)
-	supplierController := controllers.NewSupplierController(db)
-	handlingController := controllers.NewHandlingController(db)
-	transporterController := controllers.NewTransporterController(db)
-	truckController := controllers.NewTruckController(db)
-	originController := controllers.NewOriginController(db)
-	RfInboundController := controllers.NewRfInboundController(db)
+
+	// customerController := controllers.NewCustomerController(db)
+	// handlingController := controllers.NewHandlingController(db)
+	// transporterController := controllers.NewTransporterController(db)
+	// truckController := controllers.NewTruckController(db)
+	// originController := controllers.NewOriginController(db)
+	// RfInboundController := controllers.NewRfInboundController(db)
 
 	// Setup CORS middleware
 	config.SetupCORS(app)
@@ -55,36 +54,38 @@ func main() {
 	// guestApi := app.Group("/guest/api")
 	// Aplikasikan middleware auth ke semua route di bawah /api
 
-	routes.SetupProductRoutes(app, productController)
-	routes.SetupCustomerRoutes(app, customerController)
-	routes.SetupSupplierRoutes(app, supplierController)
+	routes.SetupProductRoutes(app, controllers.NewProductController(db))
+	routes.SetupSupplierRoutes(app, controllers.NewSupplierController(db))
+	routes.SetupWarehouseRoutes(app, controllers.SetuWarehouseController(db))
+	routes.SetupCustomerRoutes(app, controllers.NewCustomerController(db))
 	routes.SetupInboundRoutes(app, controllers.NewInboundController(db), db)
-	routes.SetupHandlingRoutes(app, handlingController)
-	routes.SetupTransporterRoutes(app, transporterController)
-	routes.SetupTruckRoutes(app, truckController)
-	routes.SetupOriginRoutes(app, originController)
-	routes.SetupRfInboundRoutes(app, RfInboundController)
-	routes.SetupInventoryRoutes(app, controllers.NewInventoryController(db))
 	routes.SetupOutboundRoutes(app, db)
-	routes.SetupStockTakeRoutes(app, db)
-	routes.SetupRfOutboundRoutes(app, db)
 
+	// routes.SetupHandlingRoutes(app, handlingController)
+	// routes.SetupTransporterRoutes(app, transporterController)
+	// routes.SetupTruckRoutes(app, truckController)
+	// routes.SetupOriginRoutes(app, originController)
+	// routes.SetupRfInboundRoutes(app, RfInboundController)
+	routes.SetupInventoryRoutes(app, controllers.NewInventoryController(db))
+	// routes.SetupOutboundRoutes(app, db)
+	// routes.SetupStockTakeRoutes(app, db)
+	// routes.SetupRfOutboundRoutes(app, db)
 	routes.SetupMobileInboundRoutes(app, controllers.NewMobileInboundController(db))
-	routes.SetupMobileInventoryRoutes(app, mobiles.NewMobileInventoryController(db))
+	// routes.SetupMobileInventoryRoutes(app, mobiles.NewMobileInventoryController(db))
 	routes.SetupMobileOutboundRoutes(app, mobiles.NewMobileOutboundController(db))
-
+	routes.SetupMobilePackingRoutes(app, mobiles.NewMobilePackingController(db))
 	routes.SetupShippingRoutes(app, db)
-	routes.SetupUserRoutes(app, db)
-	routes.SetupMenuRoutes(app, db)
+	// routes.SetupUserRoutes(app, db)
+	// routes.SetupMenuRoutes(app, db)
 
-	routes.SetupMobileShippingGuestRoutes(app, mobiles.NewShippingGuestController(db))
+	// routes.SetupMobileShippingGuestRoutes(app, mobiles.NewShippingGuestController(db))
 
 	// Route login (tidak perlu middleware auth)
 	api.Post("/v1/login", authController.Login)
 	api.Get("/v1/logout", authController.Logout)
 	api.Get("/v1/isLoggedIn", middleware.AuthMiddleware, authController.IsLoggedIn)
 
-	api.Use(middleware.AuthMiddleware)
+	// api.Use(middleware.AuthMiddleware)
 
 	port := config.APP_PORT
 	fmt.Println("🚀 Server berjalan di port " + port)

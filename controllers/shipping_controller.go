@@ -298,6 +298,10 @@ func (c *ShippingController) GetOrderByID(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	if len(orderDetails) == 0 {
+		orderDetails = []OrderDetail{}
+	}
+
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Order found", "data": fiber.Map{"order_header": orderHeader, "order_details": orderDetails}})
 }
 

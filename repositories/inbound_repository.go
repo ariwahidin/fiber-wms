@@ -18,6 +18,7 @@ type InboundRepository struct {
 type listInbound struct {
 	ID              uint   `json:"id"`
 	InboundNo       string `json:"inbound_no"`
+	PONumber        string `json:"po_number"`
 	SupplierID      string `json:"supplier_id"`
 	SupplierName    string `json:"supplier_name"`
 	Status          string `json:"status"`
@@ -237,7 +238,7 @@ func (r *InboundRepository) GetAllInbound() ([]listInbound, error) {
 			a.origin_id, a.time_arrival, a.start_unloading, a.finish_unloading,
 			a.status, a.inbound_date, a.remarks as remarks_header,
 			b.total_line, b.total_qty, COALESCE(ib.qty_scan, 0) as qty_scan,
-			c.supplier_name, a.status, d.transporter_name
+			c.supplier_name, a.status, d.transporter_name, a.po_number
 			FROM 
 			inbound_headers a
 			LEFT JOIN detail b ON a.id = b.inbound_id

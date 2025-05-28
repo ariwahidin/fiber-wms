@@ -27,20 +27,27 @@ func (c *MobileOutboundController) GetListOutbound(ctx *fiber.Ctx) error {
 		DeliveryNo   string    `json:"delivery_no"`
 		QtyReq       int       `json:"qty_req"`
 		QtyScan      int       `json:"qty_scan"`
+		QtyPack      int       `json:"qty_pack"`
 		UpdatedAt    time.Time `json:"updated_at"`
 	}
 
 	sql := `WITH od AS
 	(SELECT outbound_id, SUM(quantity) qty_req, SUM(scan_qty) as scan_qty 
 	FROM outbound_details
-	GROUP BY outbound_id)
+	GROUP BY outbound_id),
+	kd AS (
+	SELECT outbound_id, SUM(qty) AS qty_pack
+	FROM koli_details
+	GROUP BY outbound_id
+	)
 
 	SELECT a.id, a.outbound_no, b.customer_name,
-	a.delivery_no, od.qty_req, od.scan_qty,
+	a.delivery_no, od.qty_req, od.scan_qty, kd.qty_pack,
 	a.status, a.updated_at
 	FROM outbound_headers a
 	INNER JOIN customers b ON a.customer_code = b.customer_code
 	LEFT JOIN od ON a.id = od.outbound_id
+	LEFT JOIN kd ON a.id = kd.outbound_id
 	WHERE a.status = 'picking'
 	ORDER BY a.id DESC`
 	var listOutbound []listOutboundResponse

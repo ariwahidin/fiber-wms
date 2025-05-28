@@ -8,8 +8,9 @@ type InboundHeader struct {
 	gorm.Model
 	InboundNo       string `json:"inbound_no" gorm:"unique"`
 	SupplierId      int    `json:"supplier_id"`
+	Supplier        string `json:"supplier"`
 	Status          string `json:"status" gorm:"default:'draft'"`
-	InboundDate     string `gorm:"type:date" json:"inbound_date"`
+	InboundDate     string `json:"inbound_date"`
 	InvoiceNo       string `json:"invoice"`
 	TransporterID   int    `json:"transporter_id"`
 	Driver          string `json:"driver"`
@@ -18,6 +19,7 @@ type InboundHeader struct {
 	ContainerNo     string `json:"container_no"`
 	BlNo            string `json:"bl_no"`
 	PoNo            string `json:"po_no"`
+	PoNumber        string `json:"po_number"`
 	PoDate          string `gorm:"type:date" json:"po_date"`
 	SjNo            string `json:"sj_no"`
 	OriginId        int    `json:"origin_id"`

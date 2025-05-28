@@ -17,47 +17,6 @@ func NewUserController(DB *gorm.DB) *UserController {
 	return &UserController{DB: DB}
 }
 
-// Create user
-// func (c *UserController) CreateUser(ctx *fiber.Ctx) error {
-
-// 	var userInput struct {
-// 		Username string `json:"username" validate:"required,min=3"`
-// 		Name     string `json:"name" validate:"required,min=3"`
-// 		Email    string `json:"email" validate:"required,email"`
-// 		Password string `json:"password" validate:"required,min=6"`
-// 	}
-
-// 	// Parse Body
-// 	if err := ctx.BodyParser(&userInput); err != nil {
-// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
-// 	}
-
-// 	// Validasi input menggunakan validator
-// 	validate := validator.New()
-// 	if err := validate.Struct(userInput); err != nil {
-// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
-// 	}
-
-// 	// Membuat user dengan memasukkan data ke struct models.User
-// 	user := models.User{
-// 		Username:  userInput.Username,
-// 		Name:      userInput.Name,
-// 		Email:     userInput.Email,
-// 		Password:  userInput.Password,
-// 		CreatedBy: int(ctx.Locals("userID").(float64)),
-// 	}
-
-// 	// Hanya menyimpan field yang dipilih dengan menggunakan Select
-// 	result := c.DB.Select("username", "name", "email", "password", "created_by").Create(&user)
-// 	if result.Error != nil {
-// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": result.Error.Error()})
-// 	}
-
-// 	// Respons sukses
-// 	return ctx.Status(fiber.StatusCreated).JSON(fiber.Map{"message": "User created successfully"})
-
-// }
-
 func (c *UserController) CreateUser(ctx *fiber.Ctx) error {
 	var userInput struct {
 		Username    string `json:"username" validate:"required,min=3"`
@@ -124,26 +83,6 @@ func (c *UserController) CreateUser(ctx *fiber.Ctx) error {
 	})
 }
 
-// Get user by ID
-// func (c *UserController) GetUserByID(ctx *fiber.Ctx) error {
-// 	id, err := ctx.ParamsInt("id")
-// 	if err != nil {
-// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid ID"})
-// 	}
-
-// 	var result models.User
-// 	if err := c.DB.First(&result, id).Error; err != nil {
-// 		if errors.Is(err, gorm.ErrRecordNotFound) {
-// 			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "User not found"})
-// 		}
-// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-// 	}
-
-// 	result.Password = ""
-
-// 	return ctx.Status(fiber.StatusOK).JSON(result)
-// }
-
 func (c *UserController) GetUserByID(ctx *fiber.Ctx) error {
 	id := ctx.Params("id")
 	var user models.User
@@ -165,7 +104,6 @@ func (c *UserController) GetUserByID(ctx *fiber.Ctx) error {
 	})
 }
 
-// Get all users
 func (c *UserController) GetAllUsers(ctx *fiber.Ctx) error {
 	var users []models.User
 	if err := c.DB.Find(&users).Error; err != nil {
@@ -182,53 +120,6 @@ func (c *UserController) GetAllUsers(ctx *fiber.Ctx) error {
 		"success": true,
 	})
 }
-
-// Update user
-// func (c *UserController) UpdateUser(ctx *fiber.Ctx) error {
-// 	id, err := ctx.ParamsInt("id")
-// 	if err != nil {
-// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid ID"})
-// 	}
-
-// 	var userInput struct {
-// 		Username string `json:"username" validate:"required,min=3"`
-// 		Name     string `json:"name" validate:"required,min=3"`
-// 		Email    string `json:"email" validate:"required,email"`
-// 		Password string `json:"password" validate:"required,min=6"`
-// 	}
-
-// 	// Parse Body
-// 	if err := ctx.BodyParser(&userInput); err != nil {
-// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
-// 	}
-
-// 	// Validasi input menggunakan validator
-// 	validate := validator.New()
-// 	if err := validate.Struct(userInput); err != nil {
-// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
-// 	}
-
-// 	// Membuat user dengan memasukkan data ke struct models.User
-// 	user := models.User{
-// 		Username:  userInput.Username,
-// 		Name:      userInput.Name,
-// 		Email:     userInput.Email,
-// 		Password:  userInput.Password,
-// 		UpdatedBy: int(ctx.Locals("userID").(float64)),
-// 	}
-
-// 	user.UpdatedAt = ctx.Context().Time()
-
-// 	// Hanya menyimpan field yang dipilih dengan menggunakan Select
-// 	result := c.DB.Select("username", "name", "email", "password", "updated_by", "updated_at").Where("id = ?", id).Updates(&user)
-// 	if result.Error != nil {
-// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": result.Error.Error()})
-// 	}
-
-// 	// Respons sukses
-// 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"message": "User updated successfully"})
-
-// }
 
 func (c *UserController) UpdateUser(ctx *fiber.Ctx) error {
 	id := ctx.Params("id") // Ambil ID user dari route parameter
@@ -356,10 +247,6 @@ func (c *UserController) GetProfile(ctx *fiber.Ctx) error {
 	userProfile.Email = user.Email
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"data": userProfile, "success": true})
 }
-
-// Role
-
-// create role
 
 func (c *UserController) CreateRole(ctx *fiber.Ctx) error {
 	var role models.Role

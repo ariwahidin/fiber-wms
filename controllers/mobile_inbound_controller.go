@@ -82,7 +82,7 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	fmt.Println("scanInbound : ", scanInbound)
+	// fmt.Println("scanInbound : ", scanInbound)
 	// return nil
 
 	// start db transaction
@@ -173,7 +173,7 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 		ItemCode:        product.ItemCode,
 		Barcode:         scanInbound.Barcode,
 		ScanType:        scanInbound.ScanType,
-		WhsCode:         scanInbound.WhsCode,
+		WhsCode:         inboundDetail.WhsCode,
 		QaStatus:        scanInbound.QaStatus,
 		ScanData:        scanInbound.Serial,
 		SerialNumber:    scanInbound.Serial,

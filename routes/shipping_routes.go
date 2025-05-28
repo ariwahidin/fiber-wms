@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"fiber-app/config"
 	"fiber-app/controllers"
 	"fiber-app/middleware"
 
@@ -12,7 +13,7 @@ func SetupShippingRoutes(app *fiber.App, db *gorm.DB) {
 	shippingController := controllers.NewShippingController(db)
 	// inboundMidleware := middleware.NewAuthMiddleware(db)
 	api := app.Group(
-		"/api/v1/shipping",
+		config.MAIN_ROUTES+"/shipping",
 		middleware.AuthMiddleware,
 		// inboundMidleware.CheckPermission("create_inbound"),
 	)

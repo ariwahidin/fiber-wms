@@ -29,7 +29,7 @@ func AuthMiddleware(ctx *fiber.Ctx) error {
 
 	if tokenStringCookie == "" {
 		return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-			"message": "Unauthorized: Missing token",
+			"message": "Unauthorized: Missing tokening cookie ssss",
 		})
 	}
 

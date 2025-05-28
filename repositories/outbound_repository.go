@@ -21,10 +21,10 @@ type OutboundList struct {
 	OutboundDate string `json:"outbound_date"`
 	CustomerCode string `json:"customer_code"`
 	CustomerName string `json:"customer_name"`
-	TotalLine    int    `json:"total_line"`
-	TotalQtyReq  int    `json:"total_qty_req"`
-	PlanPick     int    `json:"plan_pick"`
-	PickedQty    int    `json:"picked_qty"`
+	TotalItem    int    `json:"total_item"`
+	QtyReq       int    `json:"qty_req"`
+	QtyPlan      int    `json:"qty_plan"`
+	QtyPack      int    `json:"qty_pack"`
 	Status       string `json:"status"`
 }
 
@@ -162,27 +162,55 @@ func (r *OutboundRepository) CreateItemOutbound(header *models.OutboundHeader, d
 func (r *OutboundRepository) GetAllOutboundList() ([]OutboundList, error) {
 	var outboundList []OutboundList
 
-	sql := `with details as
-    (select outbound_id, count(outbound_id) as total_line,
-    sum(quantity) as total_qty_req, sum(scan_qty) as scan_qty
+	// sql := `with details as
+	// (select outbound_id, count(outbound_id) as total_line,
+	// sum(quantity) as total_qty_req, sum(scan_qty) as scan_qty
+	// from outbound_details od
+	// group by outbound_id),
+	// plan_pick as(
+	//         select outbound_id, sum(qty_onhand) as plan_pick
+	//         from picking_sheets
+	//         where is_suggestion = 'Y'
+	//         group by outbound_id
+	// )
+	//         select a.id, a.outbound_no, a.delivery_no, a.status,
+	//         a.outbound_date, a.customer_code, c.customer_name,
+	//         b.total_line, b.total_qty_req,
+	//         coalesce(e.plan_pick, 0) as plan_pick,
+	//         coalesce(b.scan_qty, 0) as picked_qty
+	//         from outbound_headers a
+	//         left join details b on a.id = b.outbound_id
+	//         left join customers c on a.customer_code = c.customer_code
+	//         left join plan_pick e on e.outbound_id = a.id
+	//         order by a.id desc`
+
+	sql := `WITH od AS 
+	 (select outbound_id, count(outbound_id) as total_item,
+    sum(quantity) as qty_req
     from outbound_details od
     group by outbound_id),
-    plan_pick as(
-            select outbound_id, sum(qty_onhand) as plan_pick
-            from picking_sheets
-            where is_suggestion = 'Y'
-            group by outbound_id
-    )
-            select a.id, a.outbound_no, a.delivery_no, a.status,
-            a.outbound_date, a.customer_code, c.customer_name,
-            b.total_line, b.total_qty_req,
-            coalesce(e.plan_pick, 0) as plan_pick,
-            coalesce(b.scan_qty, 0) as picked_qty
+   ps AS(
+		SELECT outbound_id, COUNT(item_id) AS total_item,  
+		SUM(qty_onhand) AS qty_plan
+		FROM picking_sheets
+		GROUP BY outbound_id
+	),
+	kd AS(
+		SELECT outbound_id, SUM(qty) AS qty_pack
+		FROM koli_details
+		GROUP BY outbound_id
+	)
+   select a.id, a.outbound_no, a.delivery_no, a.status,
+            a.outbound_date, a.customer_code,
+            od.total_item, od.qty_req, COALESCE(ps.qty_plan, 0) AS qty_plan,
+            COALESCE(kd.qty_pack, 0) AS qty_pack,
+            cs.customer_name
             from outbound_headers a
-            inner join details b on a.id = b.outbound_id
-            inner join customers c on a.customer_code = c.customer_code
-            left join plan_pick e on e.outbound_id = a.id
-            order by a.id desc`
+            left join od on a.id = od.outbound_id
+            LEFT JOIN ps ON a.id = ps.outbound_id
+            LEFT JOIN kd ON a.id = kd.outbound_id
+            LEFT JOIN customers cs ON a.customer_code = cs.customer_code
+			order by a.id desc`
 
 	if err := r.db.Raw(sql).Scan(&outboundList).Error; err != nil {
 		return nil, err

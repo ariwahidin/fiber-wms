@@ -7,12 +7,14 @@ import (
 type OutboundHeader struct {
 	gorm.Model
 	OutboundNo   string `json:"outbound_no" gorm:"unique"`
+	OutboundDate string `json:"outbound_date"`
 	DeliveryNo   string `json:"delivery_no"`
+	Customer     string `json:"customer"`
+	CustomerID   int    `json:"customer_id" gorm:"default:null"`
 	CustomerCode string `json:"customer_code" validate:"required"`
 	CustomerName string `json:"customer_name"`
 	OwnerCode    string `json:"owner_code" validate:"required" gorm:"not null"`
 	Status       string `json:"status" gorm:"default:'draft'"`
-	OutboundDate string `gorm:"type:date" json:"outbound_date"`
 	User_Def1    string `json:"user_def1"`
 	User_Def2    string `json:"user_def2"`
 	User_Def3    string `json:"user_def3"`
