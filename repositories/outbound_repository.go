@@ -364,3 +364,64 @@ func (r *OutboundRepository) GetOutboundDetailItem(outbound_id int, outbound_det
 
 	return outboundDetailList, nil
 }
+
+type OutboundItem struct {
+	OutboundDetailID int    `json:"outbound_detail_id"`
+	OutboundID       int    `json:"outbound_id"`
+	ItemID           int    `json:"item_id"`
+	QtyReq           int    `json:"qty_req"`
+	QtyScan          int    `json:"qty_scan"`
+	Status           string `json:"status"`
+	OutboundNo       string `json:"outbound_no"`
+	QtyPack          int    `json:"qty_pack"`
+}
+
+func (r *OutboundRepository) GetOutboundItemByID(outbound_id int) ([]OutboundItem, error) {
+
+	var outboundItems []OutboundItem
+
+	sql := `WITH od AS (
+				SELECT 
+					id AS outbound_detail_id, 
+					outbound_id, 
+					item_id, 
+					SUM(quantity) AS qty_req, 
+					SUM(scan_qty) AS scan_qty, 
+					status, 
+					outbound_no
+				FROM outbound_details
+				GROUP BY outbound_id, item_id, id, status, outbound_no
+			),
+			kd AS (
+				SELECT 
+					outbound_id, 
+					item_id, 
+					SUM(qty) AS qty_pack, 
+					outbound_detail_id
+				FROM koli_details
+				GROUP BY outbound_id, item_id, outbound_detail_id
+			)
+			SELECT 
+				od.outbound_detail_id,
+				od.outbound_id,
+				od.item_id,
+				od.qty_req,
+				od.scan_qty,
+				od.status,
+				od.outbound_no,
+				kd.qty_pack
+			FROM od
+			LEFT JOIN kd 
+				ON od.outbound_id = kd.outbound_id 
+				AND od.item_id = kd.item_id 
+				AND od.outbound_detail_id = kd.outbound_detail_id
+			WHERE od.outbound_id = ?
+			`
+
+	if err := r.db.Raw(sql, outbound_id).Scan(&outboundItems).Error; err != nil {
+		return nil, err
+	}
+
+	return outboundItems, nil
+
+}
