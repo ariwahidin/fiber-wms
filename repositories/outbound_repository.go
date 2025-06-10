@@ -46,8 +46,37 @@ type OutboundDetailList struct {
 }
 
 func NewOutboundRepository(db *gorm.DB) *OutboundRepository {
-	return &OutboundRepository{db}
+	return &OutboundRepository{db: db}
 }
+
+// func (r *OutboundRepository) GenerateOutboundNumber() (string, error) {
+// 	var lastOutbound models.OutboundHeader
+
+// 	// Ambil outbound terakhir
+// 	if err := r.db.Last(&lastOutbound).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+// 		return "", err
+// 	}
+
+// 	// Ambil bulan dan tahun saat ini
+// 	currentYear := time.Now().Format("2006")
+// 	currentMonth := time.Now().Format("01")
+
+// 	// Generate nomor inbound baru
+// 	var outboundNo string
+// 	if lastOutbound.OutboundNo != "" {
+// 		lastOutboundNo := lastOutbound.OutboundNo[len(lastOutbound.OutboundNo)-4:] // Ambil 4 digit terakhir
+// 		if currentMonth != lastOutbound.OutboundNo[6:8] {                          // Jika bulan berbeda
+// 			outboundNo = fmt.Sprintf("OB%s%s%04d", currentYear, currentMonth, 1)
+// 		} else {
+// 			lastOutboundNoInt, _ := strconv.Atoi(lastOutboundNo)
+// 			outboundNo = fmt.Sprintf("OB%s%s%04d", currentYear, currentMonth, lastOutboundNoInt+1)
+// 		}
+// 	} else {
+// 		outboundNo = fmt.Sprintf("OB%s%s%04d", currentYear, currentMonth, 1)
+// 	}
+
+// 	return outboundNo, nil
+// }
 
 func (r *OutboundRepository) GenerateOutboundNumber() (string, error) {
 	var lastOutbound models.OutboundHeader
@@ -57,22 +86,26 @@ func (r *OutboundRepository) GenerateOutboundNumber() (string, error) {
 		return "", err
 	}
 
-	// Ambil bulan dan tahun saat ini
-	currentYear := time.Now().Format("2006")
-	currentMonth := time.Now().Format("01")
+	// Ambil tanggal sekarang dalam format YYMMDD
+	now := time.Now()
+	currentDate := now.Format("060102") // 06=YY, 01=MM, 02=DD
 
-	// Generate nomor inbound baru
 	var outboundNo string
-	if lastOutbound.OutboundNo != "" {
-		lastOutboundNo := lastOutbound.OutboundNo[len(lastOutbound.OutboundNo)-4:] // Ambil 4 digit terakhir
-		if currentMonth != lastOutbound.OutboundNo[6:8] {                          // Jika bulan berbeda
-			outboundNo = fmt.Sprintf("OB%s%s%04d", currentYear, currentMonth, 1)
+	if lastOutbound.OutboundNo != "" && len(lastOutbound.OutboundNo) >= 12 {
+		lastDatePart := lastOutbound.OutboundNo[2:8]
+		lastSequenceStr := lastOutbound.OutboundNo[len(lastOutbound.OutboundNo)-4:]
+
+		if currentDate != lastDatePart {
+			// Tanggal berubah → reset nomor urut ke 1
+			outboundNo = fmt.Sprintf("OB%s%04d", currentDate, 1)
 		} else {
-			lastOutboundNoInt, _ := strconv.Atoi(lastOutboundNo)
-			outboundNo = fmt.Sprintf("OB%s%s%04d", currentYear, currentMonth, lastOutboundNoInt+1)
+			// Tanggal sama → tambahkan nomor urut
+			lastSequenceInt, _ := strconv.Atoi(lastSequenceStr)
+			outboundNo = fmt.Sprintf("OB%s%04d", currentDate, lastSequenceInt+1)
 		}
 	} else {
-		outboundNo = fmt.Sprintf("OB%s%s%04d", currentYear, currentMonth, 1)
+		// Tidak ada outbound sebelumnya
+		outboundNo = fmt.Sprintf("OB%s%04d", currentDate, 1)
 	}
 
 	return outboundNo, nil

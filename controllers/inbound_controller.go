@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fiber-app/models"
 	"fiber-app/repositories"
+	"strconv"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -20,14 +21,15 @@ func NewInboundController(DB *gorm.DB) *InboundController {
 }
 
 type Inbound struct {
-	ID          int           `json:"ID"`
-	InboundNo   string        `json:"inbound_no"`
-	InboundDate string        `json:"inbound_date"`
-	Supplier    string        `json:"supplier"`
-	PONumber    string        `json:"po_number"`
-	Mode        string        `json:"mode"`
-	Status      string        `json:"status"`
-	Items       []InboundItem `json:"items"`
+	ID            int                  `json:"ID"`
+	InboundNo     string               `json:"inbound_no"`
+	InboundDate   string               `json:"inbound_date"`
+	Supplier      string               `json:"supplier"`
+	PONumber      string               `json:"po_number"`
+	Mode          string               `json:"mode"`
+	Status        string               `json:"status"`
+	Items         []InboundItem        `json:"items"`
+	ReceivedItems []ItemInboundBarcode `json:"received_items"`
 }
 
 type InboundItem struct {
@@ -40,6 +42,19 @@ type InboundItem struct {
 	ReceivedDate string `json:"received_date"`
 	Remarks      string `json:"remarks"`
 	Mode         string `json:"mode"`
+}
+
+type ItemInboundBarcode struct {
+	ID           int    `json:"ID"`
+	ItemCode     string `json:"item_code"`
+	Barcode      string `json:"barcode"`
+	SerialNumber string `json:"serial_number"`
+	Location     string `json:"location"`
+	WhsCode      string `json:"whs_code"`
+	Status       string `json:"status"`
+	QaStatus     string `json:"qa_status"`
+	Qty          int    `json:"qty"`
+	CreatedAt    string `json:"created_at"`
 }
 
 func (c *InboundController) CreateInbound(ctx *fiber.Ctx) error {
@@ -276,6 +291,30 @@ func (c *InboundController) GetInboundByID(ctx *fiber.Ctx) error {
 				WhsCode:      InboundDetail.WhsCode,
 				ReceivedDate: InboundDetail.RecDate,
 				Remarks:      InboundDetail.Remarks,
+			})
+		}
+	}
+
+	var InboundBarcodes []models.InboundBarcode
+	if err := c.DB.Debug().Where("inbound_id = ?", InboundHeader.ID).Find(&InboundBarcodes).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	if len(InboundBarcodes) == 0 {
+		resultInbound.ReceivedItems = []ItemInboundBarcode{}
+	} else {
+		for _, InboundBarcode := range InboundBarcodes {
+			resultInbound.ReceivedItems = append(resultInbound.ReceivedItems, ItemInboundBarcode{
+				ID:           int(InboundBarcode.ID),
+				ItemCode:     InboundBarcode.ItemCode,
+				Barcode:      InboundBarcode.Barcode,
+				SerialNumber: InboundBarcode.SerialNumber,
+				Location:     InboundBarcode.Location,
+				WhsCode:      InboundBarcode.WhsCode,
+				Status:       InboundBarcode.Status,
+				QaStatus:     InboundBarcode.QaStatus,
+				Qty:          InboundBarcode.Quantity,
+				CreatedAt:    InboundBarcode.CreatedAt.Local().Format(time.RFC3339),
 			})
 		}
 	}
@@ -535,4 +574,27 @@ func (c *InboundController) ProcessingInboundComplete(ctx *fiber.Ctx) error {
 	}
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Putaway complete"})
+}
+
+func (c *InboundController) PutawayPerItem(ctx *fiber.Ctx) error {
+	idStr := ctx.Params("id")
+
+	if idStr == "" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid ID"})
+	}
+
+	id := 0
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid ID"})
+	}
+
+	inboundRepo := repositories.NewInboundRepository(c.DB)
+
+	_, errs := inboundRepo.PutawayItem(ctx, id, "")
+	if errs != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": errs.Error()})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Putaway per item"})
 }

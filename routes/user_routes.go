@@ -1,17 +1,18 @@
 package routes
 
 import (
+	"fiber-app/config"
 	"fiber-app/controllers"
 	"fiber-app/middleware"
 
 	"github.com/gofiber/fiber/v2"
-	"gorm.io/gorm"
 )
 
-func SetupUserRoutes(app *fiber.App, db *gorm.DB) {
-	userController := controllers.NewUserController(db)
+func SetupUserRoutes(app *fiber.App) {
+	userController := &controllers.UserController{}
 
-	api := app.Group("/api/v1/users", middleware.AuthMiddleware)
+	api := app.Group(config.MAIN_ROUTES+"/users", middleware.AuthMiddleware)
+	api.Use(middleware.InjectDBMiddleware(userController))
 
 	api.Post("/", userController.CreateUser)
 	api.Put("/:id", userController.UpdateUser)
@@ -19,15 +20,19 @@ func SetupUserRoutes(app *fiber.App, db *gorm.DB) {
 	api.Get("/", userController.GetAllUsers)
 	api.Delete("/:id", userController.DeleteUser)
 
-	profile := app.Group("/api/v1/user", middleware.AuthMiddleware)
-	profile.Get("/profile", userController.GetProfile)
+	// profile := app.Group("/api/v1/user", middleware.AuthMiddleware)
+	// profile.Get("/profile", userController.GetProfile)
 
-	role := app.Group("/api/v1/roles", middleware.AuthMiddleware)
+	role := app.Group(config.MAIN_ROUTES+"/roles", middleware.AuthMiddleware)
+	role.Use(middleware.InjectDBMiddleware(userController))
+
 	role.Get("/", userController.GetRoles)
 	role.Post("/", userController.CreateRole)
 	role.Put("/permissions/:id", userController.UpdatePermissionsForRole)
 
-	permission := app.Group("/api/v1/permissions", middleware.AuthMiddleware)
+	permission := app.Group(config.MAIN_ROUTES+"/permissions", middleware.AuthMiddleware)
+	permission.Use(middleware.InjectDBMiddleware(userController))
+
 	permission.Get("/", userController.GetPermissions)
 	permission.Get("/:id", userController.GetPermissionByID)
 	permission.Post("/", userController.CreatePermission)

@@ -5,13 +5,15 @@ import (
 	"fiber-app/middleware"
 
 	"github.com/gofiber/fiber/v2"
-	"gorm.io/gorm"
 )
 
-func SetupInboundRoutes(app *fiber.App, inboundController *controllers.InboundController, db *gorm.DB) {
+func SetupInboundRoutes(app *fiber.App) {
 
 	// inboundMidleware := middleware.NewAuthMiddleware(db)
+
+	inboundController := &controllers.InboundController{}
 	api := app.Group("/api/v1/inbound", middleware.AuthMiddleware)
+	api.Use(middleware.InjectDBMiddleware(inboundController))
 
 	api.Post("/", inboundController.CreateInbound)
 	api.Get("/", inboundController.GetAllListInbound)
@@ -22,6 +24,7 @@ func SetupInboundRoutes(app *fiber.App, inboundController *controllers.InboundCo
 	api.Delete("/item/:id", inboundController.DeleteItem)
 	api.Get("/putaway/sheet/:id", inboundController.GetPutawaySheet)
 	api.Post("/complete/:id", inboundController.ProcessingInboundComplete)
+	api.Put("/putaway/item/:id", inboundController.PutawayPerItem)
 
 	// api := app.Group("/api/v1/inbound", middleware.AuthMiddleware, inboundMidleware.CheckPermission("create_inbound"))
 	// api.Post("/upload", inboundController.UploadInboundFromExcel)

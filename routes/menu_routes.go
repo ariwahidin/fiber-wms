@@ -1,20 +1,20 @@
 package routes
 
 import (
+	"fiber-app/config"
 	"fiber-app/controllers"
 	"fiber-app/middleware"
 
 	"github.com/gofiber/fiber/v2"
-	"gorm.io/gorm"
 )
 
-func SetupMenuRoutes(app *fiber.App, db *gorm.DB) {
-	menuController := controllers.NewMenuController(db)
-
+func SetupMenuRoutes(app *fiber.App) {
+	menuController := &controllers.MenuController{}
 	api := app.Group(
-		"/api/v1/menus",
+		config.MAIN_ROUTES+"/menus",
 		middleware.AuthMiddleware,
 	)
+	api.Use(middleware.InjectDBMiddleware(menuController))
 
 	api.Get("/permissions/:id", menuController.GetMenuPermission)
 	api.Post("/permissions/:id", menuController.UpdatePermissionMenus)

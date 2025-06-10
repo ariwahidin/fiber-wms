@@ -6,17 +6,18 @@ import (
 	"fiber-app/middleware"
 
 	"github.com/gofiber/fiber/v2"
-	"gorm.io/gorm"
 )
 
-func SetupShippingRoutes(app *fiber.App, db *gorm.DB) {
-	shippingController := controllers.NewShippingController(db)
+func SetupShippingRoutes(app *fiber.App) {
+	shippingController := &controllers.ShippingController{}
 	// inboundMidleware := middleware.NewAuthMiddleware(db)
 	api := app.Group(
 		config.MAIN_ROUTES+"/shipping",
 		middleware.AuthMiddleware,
 		// inboundMidleware.CheckPermission("create_inbound"),
 	)
+
+	api.Use(middleware.InjectDBMiddleware(shippingController))
 
 	api.Put("/order/:id", shippingController.UpdateOrderHeaderByID)
 	api.Get("/list-order-part", shippingController.GetListDNOpen)

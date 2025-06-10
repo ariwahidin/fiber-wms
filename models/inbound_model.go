@@ -37,13 +37,13 @@ type InboundHeader struct {
 
 type InboundDetail struct {
 	gorm.Model
-	InboundId    int    `json:"inbound_id" gorm:"default:null"`
-	InboundNo    string `json:"inbound_no"`
-	ItemId       int    `json:"item_id"`
-	ItemCode     string `json:"item_code" required:"required"`
-	Barcode      string `json:"barcode"`
-	Quantity     int    `json:"quantity" required:"required"`
-	ScanQty      int    `json:"scan_qty" gorm:"default:0"`
+	InboundId int    `json:"inbound_id" gorm:"default:null"`
+	InboundNo string `json:"inbound_no"`
+	ItemId    int    `json:"item_id"`
+	ItemCode  string `json:"item_code" required:"required"`
+	Barcode   string `json:"barcode"`
+	Quantity  int    `json:"quantity" required:"required"`
+	// ScanQty      int    `json:"scan_qty" gorm:"default:0"`
 	Location     string `json:"location" required:"required"`
 	Status       string `json:"status" gorm:"default:'draft'"`
 	WhsCode      string `json:"whs_code" required:"required"`

@@ -33,6 +33,12 @@ type Product struct {
 	DeletedBy      int
 }
 
+type Category struct {
+	ID   uint   `gorm:"primaryKey"`
+	Code string `gorm:"unique" json:"code"` // contoh: "A", "B", "C"
+	Name string `json:"name"`               // contoh: "A", "B", "C"
+}
+
 type Uom struct {
 	ID   uint   `gorm:"primaryKey"`
 	Code string `gorm:"unique" json:"code"` // contoh: "PCS", "BOX", "CTN"

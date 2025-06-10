@@ -1,14 +1,19 @@
 package routes
 
 import (
+	"fiber-app/config"
 	"fiber-app/controllers"
 	"fiber-app/middleware"
 
 	"github.com/gofiber/fiber/v2"
 )
 
-func SetupSupplierRoutes(app *fiber.App, supplierController *controllers.SupplierController) {
-	api := app.Group("/api/v1/suppliers", middleware.AuthMiddleware)
+func SetupSupplierRoutes(app *fiber.App) {
+
+	api := app.Group(config.MAIN_ROUTES+"/suppliers", middleware.AuthMiddleware)
+	supplierController := &controllers.SupplierController{}
+	api.Use(middleware.InjectDBMiddleware(supplierController))
+
 	api.Post("/", supplierController.CreateSupplier)
 	api.Get("/", supplierController.GetAllSuppliers)
 	api.Get("/:id", supplierController.GetSupplierByID)

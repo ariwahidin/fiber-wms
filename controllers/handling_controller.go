@@ -23,12 +23,6 @@ func NewHandlingController(db *gorm.DB) *HandlingController {
 }
 
 func (c *HandlingController) Create(ctx *fiber.Ctx) error {
-
-	fmt.Println("Apa ini", string(ctx.Body()))
-	fmt.Println("Apa itu", string(ctx.Body()))
-	// cara menghentikan kode disini dan melanjutkan ke catch error
-	// return nil
-
 	var handlingInput struct {
 		Name    string `json:"name" validate:"required,min=3"`
 		RateIdr int    `json:"rate_idr" validate:"required"`
@@ -104,7 +98,8 @@ func (c *HandlingController) GetAll(ctx *fiber.Ctx) error {
 	}
 
 	if len(handlings) == 0 {
-		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Handlings not found", "data": result})
+		result = []handlingResponse{}
+		// return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Handlings not found", "data": result})
 	}
 
 	// mapping handlingResponse dari handling

@@ -4,10 +4,10 @@ import (
 	"errors"
 	"fiber-app/models"
 	"fmt"
-	"log"
 	"strconv"
 	"time"
 
+	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 )
 
@@ -90,7 +90,7 @@ type DetailItem struct {
 }
 
 func NewInboundRepository(db *gorm.DB) *InboundRepository {
-	return &InboundRepository{db}
+	return &InboundRepository{db: db}
 }
 
 // CreateInboundDetail function dengan transaction
@@ -434,12 +434,12 @@ type InboundBarcodeScanned struct {
 
 func (r *InboundRepository) GetAllInboundScannedByInboundID(inbound_id int) ([]InboundBarcodeScanned, error) {
 	sqlSelect := `WITH barcode AS (
-    SELECT inbound_id, inbound_detail_id, item_code, barcode, SUM(quantity) as qty_scan 
+    SELECT inbound_id, inbound_detail_id, item_code, barcode, SUM(quantity) as qty_scan
     FROM inbound_barcodes
     WHERE inbound_id = ?
     GROUP BY inbound_id, inbound_detail_id, item_code, barcode
 )
-	SELECT 
+	SELECT
 
 		i.inbound_no,
 		a.inbound_id,
@@ -447,7 +447,7 @@ func (r *InboundRepository) GetAllInboundScannedByInboundID(inbound_id int) ([]I
 		a.item_code,
 		c.barcode,
 		c.item_name,
-		a.quantity AS expect, 
+		a.quantity AS expect,
 		COALESCE(b.qty_scan, 0) AS qty_scan,
 		(a.quantity - COALESCE(b.qty_scan, 0)) AS remaining_qty
 	FROM inbound_details a
@@ -463,73 +463,6 @@ func (r *InboundRepository) GetAllInboundScannedByInboundID(inbound_id int) ([]I
 	return result, nil
 }
 
-func (r *InboundRepository) CreateInventories(inventories []models.Inventory, inventoriesDetail []models.InventoryDetail) (bool, error) {
-
-	// TODO
-	fmt.Println("Inventory : ", inventories)
-	fmt.Println("InventoryDetail : ", inventoriesDetail)
-
-	// Mulai transaksi
-	tx := r.db.Begin()
-
-	// Tangani jika transaksi gagal
-	defer func() {
-		if r := recover(); r != nil {
-			tx.Rollback()
-			log.Println("Transaksi dibatalkan karena error:", r)
-			return
-		}
-	}()
-
-	// var inventory models.Inventory
-	for _, inventory := range inventories {
-
-		inventory = models.Inventory{
-			InboundDetailId: inventory.InboundDetailId,
-			ItemId:          inventory.ItemId,
-			ItemCode:        inventory.ItemCode,
-			WhsCode:         inventory.WhsCode,
-			QtyOrigin:       inventory.QtyOrigin,
-			CreatedBy:       inventory.CreatedBy,
-		}
-
-		if err := tx.Create(&inventory).Error; err != nil {
-			tx.Rollback()
-			log.Println("Gagal insert Inventory:", err)
-			return false, err
-		}
-
-		var inventoryDetail models.InventoryDetail
-
-		for _, detail := range inventoriesDetail {
-
-			inventoryDetail = models.InventoryDetail{
-				InventoryId:     int(inventory.ID),
-				Location:        detail.Location,
-				InboundDetailId: detail.InboundDetailId,
-				SerialNumber:    detail.SerialNumber,
-				Quantity:        detail.Quantity,
-				QaStatus:        detail.QaStatus,
-				CreatedBy:       detail.CreatedBy,
-			}
-
-			if err := tx.Create(&inventoryDetail).Error; err != nil {
-				tx.Rollback()
-				log.Println("Gagal insert Inventory Detail:", err)
-				return false, err
-			}
-		}
-	}
-
-	// Commit transaksi jika semua sukses
-	if err := tx.Commit().Error; err != nil {
-		log.Println("Gagal commit transaksi:", err)
-		return false, err
-	}
-
-	return true, nil
-}
-
 func (r *InboundRepository) GenerateInboundNo() (string, error) {
 	var lastInbound models.InboundHeader
 
@@ -538,79 +471,95 @@ func (r *InboundRepository) GenerateInboundNo() (string, error) {
 		return "", err
 	}
 
-	// Ambil bulan dan tahun saat ini
-	currentYear := time.Now().Format("2006")
-	currentMonth := time.Now().Format("01")
+	// Ambil tanggal sekarang dalam format YYMMDD
+	now := time.Now()
+	currentDate := now.Format("060102") // 06=YY, 01=MM, 02=DD
 
 	// Generate nomor inbound baru
 	var inboundNo string
-	if lastInbound.InboundNo != "" {
-		lastInboundNo := lastInbound.InboundNo[len(lastInbound.InboundNo)-4:] // Ambil 4 digit terakhir
-		if currentMonth != lastInbound.InboundNo[6:8] {                       // Jika bulan berbeda
-			inboundNo = fmt.Sprintf("IN%s%s%04d", currentYear, currentMonth, 1)
+	if lastInbound.InboundNo != "" && len(lastInbound.InboundNo) >= 12 {
+		lastDatePart := lastInbound.InboundNo[2:8]
+		lastSequenceStr := lastInbound.InboundNo[len(lastInbound.InboundNo)-4:]
+
+		if currentDate != lastDatePart {
+			// Tanggal berbeda → reset sequence ke 1
+			inboundNo = fmt.Sprintf("IN%s%04d", currentDate, 1)
 		} else {
-			lastInboundNoInt, _ := strconv.Atoi(lastInboundNo)
-			inboundNo = fmt.Sprintf("IN%s%s%04d", currentYear, currentMonth, lastInboundNoInt+1)
+			// Tanggal sama → increment sequence
+			lastSequenceInt, _ := strconv.Atoi(lastSequenceStr)
+			inboundNo = fmt.Sprintf("IN%s%04d", currentDate, lastSequenceInt+1)
 		}
 	} else {
-		inboundNo = fmt.Sprintf("IN%s%s%04d", currentYear, currentMonth, 1)
+		// Tidak ada record sebelumnya → mulai dari 1
+		inboundNo = fmt.Sprintf("IN%s%04d", currentDate, 1)
 	}
 
 	return inboundNo, nil
 }
 
-func (r *InboundRepository) CreateInboundOpen(inboundHeader models.InboundHeader, inboundDetails []models.InboundDetail) (models.InboundHeader, error) {
-	var lastInbound models.InboundHeader
-
-	// Ambil inbound terakhir
-	if err := r.db.Last(&lastInbound).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-		return models.InboundHeader{}, err
+func (r *InboundRepository) PutawayItem(ctx *fiber.Ctx, inboundBarcodeID int, location string) (bool, error) {
+	userID, ok := ctx.Locals("userID").(float64)
+	if !ok {
+		return false, errors.New("invalid user ID")
 	}
 
-	// Ambil bulan dan tahun saat ini
-	currentYear := time.Now().Format("2006")
-	currentMonth := time.Now().Format("01")
-
-	// Generate nomor inbound baru
-	var inboundNo string
-	if lastInbound.InboundNo != "" {
-		lastInboundNo := lastInbound.InboundNo[len(lastInbound.InboundNo)-4:] // Ambil 4 digit terakhir
-		if currentMonth != lastInbound.InboundNo[6:8] {                       // Jika bulan berbeda
-			inboundNo = fmt.Sprintf("IN%s%s%04d", currentYear, currentMonth, 1)
-		} else {
-			lastInboundNoInt, _ := strconv.Atoi(lastInboundNo)
-			inboundNo = fmt.Sprintf("IN%s%s%04d", currentYear, currentMonth, lastInboundNoInt+1)
+	err := r.db.Transaction(func(tx *gorm.DB) error {
+		var barcode models.InboundBarcode
+		if err := tx.Where("id = ?", inboundBarcodeID).Take(&barcode).Error; err != nil {
+			return err
 		}
-	} else {
-		inboundNo = fmt.Sprintf("IN%s%s%04d", currentYear, currentMonth, 1)
-	}
 
-	// Update data inboundHeader dengan nomor inbound baru dan status "open"
-	inboundHeader.InboundNo = inboundNo
-	inboundHeader.Status = "open"
-
-	// Mulai transaksi
-	tx := r.db.Begin()
-	if err := tx.Create(&inboundHeader).Error; err != nil {
-		tx.Rollback()
-		return models.InboundHeader{}, err
-	}
-
-	// Simpan data inboundDetail
-	for _, inboundDetail := range inboundDetails {
-		inboundDetail.InboundId = int(inboundHeader.ID)
-		inboundDetail.InboundNo = inboundHeader.InboundNo
-		if err := tx.Create(&inboundDetail).Error; err != nil {
-			tx.Rollback()
-			return models.InboundHeader{}, err
+		if barcode.Status != "pending" {
+			return fmt.Errorf("barcode not in pending status")
 		}
+
+		var detail models.InboundDetail
+		if err := tx.Where("id = ?", barcode.InboundDetailId).Take(&detail).Error; err != nil {
+			return err
+		}
+
+		if location == "" {
+			location = barcode.Location
+		}
+
+		inventory := models.Inventory{
+			InboundDetailId:  int(detail.ID),
+			InboundBarcodeId: int(barcode.ID),
+			RecDate:          detail.RecDate,
+			ItemId:           int(barcode.ItemID),
+			ItemCode:         barcode.ItemCode,
+			Barcode:          barcode.Barcode,
+			WhsCode:          barcode.WhsCode,
+			Pallet:           barcode.Pallet,
+			Location:         location,
+			QaStatus:         barcode.QaStatus,
+			SerialNumber:     barcode.ScanData,
+			QtyOrigin:        barcode.Quantity,
+			QtyOnhand:        barcode.Quantity,
+			QtyAvailable:     barcode.Quantity,
+			QtyAllocated:     0,
+			Trans:            "putaway",
+			CreatedBy:        int(userID),
+		}
+
+		if err := tx.Create(&inventory).Error; err != nil {
+			return err
+		}
+
+		if err := tx.Model(&barcode).Updates(map[string]interface{}{
+			"status":     "in stock",
+			"updated_at": time.Now().UTC(),
+			"updated_by": int(userID),
+		}).Error; err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return false, err
 	}
 
-	// Commit transaksi
-	if err := tx.Commit().Error; err != nil {
-		tx.Rollback()
-		return models.InboundHeader{}, err
-	}
-
-	return inboundHeader, nil
+	return true, nil
 }

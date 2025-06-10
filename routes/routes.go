@@ -8,7 +8,9 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-func SetupWarehouseRoutes(app *fiber.App, controller *controllers.WarehouseController) {
+func SetupWarehouseRoutes(app *fiber.App) {
+	controller := &controllers.WarehouseController{}
 	api := app.Group(config.MAIN_ROUTES+"/warehouses", middleware.AuthMiddleware)
+	api.Use(middleware.InjectDBMiddleware(controller))
 	api.Get("/", controller.GetAllWarehouses)
 }

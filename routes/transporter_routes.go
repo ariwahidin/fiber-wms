@@ -7,8 +7,12 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-func SetupTransporterRoutes(app *fiber.App, transporterController *controllers.TransporterController) {
+func SetupTransporterRoutes(app *fiber.App) {
+
+	transporterController := &controllers.TransporterController{}
 	api := app.Group("/api/v1/transporters", middleware.AuthMiddleware)
+	api.Use(middleware.InjectDBMiddleware(transporterController))
+
 	api.Post("/", transporterController.CreateTransporter)
 	api.Get("/", transporterController.GetAllTransporter)
 	// api.Get("/:id", supplierController.GetSupplierByID)

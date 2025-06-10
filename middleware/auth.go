@@ -2,7 +2,9 @@ package middleware
 
 import (
 	"fiber-app/config"
+	"fiber-app/controllers/configurations"
 	"fiber-app/models"
+	"fmt"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -115,7 +117,8 @@ func AuthMiddleware(ctx *fiber.Ctx) error {
 		}
 
 		// Simpan data user ke context
-		userID, ok := claims["userID"].(float64) // Sesuaikan tipe data dengan yang digunakan di token
+		userID, ok := claims["userID"].(float64)
+
 		// fmt.Println("userID: ", userID)
 
 		if !ok {
@@ -124,8 +127,33 @@ func AuthMiddleware(ctx *fiber.Ctx) error {
 			})
 		}
 
+		unit, true := claims["unit"].(string)
+
+		if !true {
+			return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				"message": "Unauthorized: Invalid unit",
+			})
+		}
+
 		ctx.Locals("userID", userID)
+		ctx.Locals("unit", unit)
 		ctx.Locals("userData", claims)
+
+		// Ambil nama database dari JWT
+		// namaDB := claims["nama_database"].(string)
+
+		// 🔑 Panggil GetDBConnection di sini
+		_, err := configurations.GetDBConnection(unit)
+		if err != nil {
+			return ctx.Status(500).JSON(fiber.Map{"message": "Failed to connect database"})
+		} else {
+			fmt.Println("Connected to database:", unit)
+		}
+
+		configurations.PrintActiveDBConnections()
+
+		// fmt.Println()
+
 		return ctx.Next() // Lanjut ke handler berikutnya
 	} else {
 		return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
@@ -181,4 +209,8 @@ func (a *AuthMiddlewareStruct) CheckPermission(requiredPermission string) fiber.
 
 		return c.Next() // Lanjut ke handler berikutnya
 	}
+}
+
+func LoginMiddleware(ctx *fiber.Ctx) error {
+	return ctx.Next()
 }

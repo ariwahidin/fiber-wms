@@ -8,8 +8,10 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-func SetupCustomerRoutes(app *fiber.App, customerController *controllers.CustomerController) {
+func SetupCustomerRoutes(app *fiber.App) {
 	api := app.Group(config.MAIN_ROUTES+"/customers", middleware.AuthMiddleware)
+	customerController := &controllers.CustomerController{}
+	api.Use(middleware.InjectDBMiddleware(customerController))
 
 	api.Get("/", customerController.GetAllCustomers)
 	api.Post("/", customerController.CreateCustomer)

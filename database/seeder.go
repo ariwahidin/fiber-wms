@@ -14,6 +14,30 @@ func RunSeeders(db *gorm.DB) {
 	SeedUoms(db)
 	SeedWarehouse(db)
 	SeedUserMaster(db)
+	SeedCategory(db)
+}
+
+func SeedCategory(db *gorm.DB) {
+	categories := []models.Category{
+		{
+			Code: "BOOK",
+			Name: "BOOK",
+		},
+		{
+			Code: "INSTRUMENT",
+			Name: "INSTRUMENT",
+		},
+	}
+
+	for _, c := range categories {
+		var existing models.Category
+		if err := db.Where("name = ?", c.Name).First(&existing).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				db.Create(&c)
+			}
+		}
+	}
+
 }
 
 func SeedUoms(db *gorm.DB) {
@@ -98,10 +122,11 @@ func SeedMenus(db *gorm.DB) error {
 func SeedUserMaster(db *gorm.DB) {
 	users := []models.User{
 		{
-			Username: "admin",
-			Password: "admin",
-			Name:     "Admin",
-			Email:    "admin@example.com",
+			Username:  "admin",
+			Password:  "admin",
+			Name:      "Admin",
+			Email:     "admin@example.com",
+			BaseRoute: "/dashboard",
 			// Role:     "admin",
 		},
 	}

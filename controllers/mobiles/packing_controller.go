@@ -143,6 +143,12 @@ func (c *MobilePackingController) AddToKoli(ctx *fiber.Ctx) error {
 		})
 	}
 
+	if requestBody.OutboundNo == "" || requestBody.Barcode == "" || requestBody.KoliID == 0 || requestBody.NoKoli == "" || requestBody.Qty == 0 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Missing required fields",
+		})
+	}
+
 	var outboundHeader models.OutboundHeader
 	if err := c.DB.Where("outbound_no = ?", requestBody.OutboundNo).First(&outboundHeader).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -155,32 +161,38 @@ func (c *MobilePackingController) AddToKoli(ctx *fiber.Ctx) error {
 		})
 	}
 
-	if requestBody.ScanType == "SERIAL" {
-		var koliDetails []models.KoliDetail
-		if err := c.DB.Where("barcode = ? AND serial_number = ? AND outbound_detail_id = ?", requestBody.Barcode, requestBody.SerialNumber, requestBody.OutboundDetailID).Find(&koliDetails).Error; err != nil {
-			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-				"error": err.Error(),
-			})
-		}
-
-		if len(koliDetails) > 0 {
-			return ctx.Status(fiber.StatusConflict).JSON(fiber.Map{
-				"error": "Item already exists in Koli",
-			})
-		}
-	}
-
 	var outboundDetail models.OutboundDetail
 	if err := c.DB.Debug().Where("barcode = ? AND outbound_id = ?", requestBody.Barcode, outboundHeader.ID).First(&outboundDetail).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
-				"error": "Outbound detail not found",
+				"error": "Item not found",
 			})
 		}
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": err.Error(),
 		})
 	}
+
+	fmt.Println("requestBody:", requestBody)
+
+	// return nil
+
+	if requestBody.ScanType == "SERIAL" {
+		var koliDetails []models.KoliDetail
+		if err := c.DB.Debug().Where("barcode = ? AND serial_number = ?", requestBody.Barcode, requestBody.SerialNumber).Find(&koliDetails).Error; err != nil {
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error": err.Error(),
+			})
+		}
+
+		if len(koliDetails) > 0 {
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": "Item already scanned",
+			})
+		}
+	}
+
+	// return nil
 
 	var totalQtyRequest int
 	err := c.DB.Debug().Model(&models.OutboundDetail{}).
@@ -225,31 +237,29 @@ func (c *MobilePackingController) AddToKoli(ctx *fiber.Ctx) error {
 	}
 
 	var pickingSheets []models.PickingSheet
-	if err := c.DB.Debug().Where("barcode = ? AND serial_number = ? AND outbound_id = ?", requestBody.Barcode, requestBody.SerialNumber, outboundHeader.ID).Find(&pickingSheets).Error; err != nil {
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": err.Error(),
-		})
-	}
 
-	if len(pickingSheets) == 0 {
+	serialMandatroy := false
 
-		var inventories []models.Inventory
+	if !serialMandatroy {
 
-		if err := c.DB.Debug().Where("item_id = ? AND whs_code = ? AND barcode = ? AND serial_number = ? AND qty_available > 0", outboundDetail.ItemID, outboundDetail.WhsCode, requestBody.Barcode, requestBody.SerialNumber).Find(&inventories).Error; err != nil {
+		// START OF CODE IF SERIAL NUMBER IS NOT MANDATORY
+		if err := c.DB.Debug().
+			Where("barcode = ? AND outbound_id = ?", requestBody.Barcode, outboundHeader.ID).
+			Find(&pickingSheets).Error; err != nil {
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 				"error": err.Error(),
 			})
 		}
 
-		if len(inventories) == 0 {
+		if len(pickingSheets) == 0 {
 			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
-				"error": "Item " + outboundDetail.ItemCode + " not found in inventory with whs code " + outboundDetail.WhsCode,
+				"error": "Picking sheet not found",
 			})
 		}
 
 		qtyReq := requestBody.Qty
-		for _, inventory := range inventories {
-			qtyPicking := inventory.QtyAvailable
+		for _, sheet := range pickingSheets {
+			qtyPicking := sheet.QtyAvailable
 			if qtyReq < qtyPicking {
 				qtyPicking = qtyReq
 			}
@@ -257,13 +267,14 @@ func (c *MobilePackingController) AddToKoli(ctx *fiber.Ctx) error {
 			var koliDetail models.KoliDetail
 			koliDetail.KoliID = requestBody.KoliID
 			koliDetail.NoKoli = requestBody.NoKoli
+			koliDetail.PickingSheetID = int(sheet.ID)
 			koliDetail.OutboundDetailID = int(outboundDetail.ID)
-			koliDetail.ItemCode = inventory.ItemCode
-			koliDetail.Barcode = inventory.Barcode
-			koliDetail.SerialNumber = inventory.SerialNumber
+			koliDetail.ItemCode = sheet.ItemCode
+			koliDetail.Barcode = requestBody.Barcode
+			koliDetail.SerialNumber = requestBody.SerialNumber
 			koliDetail.Qty = qtyPicking
 			koliDetail.ItemID = int(product.ID)
-			koliDetail.InventoryID = int(inventory.ID)
+			koliDetail.InventoryID = sheet.InventoryID
 			koliDetail.OutboundID = int(outboundHeader.ID)
 			koliDetail.CreatedBy = int(ctx.Locals("userID").(float64))
 
@@ -274,11 +285,139 @@ func (c *MobilePackingController) AddToKoli(ctx *fiber.Ctx) error {
 				})
 			}
 
-			// update inventory
-			if err := c.DB.Debug().Model(&models.Inventory{}).Where("id = ?", inventory.ID).
+			// update picking sheet
+			if err := c.DB.Model(&models.PickingSheet{}).Where("id = ?", sheet.ID).
 				Updates(map[string]interface{}{
-					"qty_available": inventory.QtyAvailable - qtyPicking,
-					"qty_allocated": inventory.QtyAllocated + qtyPicking,
+					"qty_available": sheet.QtyAvailable - qtyPicking,
+					"qty_allocated": sheet.QtyAllocated + qtyPicking,
+					"updated_by":    int(ctx.Locals("userID").(float64)),
+					"updated_at":    time.Now(),
+				}).Error; err != nil {
+				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+					"error": err.Error(),
+				})
+			}
+
+			qtyReq -= qtyPicking
+			if qtyReq <= 0 {
+				break
+			}
+		}
+		// END OF CODE IF SERIAL NUMBER IS NOT MANDATORY
+
+	} else {
+
+		// START OF CODE IF SERIAL NUMBER IS MANDATORY
+
+		if err := c.DB.Debug().
+			Where("barcode = ? AND serial_number = ? AND outbound_id = ?", requestBody.Barcode, requestBody.SerialNumber, outboundHeader.ID).
+			Find(&pickingSheets).Error; err != nil {
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error": err.Error(),
+			})
+		}
+
+		if len(pickingSheets) == 0 {
+
+			var inventories []models.Inventory
+
+			if err := c.DB.Debug().Where("item_id = ? AND whs_code = ? AND barcode = ? AND serial_number = ? AND qty_available > 0", outboundDetail.ItemID, outboundDetail.WhsCode, requestBody.Barcode, requestBody.SerialNumber).Find(&inventories).Error; err != nil {
+				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+					"error": err.Error(),
+				})
+			}
+
+			if len(inventories) == 0 {
+				return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
+					"error": "Item " + outboundDetail.ItemCode + " not found in inventory with whs code " + outboundDetail.WhsCode,
+				})
+			}
+
+			qtyReq := requestBody.Qty
+			for _, inventory := range inventories {
+				qtyPicking := inventory.QtyAvailable
+				if qtyReq < qtyPicking {
+					qtyPicking = qtyReq
+				}
+
+				var koliDetail models.KoliDetail
+				koliDetail.KoliID = requestBody.KoliID
+				koliDetail.NoKoli = requestBody.NoKoli
+				koliDetail.OutboundDetailID = int(outboundDetail.ID)
+				koliDetail.ItemCode = inventory.ItemCode
+				koliDetail.Barcode = inventory.Barcode
+				koliDetail.SerialNumber = inventory.SerialNumber
+				koliDetail.Qty = qtyPicking
+				koliDetail.ItemID = int(product.ID)
+				koliDetail.InventoryID = int(inventory.ID)
+				koliDetail.OutboundID = int(outboundHeader.ID)
+				koliDetail.CreatedBy = int(ctx.Locals("userID").(float64))
+
+				// create new koli detail
+				if err := c.DB.Debug().Create(&koliDetail).Error; err != nil {
+					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+						"error": err.Error(),
+					})
+				}
+
+				// update inventory
+				if err := c.DB.Debug().Model(&models.Inventory{}).Where("id = ?", inventory.ID).
+					Updates(map[string]interface{}{
+						"qty_available": inventory.QtyAvailable - qtyPicking,
+						"qty_allocated": inventory.QtyAllocated + qtyPicking,
+						"updated_by":    int(ctx.Locals("userID").(float64)),
+						"updated_at":    time.Now(),
+					}).Error; err != nil {
+					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+						"error": err.Error(),
+					})
+				}
+
+				qtyReq -= qtyPicking
+				if qtyReq <= 0 {
+					break
+				}
+			}
+
+			return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+				"success": true,
+				"message": "Item added to koli from inventory successfully",
+			})
+		}
+
+		qtyReq := requestBody.Qty
+		for _, sheet := range pickingSheets {
+			qtyPicking := sheet.QtyAvailable
+			if qtyReq < qtyPicking {
+				qtyPicking = qtyReq
+			}
+
+			var koliDetail models.KoliDetail
+			koliDetail.KoliID = requestBody.KoliID
+			koliDetail.NoKoli = requestBody.NoKoli
+			koliDetail.PickingSheetID = int(sheet.ID)
+			koliDetail.OutboundDetailID = int(outboundDetail.ID)
+			koliDetail.ItemCode = sheet.ItemCode
+			koliDetail.Barcode = requestBody.Barcode
+			koliDetail.SerialNumber = requestBody.SerialNumber
+			koliDetail.Qty = qtyPicking
+			koliDetail.ItemID = int(product.ID)
+			koliDetail.InventoryID = sheet.InventoryID
+			koliDetail.OutboundID = int(outboundHeader.ID)
+			koliDetail.CreatedBy = int(ctx.Locals("userID").(float64))
+
+			// create new koli detail
+			if err := c.DB.Debug().Create(&koliDetail).Error; err != nil {
+				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+					"error": err.Error(),
+				})
+			}
+
+			// update picking sheet
+			if err := c.DB.Model(&models.PickingSheet{}).Where("id = ?", sheet.ID).
+				Updates(map[string]interface{}{
+					"qty_available": sheet.QtyAvailable - qtyPicking,
+					"qty_allocated": sheet.QtyAllocated + qtyPicking,
 					"updated_by":    int(ctx.Locals("userID").(float64)),
 					"updated_at":    time.Now(),
 				}).Error; err != nil {
@@ -293,57 +432,8 @@ func (c *MobilePackingController) AddToKoli(ctx *fiber.Ctx) error {
 			}
 		}
 
-		return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
-			"success": true,
-			"message": "Item added to koli from inventory successfully",
-		})
-	}
+		// END OF CODE IF SERIAL NUMBER IS MANDATORY
 
-	qtyReq := requestBody.Qty
-	for _, sheet := range pickingSheets {
-		qtyPicking := sheet.QtyAvailable
-		if qtyReq < qtyPicking {
-			qtyPicking = qtyReq
-		}
-
-		var koliDetail models.KoliDetail
-		koliDetail.KoliID = requestBody.KoliID
-		koliDetail.NoKoli = requestBody.NoKoli
-		koliDetail.PickingSheetID = int(sheet.ID)
-		koliDetail.OutboundDetailID = int(outboundDetail.ID)
-		koliDetail.ItemCode = sheet.ItemCode
-		koliDetail.Barcode = requestBody.Barcode
-		koliDetail.SerialNumber = requestBody.SerialNumber
-		koliDetail.Qty = qtyPicking
-		koliDetail.ItemID = int(product.ID)
-		koliDetail.InventoryID = sheet.InventoryID
-		koliDetail.OutboundID = int(outboundHeader.ID)
-		koliDetail.CreatedBy = int(ctx.Locals("userID").(float64))
-
-		// create new koli detail
-		if err := c.DB.Debug().Create(&koliDetail).Error; err != nil {
-			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-				"error": err.Error(),
-			})
-		}
-
-		// update picking sheet
-		if err := c.DB.Model(&models.PickingSheet{}).Where("id = ?", sheet.ID).
-			Updates(map[string]interface{}{
-				"qty_available": sheet.QtyAvailable - qtyPicking,
-				"qty_allocated": sheet.QtyAllocated + qtyPicking,
-				"updated_by":    int(ctx.Locals("userID").(float64)),
-				"updated_at":    time.Now(),
-			}).Error; err != nil {
-			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-				"error": err.Error(),
-			})
-		}
-
-		qtyReq -= qtyPicking
-		if qtyReq <= 0 {
-			break
-		}
 	}
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{

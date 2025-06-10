@@ -6,17 +6,18 @@ import (
 	"fiber-app/middleware"
 
 	"github.com/gofiber/fiber/v2"
-	"gorm.io/gorm"
 )
 
-func SetupOutboundRoutes(app *fiber.App, db *gorm.DB) {
-	outboundController := controllers.NewOutboundController(db)
+func SetupOutboundRoutes(app *fiber.App) {
+	outboundController := &controllers.OutboundController{}
 	// inboundMidleware := middleware.NewAuthMiddleware(db)
 	api := app.Group(
 		config.MAIN_ROUTES+"/outbound",
 		middleware.AuthMiddleware,
 		// inboundMidleware.CheckPermission("create_inbound"),
 	)
+
+	api.Use(middleware.InjectDBMiddleware(outboundController))
 
 	api.Post("/", outboundController.CreateOutbound)
 	api.Get("/", outboundController.GetOutboundList)
@@ -28,6 +29,7 @@ func SetupOutboundRoutes(app *fiber.App, db *gorm.DB) {
 	api.Post("/picking/:id", outboundController.PickingOutbound)
 	api.Get("/picking/sheet/:id", outboundController.GetPickingSheet)
 	api.Post("/picking/complete/:id", outboundController.PickingComplete)
+	api.Get("/koli-details/:outbound_no", outboundController.GetKoliDetails)
 
 	// api.Put("/:id", outboundController.SaveOutbound)
 	// api.Get("/draft", outboundController.GetOutboundDraft)

@@ -14,6 +14,10 @@ type ProductController struct {
 	DB *gorm.DB
 }
 
+func NewProductController(DB *gorm.DB) *ProductController {
+	return &ProductController{DB: DB}
+}
+
 var productInput struct {
 	ID       uint    `json:"id"`
 	ItemCode string  `json:"item_code" validate:"required,min=3"`
@@ -26,14 +30,7 @@ var productInput struct {
 	Uom      string  `json:"uom" validate:"required,min=3"`
 }
 
-func NewProductController(DB *gorm.DB) *ProductController {
-	return &ProductController{DB: DB}
-}
-
 func (c *ProductController) CreateProduct(ctx *fiber.Ctx) error {
-
-	// fmt.Println("Payload Data : ", string(ctx.Body()))
-	// return nil
 
 	// Parse Body
 	if err := ctx.BodyParser(&productInput); err != nil {
@@ -155,12 +152,23 @@ func (c *ProductController) UpdateProduct(ctx *fiber.Ctx) error {
 }
 
 func (c *ProductController) GetAllProducts(ctx *fiber.Ctx) error {
+
 	var products []models.Product
 	if err := c.DB.Find(&products).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Products found", "data": products})
+}
+
+func (c *ProductController) GetAllCategory(ctx *fiber.Ctx) error {
+
+	var categories []models.Category
+	if err := c.DB.Find(&categories).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Categories found", "data": categories})
 }
 
 func (c *ProductController) DeleteProduct(ctx *fiber.Ctx) error {

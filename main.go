@@ -2,10 +2,8 @@ package main
 
 import (
 	"fiber-app/config"
-	"fiber-app/controllers"
-	"fiber-app/controllers/mobiles"
+	"fiber-app/controllers/configurations"
 	"fiber-app/middleware"
-	"fiber-app/models"
 	"fiber-app/routes"
 	"fmt"
 	"log"
@@ -21,23 +19,25 @@ func main() {
 	app := fiber.New()
 
 	// Connect to database
-	db, err := config.ConnectDB()
-	if err != nil {
-		log.Fatalf(" Failed to connect to database: %v", err)
-	}
+	// db, err := config.ConnectDB()
+	// db, err := configurations.OpenMasterDB()
+
+	// if err != nil {
+	// 	log.Fatalf(" Failed to connect to database: %v", err)
+	// }
 
 	// Auto migrate models
-	err = db.AutoMigrate(&models.User{})
-	if err != nil {
-		log.Fatalf("Failed to auto migrate: %v", err)
-	}
+	// err = db.AutoMigrate(&models.User{})
+	// if err != nil {
+	// 	log.Fatalf("Failed to auto migrate: %v", err)
+	// }
 
 	// checkUnprocessedFiles(db)
 
 	// Initialize controllers
 
 	// authMiddleware := middleware.NewAuthMiddleware(db)
-	authController := controllers.NewAuthController(db)
+	// authController := controllers.NewAuthController(db)
 
 	// customerController := controllers.NewCustomerController(db)
 	// handlingController := controllers.NewHandlingController(db)
@@ -50,40 +50,47 @@ func main() {
 	config.SetupCORS(app)
 
 	// Setup routes
-	api := app.Group("/api")
+	// api := app.Group("/api")
 	// guestApi := app.Group("/guest/api")
 	// Aplikasikan middleware auth ke semua route di bawah /api
 
-	routes.SetupProductRoutes(app, controllers.NewProductController(db))
-	routes.SetupSupplierRoutes(app, controllers.NewSupplierController(db))
-	routes.SetupWarehouseRoutes(app, controllers.SetuWarehouseController(db))
-	routes.SetupCustomerRoutes(app, controllers.NewCustomerController(db))
-	routes.SetupInboundRoutes(app, controllers.NewInboundController(db), db)
-	routes.SetupOutboundRoutes(app, db)
+	routes.SetupAuthRoutes(app)
+	routes.SetupDashboardRoutes(app)
+	routes.SetupProductRoutes(app)
+	routes.SetupCategoryRoutes(app)
+	routes.SetupSupplierRoutes(app)
+	routes.SetupCustomerRoutes(app)
+	routes.SetupTransporterRoutes(app)
+	routes.SetupTruckRoutes(app)
+	routes.SetupOriginRoutes(app)
+	routes.SetupHandlingRoutes(app)
+	routes.SetupUserRoutes(app)
+	routes.SetupMenuRoutes(app)
+	routes.SetupInboundRoutes(app)
+	routes.SetupWarehouseRoutes(app)
+	routes.SetupOutboundRoutes(app)
+	routes.SetupInventoryRoutes(app)
+	routes.SetupMobileInboundRoutes(app)
+	routes.SetupMobileOutboundRoutes(app)
+	routes.SetupMobilePackingRoutes(app)
+	routes.SetupShippingRoutes(app)
 
-	// routes.SetupHandlingRoutes(app, handlingController)
-	// routes.SetupTransporterRoutes(app, transporterController)
-	// routes.SetupTruckRoutes(app, truckController)
-	// routes.SetupOriginRoutes(app, originController)
 	// routes.SetupRfInboundRoutes(app, RfInboundController)
-	routes.SetupInventoryRoutes(app, controllers.NewInventoryController(db))
 	// routes.SetupOutboundRoutes(app, db)
 	// routes.SetupStockTakeRoutes(app, db)
 	// routes.SetupRfOutboundRoutes(app, db)
-	routes.SetupMobileInboundRoutes(app, controllers.NewMobileInboundController(db))
 	// routes.SetupMobileInventoryRoutes(app, mobiles.NewMobileInventoryController(db))
-	routes.SetupMobileOutboundRoutes(app, mobiles.NewMobileOutboundController(db))
-	routes.SetupMobilePackingRoutes(app, mobiles.NewMobilePackingController(db))
-	routes.SetupShippingRoutes(app, db)
-	// routes.SetupUserRoutes(app, db)
-	// routes.SetupMenuRoutes(app, db)
-
 	// routes.SetupMobileShippingGuestRoutes(app, mobiles.NewShippingGuestController(db))
-
 	// Route login (tidak perlu middleware auth)
-	api.Post("/v1/login", authController.Login)
-	api.Get("/v1/logout", authController.Logout)
-	api.Get("/v1/isLoggedIn", middleware.AuthMiddleware, authController.IsLoggedIn)
+
+	// api.Post(config.MAIN_ROUTES+"/login", authController.Login)
+	// api.Get(config.MAIN_ROUTES+"/logout", authController.Logout)
+	// api.Get(config.MAIN_ROUTES+"/isLoggedIn", middleware.AuthMiddleware, authController.IsLoggedIn)
+	api := app.Group(config.MAIN_ROUTES)
+	api.Post("/configurations/create-db", middleware.AuthMiddleware, configurations.CreateDatabase)
+	api.Post("/configurations/get-all-table", middleware.AuthMiddleware, configurations.GetAllTables())
+	api.Get("/configurations/get-all-bu", configurations.GetAllBusinessUnit)
+	api.Post("/configurations/db-migrate", configurations.MigrateDB)
 
 	// api.Use(middleware.AuthMiddleware)
 
