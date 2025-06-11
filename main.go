@@ -3,6 +3,7 @@ package main
 import (
 	"fiber-app/config"
 	"fiber-app/controllers/configurations"
+	"fiber-app/database"
 	"fiber-app/middleware"
 	"fiber-app/routes"
 	"fmt"
@@ -18,19 +19,36 @@ func main() {
 
 	app := fiber.New()
 
-	// Connect to database
-	// db, err := config.ConnectDB()
-	// db, err := configurations.OpenMasterDB()
+	// Pastikan database ada
+	configurations.EnsureDatabaseExists(config.DBName)
+	configurations.EnsureDatabaseExists(config.DBUnit)
 
-	// if err != nil {
-	// 	log.Fatalf(" Failed to connect to database: %v", err)
-	// }
+	// Connect to database
+	mainDB, err := configurations.OpenMasterDB()
+
+	if err != nil {
+		log.Fatalf(" Failed to connect to database: %v", err)
+	}
 
 	// Auto migrate models
-	// err = db.AutoMigrate(&models.User{})
-	// if err != nil {
-	// 	log.Fatalf("Failed to auto migrate: %v", err)
-	// }
+	err = database.Migrate(mainDB)
+	if err != nil {
+		log.Fatalf("Failed to auto migrate: %v", err)
+	}
+
+	unitDB, err := configurations.OpenDatabaseConnection(config.DBUnit)
+
+	if err != nil {
+		log.Fatalf("Failed to connect to database: %v", err)
+	}
+
+	err = database.MigrateBusinessUnit(unitDB)
+	if err != nil {
+		log.Fatalf("Failed to auto migrate unit database: %v", err)
+	}
+
+	database.SeedUnit(mainDB)
+	database.RunSeeders(unitDB)
 
 	// checkUnprocessedFiles(db)
 

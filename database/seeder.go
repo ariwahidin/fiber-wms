@@ -3,6 +3,7 @@ package database
 
 import (
 	"errors"
+	"fiber-app/config"
 	"fiber-app/models"
 	"log"
 
@@ -15,6 +16,24 @@ func RunSeeders(db *gorm.DB) {
 	SeedWarehouse(db)
 	SeedUserMaster(db)
 	SeedCategory(db)
+}
+
+func SeedUnit(db *gorm.DB) {
+	unit := models.BusinessUnit{
+		DbName: config.DBUnit,
+	}
+
+	var existing models.BusinessUnit
+	err := db.Where("db_name = ?", unit.DbName).First(&existing).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			if err := db.Create(&unit).Error; err != nil {
+				log.Fatalf("Failed to create unit: %v", err)
+			}
+		} else {
+			log.Fatalf("Unexpected DB error: %v", err)
+		}
+	}
 }
 
 func SeedCategory(db *gorm.DB) {
