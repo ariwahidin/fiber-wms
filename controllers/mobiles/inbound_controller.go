@@ -135,7 +135,7 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 	}
 
 	var inboundDetail models.InboundDetail
-	if err := tx.Debug().Where("inbound_no = ? AND item_code = ? AND scan_qty < quantity", scanInbound.InboundNo, product.ItemCode).First(&inboundDetail).Error; err != nil {
+	if err := tx.Debug().Where("inbound_no = ? AND item_code = ?", scanInbound.InboundNo, product.ItemCode).First(&inboundDetail).Error; err != nil {
 		tx.Rollback()
 		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Inbound detail not found", "detail": err.Error()})
 	}
