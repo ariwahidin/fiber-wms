@@ -98,28 +98,27 @@ type OutboundDetailHandling struct {
 
 type PickingSheet struct {
 	gorm.Model
-	InventoryID       int    `json:"inventory_id"`
-	InventoryDetailID int    `json:"inventory_detail_id"`
-	OutboundId        int    `json:"outbound_id"`
-	OutboundDetailId  int    `gorm:"foreignKey:OutboundDetailId" json:"outbound_detail_id"`
-	ItemID            int    `json:"item_id"`
-	ItemCode          string `json:"item_code"`
-	ScanType          string `json:"scan_type"`
-	ScanData          string `json:"scan_data"`
-	Barcode           string `json:"barcode"`
-	SerialNumber      string `json:"serial_number"`
-	Pallet            string `json:"pallet"`
-	Location          string `json:"location"`
-	QtyOnhand         int    `json:"qty_onhand" gorm:"default:0"`
-	QtyAvailable      int    `json:"qty_available" gorm:"default:0"`
-	QtyAllocated      int    `json:"qty_allocated" gorm:"default:0"`
-	WhsCode           string `json:"whs_code"`
-	QaStatus          string `json:"qa_status"`
-	Status            string `json:"status" gorm:"default:'pending'"`
-	IsSuggestion      string `json:"is_suggestion" gorm:"default:'N'"`
-	CreatedBy         int
-	UpdatedBy         int
-	DeletedBy         int
+	InventoryID      int    `json:"inventory_id"`
+	OutboundId       int    `json:"outbound_id"`
+	OutboundDetailId int    `gorm:"foreignKey:OutboundDetailId" json:"outbound_detail_id"`
+	ItemID           int    `json:"item_id"`
+	ItemCode         string `json:"item_code"`
+	ScanType         string `json:"scan_type"`
+	ScanData         string `json:"scan_data"`
+	Barcode          string `json:"barcode"`
+	SerialNumber     string `json:"serial_number"`
+	Pallet           string `json:"pallet"`
+	Location         string `json:"location"`
+	QtyOnhand        int    `json:"qty_onhand" gorm:"default:0"`
+	QtyAvailable     int    `json:"qty_available" gorm:"default:0"`
+	QtyAllocated     int    `json:"qty_allocated" gorm:"default:0"`
+	WhsCode          string `json:"whs_code"`
+	QaStatus         string `json:"qa_status"`
+	Status           string `json:"status" gorm:"default:'pending'"`
+	IsSuggestion     string `json:"is_suggestion" gorm:"default:'N'"`
+	CreatedBy        int
+	UpdatedBy        int
+	DeletedBy        int
 }
 
 type OutboundBarcode struct {

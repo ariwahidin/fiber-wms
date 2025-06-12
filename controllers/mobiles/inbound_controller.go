@@ -90,9 +90,6 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	// fmt.Println("scanInbound : ", scanInbound)
-	// return nil
-
 	// start db transaction
 	tx := c.DB.Begin()
 	if tx.Error != nil {
@@ -152,31 +149,13 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 		qtyScanned += item.Quantity
 	}
 
-	// qtyScanned -= scanInbound.QtyScan
-
 	if inboundDetail.Quantity < scanInbound.QtyScan+qtyScanned {
 		tx.Rollback()
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Quantity is not enough"})
 	}
 
-	// if inboundDetail.ScanQty+scanInbound.QtyScan > inboundDetail.Quantity {
-	// 	tx.Rollback()
-	// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Qty scan more than total qty"})
-	// }
-
-	// inboundDetail.ScanQty += scanInbound.QtyScan
 	inboundDetail.UpdatedBy = int(ctx.Locals("userID").(float64))
 	inboundDetail.UpdatedAt = time.Now()
-
-	if err := tx.Where("id = ?", inboundDetail.ID).
-		Select("scan_qty", "updated_by").
-		Updates(&models.InboundDetail{
-			// ScanQty:   inboundDetail.ScanQty,
-			UpdatedBy: int(ctx.Locals("userID").(float64)),
-		}).Error; err != nil {
-		tx.Rollback()
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-	}
 
 	var checkInboundBarcode models.InboundBarcode
 	if err := tx.Where("inbound_id = ? AND item_code = ? AND serial_number = ?", inboundHeader.ID, product.ItemCode, scanInbound.Serial).First(&checkInboundBarcode).Error; err != nil {

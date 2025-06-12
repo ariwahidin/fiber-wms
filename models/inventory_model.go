@@ -32,15 +32,15 @@ type Inventory struct {
 }
 
 // InventoryDetail: Detail dari setiap item di dalam inventory
-type InventoryDetail struct {
-	gorm.Model
-	InventoryId     int    `gorm:"foreignKey:InventoryId;references:ID" json:"inventory_id"`
-	Location        string `json:"location"`
-	InboundDetailId int    `json:"inbound_detail_id"`
-	SerialNumber    string `json:"serial_number"`
-	Quantity        int    `json:"quantity"`
-	QaStatus        string `json:"qa_status"`
-	CreatedBy       int
-	UpdatedBy       int
-	DeletedBy       int
-}
+// type InventoryDetail struct {
+// 	gorm.Model
+// 	InventoryId     int    `gorm:"foreignKey:InventoryId;references:ID" json:"inventory_id"`
+// 	Location        string `json:"location"`
+// 	InboundDetailId int    `json:"inbound_detail_id"`
+// 	SerialNumber    string `json:"serial_number"`
+// 	Quantity        int    `json:"quantity"`
+// 	QaStatus        string `json:"qa_status"`
+// 	CreatedBy       int
+// 	UpdatedBy       int
+// 	DeletedBy       int
+// }

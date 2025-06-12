@@ -242,7 +242,7 @@ func (c *MobilePackingController) AddToKoli(ctx *fiber.Ctx) error {
 
 	if !serialMandatroy {
 
-		// START OF CODE IF SERIAL NUMBER IS NOT MANDATORY
+		// START IF SERIAL NUMBER IS NOT MANDATORY
 		if err := c.DB.Debug().
 			Where("barcode = ? AND outbound_id = ?", requestBody.Barcode, outboundHeader.ID).
 			Find(&pickingSheets).Error; err != nil {
@@ -278,24 +278,26 @@ func (c *MobilePackingController) AddToKoli(ctx *fiber.Ctx) error {
 			koliDetail.OutboundID = int(outboundHeader.ID)
 			koliDetail.CreatedBy = int(ctx.Locals("userID").(float64))
 
-			// create new koli detail
-			if err := c.DB.Debug().Create(&koliDetail).Error; err != nil {
-				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-					"error": err.Error(),
-				})
-			}
+			if koliDetail.Qty > 0 {
+				// create new koli detail
+				if err := c.DB.Debug().Create(&koliDetail).Error; err != nil {
+					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+						"error": err.Error(),
+					})
+				}
 
-			// update picking sheet
-			if err := c.DB.Model(&models.PickingSheet{}).Where("id = ?", sheet.ID).
-				Updates(map[string]interface{}{
-					"qty_available": sheet.QtyAvailable - qtyPicking,
-					"qty_allocated": sheet.QtyAllocated + qtyPicking,
-					"updated_by":    int(ctx.Locals("userID").(float64)),
-					"updated_at":    time.Now(),
-				}).Error; err != nil {
-				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-					"error": err.Error(),
-				})
+				// update picking sheet
+				if err := c.DB.Model(&models.PickingSheet{}).Where("id = ?", sheet.ID).
+					Updates(map[string]interface{}{
+						"qty_available": sheet.QtyAvailable - qtyPicking,
+						"qty_allocated": sheet.QtyAllocated + qtyPicking,
+						"updated_by":    int(ctx.Locals("userID").(float64)),
+						"updated_at":    time.Now(),
+					}).Error; err != nil {
+					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+						"error": err.Error(),
+					})
+				}
 			}
 
 			qtyReq -= qtyPicking
