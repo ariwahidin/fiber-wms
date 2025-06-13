@@ -25,10 +25,10 @@ var secretKey = []byte(config.JWTSecret) // Ambil dari .env
 func AuthMiddleware(ctx *fiber.Ctx) error {
 	// Ambil token dari header Authorization
 
-	fmt.Println("Next Token Cookies: ", ctx.Cookies("next-auth-token"))
+	// fmt.Println("Next Token Cookies: ", ctx.Cookies("next-auth-token"))
 
 	// Ambil token dari cookie
-	tokenStringCookie := ctx.Cookies("next-auth-token")
+	tokenStringCookie := ctx.Cookies("x_token")
 	fmt.Println("tokenString: ", tokenStringCookie)
 
 	if tokenStringCookie == "" {
