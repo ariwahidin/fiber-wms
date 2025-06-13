@@ -92,12 +92,13 @@ func main() {
 	routes.SetupMobileOutboundRoutes(app)
 	routes.SetupMobilePackingRoutes(app)
 	routes.SetupShippingRoutes(app)
+	routes.SetupMobileInventoryRoutes(app)
 
 	// routes.SetupRfInboundRoutes(app, RfInboundController)
 	// routes.SetupOutboundRoutes(app, db)
 	// routes.SetupStockTakeRoutes(app, db)
 	// routes.SetupRfOutboundRoutes(app, db)
-	// routes.SetupMobileInventoryRoutes(app, mobiles.NewMobileInventoryController(db))
+
 	// routes.SetupMobileShippingGuestRoutes(app, mobiles.NewShippingGuestController(db))
 	// Route login (tidak perlu middleware auth)
 

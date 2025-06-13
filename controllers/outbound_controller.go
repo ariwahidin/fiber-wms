@@ -591,8 +591,6 @@ func (c *OutboundController) PickingComplete(ctx *fiber.Ctx) error {
 
 	repo := repositories.NewOutboundRepository(tx)
 
-	// var outboundItems []repositories.OutboundItem
-
 	outboundItems, err := repo.GetOutboundItemByID(inputBody.OutboundID)
 	if err != nil {
 		tx.Rollback()
@@ -617,13 +615,6 @@ func (c *OutboundController) PickingComplete(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	// for _, outboundDetail := range outboundDetails {
-	// 	if outboundDetail.Quantity != outboundDetail.ScanQty {
-	// 		tx.Rollback()
-	// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Picking not complete"})
-	// 	}
-	// }
-
 	var pickingSheets []models.PickingSheet
 	if err := tx.Debug().Where("outbound_id = ?", inputBody.OutboundID).Find(&pickingSheets).Error; err != nil {
 		tx.Rollback()
@@ -631,18 +622,30 @@ func (c *OutboundController) PickingComplete(ctx *fiber.Ctx) error {
 	}
 
 	for _, pickingSheet := range pickingSheets {
-		if pickingSheet.QtyAvailable > 0 {
-			// update inventory
-			if err := tx.Debug().
-				Model(&models.Inventory{}).
-				Where("id = ?", pickingSheet.InventoryID).
-				Updates(map[string]interface{}{
-					"qty_available": gorm.Expr("qty_available + ?", pickingSheet.QtyAvailable),
-					"qty_allocated": gorm.Expr("qty_allocated - ?", pickingSheet.QtyAvailable),
-				}).Error; err != nil {
-				tx.Rollback()
-				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-			}
+		// if pickingSheet.QtyAvailable > 0 {
+		// 	// update inventory
+		// 	if err := tx.Debug().
+		// 		Model(&models.Inventory{}).
+		// 		Where("id = ?", pickingSheet.InventoryID).
+		// 		Updates(map[string]interface{}{
+		// 			"qty_available": gorm.Expr("qty_available + ?", pickingSheet.QtyAvailable),
+		// 			"qty_allocated": gorm.Expr("qty_allocated - ?", pickingSheet.QtyAvailable),
+		// 		}).Error; err != nil {
+		// 		tx.Rollback()
+		// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		// 	}
+		// }
+
+		// update inventory
+		if err := tx.Debug().
+			Model(&models.Inventory{}).
+			Where("id = ?", pickingSheet.InventoryID).
+			Updates(map[string]interface{}{
+				"qty_allocated": gorm.Expr("qty_allocated - ?", pickingSheet.QtyAllocated),
+				"qty_shipped":   gorm.Expr("qty_shipped + ?", pickingSheet.QtyAllocated),
+			}).Error; err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
 	}
 

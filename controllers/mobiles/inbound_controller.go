@@ -61,6 +61,7 @@ func (c *MobileInboundController) GetListInbound(ctx *fiber.Ctx) error {
 	LEFT JOIN id ON a.id = id.inbound_id
 	LEFT JOIN ib ON a.id = ib.inbound_id
 	LEFT JOIN ibp ON a.id = ibp.inbound_id
+	WHERE a.status = 'open'
 	ORDER by a.id DESC`
 
 	var listInbound []listInboundResponse
@@ -106,6 +107,11 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 	if err := tx.Where("inbound_no = ?", scanInbound.InboundNo).First(&inboundHeader).Error; err != nil {
 		tx.Rollback()
 		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Inbound not found"})
+	}
+
+	if inboundHeader.Status == "complete" {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Inbound already complete"})
 	}
 
 	var product models.Product

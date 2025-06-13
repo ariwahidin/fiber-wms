@@ -148,12 +148,12 @@ func (c *AuthController) Logout(ctx *fiber.Ctx) error {
 	})
 }
 
-func (c *AuthController) IsLoggedIn(ctx *fiber.Ctx) error {
-	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
-		"success": true,
-		"message": "You are logged In",
-	})
-}
+// func (c *AuthController) IsLoggedIn(ctx *fiber.Ctx) error {
+// 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+// 		"success": true,
+// 		"message": "You are logged In",
+// 	})
+// }
 
 func Login(ctx *fiber.Ctx) error {
 	var input struct {

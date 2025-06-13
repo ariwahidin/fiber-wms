@@ -99,7 +99,7 @@ func (c *MobileInventoryController) GetItemsByLocationAndBarcode(ctx *fiber.Ctx)
 	}
 
 	var inventories []models.Inventory
-	if err := c.DB.Where("barcode = ? AND qty_available > 0", req.Barcode).Find(&inventories).Error; err != nil {
+	if err := c.DB.Where("barcode = ? AND location = ? AND qty_available > 0", req.Barcode, req.Location).Find(&inventories).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
@@ -193,7 +193,7 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 		newInventory.QtyAllocated = 0
 		newInventory.QtySuspend = 0
 		newInventory.QtyShipped = 0
-		newInventory.Trans = "transfer"
+		newInventory.Trans = "transfer barcode"
 		newInventory.CreatedBy = int(ctx.Locals("userID").(float64))
 		newInventory.UpdatedBy = int(ctx.Locals("userID").(float64))
 
@@ -290,7 +290,7 @@ func (c *MobileInventoryController) ConfirmTransferBySerial(ctx *fiber.Ctx) erro
 	newInventory.QtyAllocated = 0
 	newInventory.QtySuspend = 0
 	newInventory.QtyShipped = 0
-	newInventory.Trans = "transfer by serial"
+	newInventory.Trans = "transfer serial"
 	newInventory.CreatedBy = inventory.CreatedBy
 	newInventory.UpdatedBy = inventory.UpdatedBy
 	newInventory.DeletedBy = inventory.DeletedBy

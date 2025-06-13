@@ -25,13 +25,15 @@ var secretKey = []byte(config.JWTSecret) // Ambil dari .env
 func AuthMiddleware(ctx *fiber.Ctx) error {
 	// Ambil token dari header Authorization
 
+	fmt.Println("Next Token Cookies: ", ctx.Cookies("next-auth-token"))
+
 	// Ambil token dari cookie
-	tokenStringCookie := ctx.Cookies("token")
-	// fmt.Println("tokenString: ", tokenStringCookie)
+	tokenStringCookie := ctx.Cookies("next-auth-token")
+	fmt.Println("tokenString: ", tokenStringCookie)
 
 	if tokenStringCookie == "" {
 		return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-			"message": "Unauthorized: Missing tokening cookie ssss",
+			"message": "Unauthorized: Token not found in cookie",
 		})
 	}
 

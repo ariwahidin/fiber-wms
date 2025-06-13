@@ -27,7 +27,7 @@ func SetupMobileInboundRoutes(app *fiber.App) {
 
 func SetupMobileInventoryRoutes(app *fiber.App) {
 	mobileInventoryController := &mobiles.MobileInventoryController{}
-	api := app.Group(config.MAIN_ROUTES, middleware.AuthMiddleware)
+	api := app.Group(config.MAIN_ROUTES+"/mobile", middleware.AuthMiddleware)
 	api.Use(middleware.InjectDBMiddleware(mobileInventoryController))
 
 	api.Get("/inventory/location/:location", mobileInventoryController.GetItemsByLocation)
