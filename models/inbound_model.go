@@ -11,17 +11,15 @@ type InboundHeader struct {
 	Supplier        string `json:"supplier"`
 	Status          string `json:"status" gorm:"default:'draft'"`
 	InboundDate     string `json:"inbound_date"`
-	InvoiceNo       string `json:"invoice"`
 	TransporterID   int    `json:"transporter_id"`
 	Driver          string `json:"driver"`
 	TruckId         int    `json:"truck_id"`
 	TruckNo         string `json:"truck_no"`
+	Type            string `json:"type"`
 	ContainerNo     string `json:"container_no"`
-	BlNo            string `json:"bl_no"`
-	PoNo            string `json:"po_no"`
-	PoNumber        string `json:"po_number"`
+	PoNumber        string `json:"po_number" gorm:"unique"`
+	Invoice         string `json:"invoice"`
 	PoDate          string `gorm:"type:date" json:"po_date"`
-	SjNo            string `json:"sj_no"`
 	OriginId        int    `json:"origin_id"`
 	TimeArrival     string `json:"time_arrival"`
 	StartUnloading  string `json:"start_unloading"`
@@ -49,6 +47,7 @@ type InboundDetail struct {
 	WhsCode      string `json:"whs_code" required:"required"`
 	RecDate      string `json:"rec_date" required:"required"`
 	Uom          string `json:"uom" required:"required"`
+	IsSerial     string `json:"is_serial"`
 	HandlingId   int    `json:"handling_id" required:"required"`
 	HandlingUsed string `json:"handling_used"`
 	TotalVas     int    `json:"total_vas"`

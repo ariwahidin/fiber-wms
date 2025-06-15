@@ -222,11 +222,23 @@ func (c *MobileInboundController) GetInboundDetail(ctx *fiber.Ctx) error {
 
 	type InboundDetailResult struct {
 		models.InboundDetail
-		ScanQty int `json:"scan_qty"`
+		IsSerial bool `json:"is_serial"`
+		ScanQty  int  `json:"scan_qty"`
 	}
 
 	var result []InboundDetailResult
 	for _, v := range inboundDetail {
+
+		var product models.Product
+		isSerial := false
+
+		if err := c.DB.Where("id = ?", v.ItemId).First(&product).Error; err != nil {
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+
+		if product.HasSerial == "Y" {
+			isSerial = true
+		}
 
 		var inboundBarcode []models.InboundBarcode
 		if err := c.DB.Where("inbound_detail_id = ?", v.ID).Find(&inboundBarcode).Error; err != nil {
@@ -244,6 +256,7 @@ func (c *MobileInboundController) GetInboundDetail(ctx *fiber.Ctx) error {
 		result = append(result, InboundDetailResult{
 			InboundDetail: v,
 			ScanQty:       scanQty,
+			IsSerial:      isSerial,
 		})
 
 	}

@@ -5,6 +5,7 @@ import (
 	"fiber-app/config"
 	"fiber-app/controllers/configurations"
 	"fiber-app/models"
+	"fmt"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -224,23 +225,37 @@ func Login(ctx *fiber.Ctx) error {
 	}
 
 	// Buat token JWT
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+	access_token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"userID": mUser.ID,
-		"exp":    time.Now().Add(time.Hour * 24).Unix(), // Token berlaku 24 jam
-		"unit":   input.BusinessUnit,
-		// Setting 1 Menit untuk testing
-		// "exp": time.Now().Add(time.Second * 30).Unix(),
+		// "exp":    time.Now().Add(time.Hour * 24).Unix(), // Token berlaku 24 jam
+		"unit": input.BusinessUnit,
+		// Setting 30 Detik untuk testing
+		"exp": time.Now().Add(time.Second * 15).Unix(),
 	})
 
-	tokenString, err := token.SignedString([]byte(config.JWTSecret))
+	// Buat refresh token JWT
+	refresh_token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"userID": mUser.ID,
+		"unit":   input.BusinessUnit,
+		"exp":    time.Now().Add(time.Hour * 24).Unix(), // Token berlaku 24 jam
+	})
+
+	accesTokenString, err := access_token.SignedString([]byte(config.JWTSecret))
 	if err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"message": "Failed to generate token",
 		})
 	}
 
-	// Simpan token ke cookie
-	ctx.Cookie(config.GetTokenCookie(tokenString))
+	refreshTokenString, err := refresh_token.SignedString([]byte(config.JWTSecret))
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"message": "Failed to generate token",
+		})
+	}
+
+	// Simpan refresh token ke cookie
+	ctx.Cookie(config.GetTokenCookie(refreshTokenString))
 
 	var menus []models.Menu
 	errMenu := db.
@@ -277,7 +292,7 @@ func Login(ctx *fiber.Ctx) error {
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
 		"success": true,
 		"message": "Login successful",
-		"x_token": tokenString,
+		"x_token": accesTokenString,
 		"user": fiber.Map{
 			"id":       mUser.ID,
 			"email":    mUser.Email,
@@ -287,5 +302,59 @@ func Login(ctx *fiber.Ctx) error {
 			"unit":     input.BusinessUnit,
 		},
 		"menus": resultMenu,
+	})
+}
+
+func RefreshToken(ctx *fiber.Ctx) error {
+	// Ambil cookie "refresh_token"
+	tokenString := ctx.Cookies("refresh_token")
+	if tokenString == "" {
+		return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"message": "Unauthorized - refresh token not found",
+		})
+	}
+
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return []byte(config.JWTSecret), nil
+	})
+
+	if err != nil {
+		return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"message": "Unauthorized",
+		})
+	}
+
+	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
+		// Generate new token
+		newToken := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+			"userID": claims["userID"],
+			"unit":   claims["unit"],
+			"exp":    time.Now().Add(time.Second * 15).Unix(),
+			// "exp":    time.Now().Add(time.Hour * 24).Unix(), // Token berlaku 24 jam
+		})
+		newTokenString, err := newToken.SignedString([]byte(config.JWTSecret))
+		if err != nil {
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"message": "Failed to generate token",
+			})
+		}
+
+		// Simpan token ke cookie
+		// ctx.Cookie(config.GetTokenCookie(newTokenString))
+
+		fmt.Println("newTokenString: ", newTokenString)
+
+		return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+			"success":      true,
+			"message":      "Token refreshed successfully",
+			"access_token": newTokenString,
+		})
+	}
+
+	return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+		"message": "Unauthorized",
 	})
 }

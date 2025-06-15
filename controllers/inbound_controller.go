@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fiber-app/models"
 	"fiber-app/repositories"
+	"fmt"
 	"strconv"
 	"time"
 
@@ -27,6 +28,9 @@ type Inbound struct {
 	Supplier      string               `json:"supplier"`
 	PONumber      string               `json:"po_number"`
 	Mode          string               `json:"mode"`
+	Type          string               `json:"type"`
+	Invoice       string               `json:"invoice"`
+	Remarks       string               `json:"remarks"`
 	Status        string               `json:"status"`
 	Items         []InboundItem        `json:"items"`
 	ReceivedItems []ItemInboundBarcode `json:"received_items"`
@@ -41,6 +45,7 @@ type InboundItem struct {
 	UOM          string `json:"uom"`
 	ReceivedDate string `json:"received_date"`
 	Remarks      string `json:"remarks"`
+	IsSerial     string `json:"is_serial"`
 	Mode         string `json:"mode"`
 }
 
@@ -92,7 +97,6 @@ func (c *InboundController) CreateInbound(ctx *fiber.Ctx) error {
 	userID := int(ctx.Locals("userID").(float64))
 
 	var InboundHeader models.InboundHeader
-
 	var supplier models.Supplier
 
 	if err := tx.Debug().First(&supplier, "supplier_code = ?", payload.Supplier).Error; err != nil {
@@ -100,7 +104,7 @@ func (c *InboundController) CreateInbound(ctx *fiber.Ctx) error {
 			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
 				"success": false,
 				"message": "Supplier not found",
-				"error":   err.Error(),
+				"error":   "Supplier not found : " + payload.Supplier,
 			})
 		}
 		tx.Rollback()
@@ -110,11 +114,11 @@ func (c *InboundController) CreateInbound(ctx *fiber.Ctx) error {
 			"error":   err.Error(),
 		})
 	}
-	// Insert ke inbounds
+	// Insert ke inbound_headers
 
 	InboundHeader.InboundNo = payload.InboundNo
 	InboundHeader.InboundDate = payload.InboundDate
-	InboundHeader.InvoiceNo = payload.PONumber
+	InboundHeader.Invoice = payload.Invoice
 	InboundHeader.Supplier = payload.Supplier
 	InboundHeader.SupplierId = int(supplier.ID)
 	InboundHeader.PoDate = payload.InboundDate
@@ -123,6 +127,8 @@ func (c *InboundController) CreateInbound(ctx *fiber.Ctx) error {
 	InboundHeader.CreatedBy = userID
 	InboundHeader.UpdatedBy = userID
 	InboundHeader.Status = "open"
+	InboundHeader.Remarks = payload.Remarks
+	InboundHeader.Type = payload.Type
 
 	res := tx.Create(&InboundHeader)
 
@@ -165,6 +171,7 @@ func (c *InboundController) CreateInbound(ctx *fiber.Ctx) error {
 		InboundDetail.WhsCode = item.WhsCode
 		InboundDetail.RecDate = item.ReceivedDate
 		InboundDetail.Remarks = item.Remarks
+		InboundDetail.IsSerial = product.HasSerial
 		InboundDetail.CreatedBy = userID
 		InboundDetail.UpdatedBy = userID
 
@@ -208,6 +215,8 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	fmt.Println("Payload Data : ", payload)
+
 	userID := int(ctx.Locals("userID").(float64))
 	var InboundHeader models.InboundHeader
 	if err := c.DB.Debug().First(&InboundHeader, "inbound_no = ?", inbound_no).Error; err != nil {
@@ -230,7 +239,9 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 	InboundHeader.SupplierId = int(supplier.ID)
 	InboundHeader.PoDate = payload.InboundDate
 	InboundHeader.PoNumber = payload.PONumber
-	// InboundHeader.Status = payload.Status
+	InboundHeader.Invoice = payload.Invoice
+	InboundHeader.Type = payload.Type
+	InboundHeader.Remarks = payload.Remarks
 	InboundHeader.UpdatedBy = userID
 
 	if err := c.DB.Model(&models.InboundHeader{}).Where("id = ?", InboundHeader.ID).Updates(InboundHeader).Error; err != nil {
@@ -270,6 +281,9 @@ func (c *InboundController) GetInboundByID(ctx *fiber.Ctx) error {
 		Supplier:    InboundHeader.Supplier,
 		PONumber:    InboundHeader.PoNumber,
 		Status:      InboundHeader.Status,
+		Remarks:     InboundHeader.Remarks,
+		Invoice:     InboundHeader.Invoice,
+		Type:        InboundHeader.Type,
 	}
 
 	var InboundDetails []models.InboundDetail
@@ -291,6 +305,7 @@ func (c *InboundController) GetInboundByID(ctx *fiber.Ctx) error {
 				WhsCode:      InboundDetail.WhsCode,
 				ReceivedDate: InboundDetail.RecDate,
 				Remarks:      InboundDetail.Remarks,
+				IsSerial:     InboundDetail.IsSerial,
 			})
 		}
 	}
@@ -371,6 +386,7 @@ func (c *InboundController) SaveItem(ctx *fiber.Ctx) error {
 			WhsCode:   payload.WhsCode,
 			RecDate:   payload.ReceivedDate,
 			Remarks:   payload.Remarks,
+			IsSerial:  product.HasSerial,
 			CreatedBy: int(ctx.Locals("userID").(float64)),
 		}
 		if err := c.DB.Debug().Create(&newItem).Error; err != nil {
@@ -388,6 +404,7 @@ func (c *InboundController) SaveItem(ctx *fiber.Ctx) error {
 		inboundDetail.WhsCode = payload.WhsCode
 		inboundDetail.RecDate = payload.ReceivedDate
 		inboundDetail.Remarks = payload.Remarks
+		inboundDetail.IsSerial = product.HasSerial
 		inboundDetail.UpdatedBy = int(ctx.Locals("userID").(float64))
 		if err := c.DB.Debug().Save(&inboundDetail).Error; err != nil {
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
@@ -403,6 +420,7 @@ func (c *InboundController) SaveItem(ctx *fiber.Ctx) error {
 		WhsCode:      payload.WhsCode,
 		ReceivedDate: payload.ReceivedDate,
 		Remarks:      payload.Remarks,
+		IsSerial:     product.HasSerial,
 	}
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Item saved successfully", "data": resultItem})
@@ -428,6 +446,7 @@ func (c *InboundController) GetItem(ctx *fiber.Ctx) error {
 		WhsCode:      inboundDetail.WhsCode,
 		ReceivedDate: inboundDetail.RecDate,
 		Remarks:      inboundDetail.Remarks,
+		IsSerial:     inboundDetail.IsSerial,
 	}
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Item found successfully", "data": resultItem})
@@ -573,7 +592,7 @@ func (c *InboundController) ProcessingInboundComplete(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Putaway complete"})
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Inbound completed"})
 }
 
 func (c *InboundController) PutawayPerItem(ctx *fiber.Ctx) error {

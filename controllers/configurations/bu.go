@@ -250,7 +250,11 @@ func checkDatabaseExists(db *gorm.DB, dbName string) (bool, error) {
 		err := db.Raw("SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = ?", dbName).Scan(&exists).Error
 		return exists, err
 	case "mssql":
-		err := db.Raw("SELECT name FROM master.sys.databases WHERE name = ?", dbName).Scan(&exists).Error
+		// err := db.Raw("SELECT name FROM master.sys.databases WHERE name = ?", dbName).Scan(&exists).Error
+		// return exists, err
+		err := db.Raw(`SELECT IIF(EXISTS (
+				SELECT 1 FROM master.sys.databases WHERE name = ?
+			), 1, 0) AS exists_flag`, dbName).Scan(&exists).Error
 		return exists, err
 	default:
 		return false, fmt.Errorf("unsupported DB driver")
@@ -295,7 +299,11 @@ func GetAllTables() fiber.Handler {
 		case "postgres":
 			query = `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'`
 		case "mssql":
-			query = `SELECT name FROM sys.tables WHERE schema_name(schema_id) = ?`
+			query = fmt.Sprintf(`
+					SELECT TABLE_NAME AS table_name
+					FROM [%s].INFORMATION_SCHEMA.TABLES 
+					WHERE TABLE_TYPE = 'BASE TABLE'
+					`, dbName)
 		default:
 			return c.Status(500).JSON(fiber.Map{"error": "Unsupported DB driver"})
 		}

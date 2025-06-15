@@ -641,6 +641,7 @@ func (c *OutboundController) PickingComplete(ctx *fiber.Ctx) error {
 			Model(&models.Inventory{}).
 			Where("id = ?", pickingSheet.InventoryID).
 			Updates(map[string]interface{}{
+				"qty_onhand":    gorm.Expr("qty_onhand - ?", pickingSheet.QtyAllocated),
 				"qty_allocated": gorm.Expr("qty_allocated - ?", pickingSheet.QtyAllocated),
 				"qty_shipped":   gorm.Expr("qty_shipped + ?", pickingSheet.QtyAllocated),
 			}).Error; err != nil {

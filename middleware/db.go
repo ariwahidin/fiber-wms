@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"fiber-app/controllers/configurations"
+	"fmt"
 	"reflect"
 
 	"github.com/gofiber/fiber/v2"
@@ -11,6 +12,9 @@ import (
 func InjectDBMiddleware(controller interface{}) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		dbName, ok := c.Locals("unit").(string)
+
+		fmt.Println("Environment: ", dbName)
+
 		if !ok || dbName == "" {
 			return fiber.NewError(fiber.StatusInternalServerError, "database name not found in context")
 		}
