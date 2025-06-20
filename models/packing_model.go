@@ -26,7 +26,6 @@ type KoliDetail struct {
 	ItemCode         string `json:"item_code"`
 	Barcode          string `json:"barcode"`
 	SerialNumber     string `json:"serial_number"`
-	SerialNumber2    string `json:"serial_number2"`
 	Qty              int    `json:"qty"`
 	CreatedBy        int    `json:"created_by"`
 	UpdatedBy        int    `json:"updated_by"`

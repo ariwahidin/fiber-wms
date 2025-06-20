@@ -55,7 +55,7 @@ type OutboundDetail struct {
 
 	OutboundDetailHandlings []OutboundDetailHandling `gorm:"foreignKey:OutboundDetailId;references:ID;constraint:OnDelete:CASCADE" json:"outbound_detail_handlings"`
 	PickingSheets           []PickingSheet           `gorm:"foreignKey:OutboundDetailId;references:ID;constraint:OnDelete:CASCADE" json:"picking_sheets"`
-	OutboundBarcodes        []OutboundBarcode        `gorm:"foreignKey:OutboundDetailId;references:ID;constraint:OnDelete:CASCADE" json:"outbound_barcodes"`
+	// OutboundBarcodes        []OutboundBarcode        `gorm:"foreignKey:OutboundDetailId;references:ID;constraint:OnDelete:CASCADE" json:"outbound_barcodes"`
 }
 
 type OutboundFile struct {
@@ -121,27 +121,27 @@ type PickingSheet struct {
 	DeletedBy        int
 }
 
-type OutboundBarcode struct {
-	gorm.Model
-	InventoryID       int    `json:"inventory_id"`
-	InventoryDetailID int    `json:"inventory_detail_id"`
-	OutboundId        int    `json:"outbound_id"`
-	OutboundDetailId  int    `gorm:"foreignKey:OutboundDetailId" json:"outbound_detail_id"`
-	PickingSheetId    int    `json:"picking_sheet_id" gorm:"default:0"`
-	SeqBox            int    `json:"seq_box"`
-	ItemID            int    `json:"item_id"`
-	ItemCode          string `json:"item_code"`
-	ScanType          string `json:"scan_type"`
-	ScanData          string `json:"scan_data"`
-	Barcode           string `json:"barcode"`
-	SerialNumber      string `json:"serial_number"`
-	Location          string `json:"location"`
-	Pallet            string `json:"pallet"`
-	Quantity          int    `json:"quantity"`
-	WhsCode           string `json:"whs_code"`
-	QaStatus          string `json:"qa_status"`
-	Status            string `json:"status" gorm:"default:'pending'"`
-	CreatedBy         int
-	UpdatedBy         int
-	DeletedBy         int
-}
+// type OutboundBarcode struct {
+// 	gorm.Model
+// 	InventoryID       int    `json:"inventory_id"`
+// 	InventoryDetailID int    `json:"inventory_detail_id"`
+// 	OutboundId        int    `json:"outbound_id"`
+// 	OutboundDetailId  int    `gorm:"foreignKey:OutboundDetailId" json:"outbound_detail_id"`
+// 	PickingSheetId    int    `json:"picking_sheet_id" gorm:"default:0"`
+// 	SeqBox            int    `json:"seq_box"`
+// 	ItemID            int    `json:"item_id"`
+// 	ItemCode          string `json:"item_code"`
+// 	ScanType          string `json:"scan_type"`
+// 	ScanData          string `json:"scan_data"`
+// 	Barcode           string `json:"barcode"`
+// 	SerialNumber      string `json:"serial_number"`
+// 	Location          string `json:"location"`
+// 	Pallet            string `json:"pallet"`
+// 	Quantity          int    `json:"quantity"`
+// 	WhsCode           string `json:"whs_code"`
+// 	QaStatus          string `json:"qa_status"`
+// 	Status            string `json:"status" gorm:"default:'pending'"`
+// 	CreatedBy         int
+// 	UpdatedBy         int
+// 	DeletedBy         int
+// }

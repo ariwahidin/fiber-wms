@@ -44,9 +44,9 @@ func SetupMobileOutboundRoutes(app *fiber.App) {
 
 	api.Get("/outbound/list/open", mobileOutboundController.GetListOutbound)
 	api.Get("/outbound/detail/:outbound_no", mobileOutboundController.GetListOutboundDetail)
-	api.Post("/outbound/picking/scan", mobileOutboundController.ScanPicking)
-	api.Get("/outbound/picking/scan/:id", mobileOutboundController.GetListOutboundBarcode)
-	api.Delete("/outbound/picking/scan/:id", mobileOutboundController.DeleteOutboundBarcode)
+	// api.Post("/outbound/picking/scan", mobileOutboundController.ScanPicking)
+	// api.Get("/outbound/picking/scan/:id", mobileOutboundController.GetListOutboundBarcode)
+	// api.Delete("/outbound/picking/scan/:id", mobileOutboundController.DeleteOutboundBarcode)
 }
 
 func SetupMobileShippingGuestRoutes(app *fiber.App, shippingGuestController *mobiles.ShippingGuestController) {

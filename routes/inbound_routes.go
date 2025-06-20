@@ -25,6 +25,8 @@ func SetupInboundRoutes(app *fiber.App) {
 	api.Get("/putaway/sheet/:id", inboundController.GetPutawaySheet)
 	api.Post("/complete/:id", inboundController.ProcessingInboundComplete)
 	api.Put("/putaway/item/:id", inboundController.PutawayPerItem)
+	api.Post("/open", inboundController.HandleOpen)
+	api.Post("/checking", inboundController.HandleChecking)
 
 	// api := app.Group("/api/v1/inbound", middleware.AuthMiddleware, inboundMidleware.CheckPermission("create_inbound"))
 	// api.Post("/upload", inboundController.UploadInboundFromExcel)

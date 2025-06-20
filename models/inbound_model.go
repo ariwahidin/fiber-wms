@@ -1,23 +1,26 @@
 package models
 
 import (
+	"fiber-app/controllers/idgen"
+
 	"gorm.io/gorm"
 )
 
 type InboundHeader struct {
 	gorm.Model
+	ID              int64  `json:"id" gorm:"primary_key"`
 	InboundNo       string `json:"inbound_no" gorm:"unique"`
 	SupplierId      int    `json:"supplier_id"`
 	Supplier        string `json:"supplier"`
 	Status          string `json:"status" gorm:"default:'draft'"`
 	InboundDate     string `json:"inbound_date"`
-	TransporterID   int    `json:"transporter_id"`
+	Transporter     string `json:"transporter"`
 	Driver          string `json:"driver"`
 	TruckId         int    `json:"truck_id"`
-	TruckNo         string `json:"truck_no"`
+	NoTruck         string `json:"no_truck"`
 	Type            string `json:"type"`
-	ContainerNo     string `json:"container_no"`
-	PoNumber        string `json:"po_number" gorm:"unique"`
+	Container       string `json:"container"`
+	PoNumber        string `json:"po_number"`
 	Invoice         string `json:"invoice"`
 	PoDate          string `gorm:"type:date" json:"po_date"`
 	OriginId        int    `json:"origin_id"`
@@ -30,18 +33,30 @@ type InboundHeader struct {
 	DeletedBy       int
 
 	// Relations
-	Details []InboundDetail `gorm:"foreignKey:InboundId;references:ID;constraint:OnDelete:CASCADE" json:"details"`
+	InboundReferences []InboundReference `gorm:"foreignKey:InboundId;references:ID;constraint:OnDelete:CASCADE" json:"references"`
+	Details           []InboundDetail    `gorm:"foreignKey:InboundId;references:ID;constraint:OnDelete:CASCADE" json:"details"`
+	Received          []InboundBarcode   `gorm:"foreignKey:InboundId;references:ID;constraint:OnDelete:CASCADE" json:"received"`
+}
+
+func (u *InboundHeader) BeforeCreate(tx *gorm.DB) (err error) {
+	u.ID = idgen.GenerateID()
+	return
+}
+
+type InboundReference struct {
+	gorm.Model
+	InboundId uint   `json:"inbound_id" gorm:"default:null"`
+	RefNo     string `json:"ref_no" gorm:"unique"`
 }
 
 type InboundDetail struct {
 	gorm.Model
-	InboundId int    `json:"inbound_id" gorm:"default:null"`
-	InboundNo string `json:"inbound_no"`
-	ItemId    int    `json:"item_id"`
-	ItemCode  string `json:"item_code" required:"required"`
-	Barcode   string `json:"barcode"`
-	Quantity  int    `json:"quantity" required:"required"`
-	// ScanQty      int    `json:"scan_qty" gorm:"default:0"`
+	InboundId    uint   `json:"inbound_id" gorm:"default:null"`
+	InboundNo    string `json:"inbound_no"`
+	ItemId       int    `json:"item_id"`
+	ItemCode     string `json:"item_code" required:"required"`
+	Barcode      string `json:"barcode"`
+	Quantity     int    `json:"quantity" required:"required"`
 	Location     string `json:"location" required:"required"`
 	Status       string `json:"status" gorm:"default:'draft'"`
 	WhsCode      string `json:"whs_code" required:"required"`
@@ -52,13 +67,11 @@ type InboundDetail struct {
 	HandlingUsed string `json:"handling_used"`
 	TotalVas     int    `json:"total_vas"`
 	Remarks      string `json:"remarks"`
+	RefId        int    `json:"ref_id"`
+	RefNo        string `json:"ref_no"`
 	CreatedBy    int
 	UpdatedBy    int
 	DeletedBy    int
-
-	// Relations
-	InboundBarcodes        []InboundBarcode        `gorm:"foreignKey:InboundDetailId;references:ID;constraint:OnDelete:CASCADE" json:"inbound_barcodes"`
-	InboundDetailHandlings []InboundDetailHandling `gorm:"foreignKey:InboundDetailId;references:ID;constraint:OnDelete:CASCADE" json:"inbound_detail_handlings"`
 }
 
 type InboundDetailHandling struct {
@@ -78,7 +91,7 @@ type InboundDetailHandling struct {
 
 type InboundBarcode struct {
 	gorm.Model
-	InboundId       int    `json:"inbound_id"`
+	InboundId       int    `json:"inbound_id" gorm:"default:null"`
 	InboundDetailId int    `gorm:"foreignKey:InboundDetailId" json:"inbound_detail_id"`
 	ItemID          int    `json:"item_id"`
 	ItemCode        string `json:"item_code"`

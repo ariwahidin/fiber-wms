@@ -26,11 +26,11 @@ func (c *MobileInboundController) GetListInbound(ctx *fiber.Ctx) error {
 		ID           uint      `json:"id"`
 		InboundNo    string    `json:"inbound_no"`
 		SupplierName string    `json:"supplier_name"`
-		InvoiceNo    string    `json:"invoice_no"`
 		ReqQty       int       `json:"req_qty"`
 		ScanQty      int       `json:"scan_qty"`
 		QtyStock     int       `json:"qty_stock"`
 		Status       string    `json:"status"`
+		PoNumber     string    `json:"po_number"`
 		UpdatedAt    time.Time `json:"updated_at"`
 	}
 
@@ -52,7 +52,7 @@ func (c *MobileInboundController) GetListInbound(ctx *fiber.Ctx) error {
 	from inbound_barcodes
 	group by inbound_id)
 
-	SELECT a.id, a.inbound_no, b.supplier_name, a.invoice_no, 
+	SELECT a.id, a.inbound_no, b.supplier_name, a.po_number,
 	COALESCE(id.req_qty, 0) as req_qty, COALESCE(ibp.scan_qty, 0) as scan_qty, 
 	COALESCE(ib.qty_stock,0) as qty_stock,
 	a.status, a.updated_at 
@@ -61,7 +61,7 @@ func (c *MobileInboundController) GetListInbound(ctx *fiber.Ctx) error {
 	LEFT JOIN id ON a.id = id.inbound_id
 	LEFT JOIN ib ON a.id = ib.inbound_id
 	LEFT JOIN ibp ON a.id = ibp.inbound_id
-	WHERE a.status = 'open'
+	WHERE a.status = 'checking'
 	ORDER by a.id DESC`
 
 	var listInbound []listInboundResponse
@@ -106,7 +106,7 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 	var inboundHeader models.InboundHeader
 	if err := tx.Where("inbound_no = ?", scanInbound.InboundNo).First(&inboundHeader).Error; err != nil {
 		tx.Rollback()
-		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Inbound not found"})
+		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Inbound not found", "message": "Inbound not found"})
 	}
 
 	if inboundHeader.Status == "complete" {
@@ -117,30 +117,30 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 	var product models.Product
 	if err := tx.Where("barcode = ?", scanInbound.Barcode).First(&product).Error; err != nil {
 		tx.Rollback()
-		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Product not found"})
+		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Product not found", "message": "Product not found"})
 	}
 
 	if product.HasSerial == "Y" && scanInbound.ScanType != "SERIAL" {
 		tx.Rollback()
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Scan type must be serial"})
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Scan type must be serial", "message": "Scan type must be serial"})
 	}
 
 	if product.HasSerial == "N" && scanInbound.ScanType != "BARCODE" {
 		tx.Rollback()
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Scan type must be barcode"})
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Scan type must be barcode", "message": "Scan type must be barcode"})
 	}
 
 	if product.HasSerial == "Y" && scanInbound.ScanType == "SERIAL" {
 		if scanInbound.Barcode == scanInbound.Serial {
 			tx.Rollback()
-			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Serial must not be same with barcode"})
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Serial must not be same with barcode", "message": "Serial must not be same with barcode"})
 		}
 	}
 
 	var inboundDetail models.InboundDetail
 	if err := tx.Debug().Where("inbound_no = ? AND item_code = ?", scanInbound.InboundNo, product.ItemCode).First(&inboundDetail).Error; err != nil {
 		tx.Rollback()
-		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Inbound detail not found", "detail": err.Error()})
+		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Inbound detail not found", "message": "Inbound detail not found", "detail": err.Error()})
 	}
 
 	inboundBarcodes := []models.InboundBarcode{}
@@ -157,7 +157,7 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 
 	if inboundDetail.Quantity < scanInbound.QtyScan+qtyScanned {
 		tx.Rollback()
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Quantity is not enough"})
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Quantity is not enough", "message": "Quantity is not enough"})
 	}
 
 	inboundDetail.UpdatedBy = int(ctx.Locals("userID").(float64))
@@ -173,7 +173,7 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 
 	if checkInboundBarcode.ID > 0 && scanInbound.ScanType == "SERIAL" {
 		tx.Rollback()
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Serial number already scanned"})
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Serial number already scanned", "message": "Serial number already scanned"})
 	}
 
 	var inboundBarcode = models.InboundBarcode{

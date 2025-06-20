@@ -3,6 +3,7 @@ package main
 import (
 	"fiber-app/config"
 	"fiber-app/controllers/configurations"
+	"fiber-app/controllers/idgen"
 	"fiber-app/database"
 	"fiber-app/middleware"
 	"fiber-app/routes"
@@ -18,6 +19,8 @@ import (
 func main() {
 
 	app := fiber.New()
+
+	idgen.Init()
 
 	// Pastikan database ada
 	configurations.EnsureDatabaseExists(config.DBName)
@@ -112,6 +115,13 @@ func main() {
 	api.Post("/configurations/db-migrate", configurations.MigrateDB)
 
 	// api.Use(middleware.AuthMiddleware)
+
+	// Print all registered routes
+	// for _, route := range app.Stack() {
+	// 	for _, r := range route {
+	// 		fmt.Printf("%s %s\n", r.Method, r.Path)
+	// 	}
+	// }
 
 	port := config.APP_PORT
 	fmt.Println("🚀 Server berjalan di port " + port)

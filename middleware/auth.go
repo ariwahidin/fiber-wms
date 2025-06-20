@@ -17,9 +17,9 @@ type AuthMiddlewareStruct struct {
 	DB *gorm.DB
 }
 
-func NewAuthMiddleware(DB *gorm.DB) *AuthMiddlewareStruct {
-	return &AuthMiddlewareStruct{DB: DB}
-}
+// func NewAuthMiddleware(DB *gorm.DB) *AuthMiddlewareStruct {
+// 	return &AuthMiddlewareStruct{DB: DB}
+// }
 
 // var secretKey = []byte(config.JWTSecret) // Ambil dari .env
 

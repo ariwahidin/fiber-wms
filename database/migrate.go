@@ -66,6 +66,7 @@ func MigrateBusinessUnit(db *gorm.DB) error {
 		&models.HandlingCombineDetail{},
 		&models.InboundHeader{},
 		&models.InboundDetail{},
+		&models.InboundReference{},
 		&models.InboundDetailHandling{},
 		&models.Transporter{},
 		&models.Truck{},
@@ -79,7 +80,7 @@ func MigrateBusinessUnit(db *gorm.DB) error {
 		&models.OutboundHeader{},
 		&models.OutboundDetail{},
 		&models.OutboundDetailHandling{},
-		&models.OutboundBarcode{},
+		// &models.OutboundBarcode{},
 		&models.PickingSheet{},
 		&models.OutboundFile{},
 		&models.ListOrderPart{},
@@ -94,5 +95,7 @@ func MigrateBusinessUnit(db *gorm.DB) error {
 		&models.KoliHeader{},
 		&models.KoliDetail{},
 		&models.Category{},
+		&models.TransactionHistory{},
+		&models.UomConversion{},
 	)
 }

@@ -60,7 +60,7 @@ func (c *ProductController) CreateProduct(ctx *fiber.Ctx) error {
 		Category:  productInput.Category,
 		HasSerial: productInput.Serial,
 		Uom:       productInput.Uom,
-		BaseUomID: Uom.ID,
+		// BaseUomID: Uom.ID,
 		CreatedBy: int(ctx.Locals("userID").(float64)),
 	}
 

@@ -5,6 +5,7 @@ import (
 	"fiber-app/models"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -15,7 +16,7 @@ type InboundRepository struct {
 	db *gorm.DB
 }
 
-type listInbound struct {
+type ListInbound struct {
 	ID              uint   `json:"id"`
 	InboundNo       string `json:"inbound_no"`
 	PONumber        string `json:"po_number"`
@@ -27,12 +28,10 @@ type listInbound struct {
 	DriverName      string `json:"driver_name"`
 	TruckID         string `json:"truck_id"`
 	TruckNo         string `json:"truck_no"`
+	Type            string `json:"type"`
 	InboundDate     string `json:"inbound_date"`
 	ContainerNo     string `json:"container_no"`
-	BlNo            string `json:"bl_no"`
-	PoNo            string `json:"po_no"`
 	PoDate          string `json:"po_date"`
-	SjNo            string `json:"sj_no"`
 	OriginID        string `json:"origin_id"`
 	Origin          string `json:"origin"`
 	TimeArrival     string `json:"time_arrival"`
@@ -57,10 +56,7 @@ type HeaderInbound struct {
 	TruckNo         string `json:"truck_no"`
 	InboundDate     string `json:"inbound_date"`
 	ContainerNo     string `json:"container_no"`
-	BlNo            string `json:"bl_no"`
-	PoNo            string `json:"po_no"`
 	PoDate          string `json:"po_date"`
-	SjNo            string `json:"sj_no"`
 	OriginID        int    `json:"origin_id"`
 	TimeArrival     string `json:"time_arrival"`
 	StartUnloading  string `json:"start_unloading"`
@@ -220,8 +216,8 @@ func (r *InboundRepository) UpdateInboundDetail(data *models.InboundDetail, hand
 	return inboundDetailID, nil
 }
 
-func (r *InboundRepository) GetAllInbound() ([]listInbound, error) {
-	var listInbound []listInbound
+func (r *InboundRepository) GetAllInbound() ([]ListInbound, error) {
+	var listInbound []ListInbound
 	sql := `WITH detail AS (
 				SELECT inbound_id, COUNT(item_code) as total_line,SUM(quantity) total_qty 
 				FROM inbound_details GROUP BY inbound_id
@@ -232,13 +228,13 @@ func (r *InboundRepository) GetAllInbound() ([]listInbound, error) {
 	)
 			SELECT a.id, a.inbound_no, a.supplier_id,
 			c.supplier_name, 
-			a.invoice_no as invoice, a.transporter_id,
+			a.invoice, a.transporter_id,
 			a.driver, a.truck_id, a.truck_no, a.inbound_date,
-			a.container_no, a.bl_no, a.po_no, a.po_date, a.sj_no,
+			a.container_no,a.po_date,
 			a.origin_id, a.time_arrival, a.start_unloading, a.finish_unloading,
 			a.status, a.inbound_date, a.remarks as remarks_header,
 			b.total_line, b.total_qty, COALESCE(ib.qty_scan, 0) as qty_scan,
-			c.supplier_name, a.status, d.transporter_name, a.po_number
+			c.supplier_name, a.status, d.transporter_name, a.po_number, a.type
 			FROM 
 			inbound_headers a
 			LEFT JOIN detail b ON a.id = b.inbound_id
@@ -249,6 +245,22 @@ func (r *InboundRepository) GetAllInbound() ([]listInbound, error) {
 
 	if err := r.db.Raw(sql).Scan(&listInbound).Error; err != nil {
 		return nil, err
+	}
+
+	for i, inbound := range listInbound {
+		inboundRefereces := []models.InboundReference{}
+
+		if err := r.db.Where("inbound_id = ?", inbound.ID).Find(&inboundRefereces).Error; err != nil {
+			return nil, err
+		}
+
+		var refNos []string
+		for _, ref := range inboundRefereces {
+			refNos = append(refNos, ref.RefNo)
+		}
+
+		// Gabungkan semua RefNo dengan koma
+		listInbound[i].Invoice = strings.Join(refNos, ", ")
 	}
 
 	return listInbound, nil
@@ -263,9 +275,9 @@ func (r *InboundRepository) GetInboundHeaderByInboundID(inbound_id int) (HeaderI
 		FROM inbound_details GROUP BY inbound_id
 	)
 	SELECT a.id as inbound_id, a.inbound_no, a.supplier_id, 
-	a.invoice_no as invoice, a.transporter_id,
+	a.invoice, a.transporter_id,
 	a.driver, a.truck_id, a.truck_no, a.inbound_date,
-	a.container_no, a.bl_no, a.po_no, a.po_date, a.sj_no,
+	a.container_no, a.po_date,
 	a.origin_id, a.time_arrival, a.start_unloading, a.finish_unloading,
 	a.status, a.inbound_date, a.remarks,
 	b.total_line, b.total_qty,
@@ -515,12 +527,19 @@ func (r *InboundRepository) PutawayItem(ctx *fiber.Ctx, inboundBarcodeID int, lo
 
 		var detail models.InboundDetail
 		if err := tx.Where("id = ?", barcode.InboundDetailId).Take(&detail).Error; err != nil {
-			return err
+			return errors.New("inbound detail not found for item: " + barcode.ItemCode)
 		}
 
 		if location == "" {
 			location = barcode.Location
 		}
+
+		uomRepo := NewUomRepository(tx)
+		uomConversion, err := uomRepo.ConversionQty(barcode.ItemCode, barcode.Quantity, detail.Uom)
+		if err != nil {
+			return err
+		}
+		qtyConverted := uomConversion.QtyConverted
 
 		inventory := models.Inventory{
 			InboundDetailId:  int(detail.ID),
@@ -534,9 +553,10 @@ func (r *InboundRepository) PutawayItem(ctx *fiber.Ctx, inboundBarcodeID int, lo
 			Location:         location,
 			QaStatus:         barcode.QaStatus,
 			SerialNumber:     barcode.ScanData,
-			QtyOrigin:        barcode.Quantity,
-			QtyOnhand:        barcode.Quantity,
-			QtyAvailable:     barcode.Quantity,
+			Uom:              uomConversion.ToUom,
+			QtyOrigin:        qtyConverted,
+			QtyOnhand:        qtyConverted,
+			QtyAvailable:     qtyConverted,
 			QtyAllocated:     0,
 			Trans:            "putaway",
 			CreatedBy:        int(userID),

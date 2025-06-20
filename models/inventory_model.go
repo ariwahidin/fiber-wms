@@ -19,6 +19,7 @@ type Inventory struct {
 	Barcode          string `json:"barcode" gorm:"not null" validate:"required"`
 	SerialNumber     string `json:"serial_number"`
 	QaStatus         string `json:"qa_status"`
+	Uom              string `json:"uom"`
 	QtyOrigin        int    `json:"qty_origin" gorm:"default:0"`
 	QtyOnhand        int    `json:"qty_onhand" gorm:"default:0"`
 	QtyAvailable     int    `json:"qty_available" gorm:"default:0"`
