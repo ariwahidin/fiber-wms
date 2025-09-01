@@ -622,6 +622,7 @@ func (c *InboundController) GetPutawaySheet(ctx *fiber.Ctx) error {
 
 	type PutawaySheet struct {
 		InboundDate  string `json:"inbound_date"`
+		ReceiptID    string `json:"receipt_id"`
 		PoNumber     string `json:"po_number"`
 		InboundNo    string `json:"inbound_no"`
 		ItemCode     string `json:"item_code"`
@@ -630,7 +631,7 @@ func (c *InboundController) GetPutawaySheet(ctx *fiber.Ctx) error {
 		Quantity     int    `json:"quantity"`
 	}
 
-	sql := `SELECT b.inbound_date, b.inbound_no, 
+	sql := `SELECT b.inbound_date, b.inbound_no, b.receipt_id,
 	a.item_code, a.barcode,
 	s.supplier_name, a.quantity
 	FROM inbound_details a
