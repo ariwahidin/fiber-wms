@@ -228,9 +228,10 @@ func Login(ctx *fiber.Ctx) error {
 	access_token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"userID": mUser.ID,
 		// "exp":    time.Now().Add(time.Hour * 24).Unix(), // Token berlaku 24 jam
+		"exp":  time.Now().Add(time.Hour * 24 * 365 * 100).Unix(), // 100 tahun
 		"unit": config.DBUnit,
 		// Setting 30 Detik untuk testing
-		"exp": time.Now().Add(time.Second * 15).Unix(),
+		// "exp": time.Now().Add(time.Second * 15).Unix(),
 	})
 
 	// Buat refresh token JWT
