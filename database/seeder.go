@@ -4,7 +4,9 @@ package database
 import (
 	"errors"
 	"fiber-app/config"
+	"fiber-app/controllers/idgen"
 	"fiber-app/models"
+	"fiber-app/types"
 	"log"
 
 	"gorm.io/gorm"
@@ -16,6 +18,7 @@ func RunSeeders(db *gorm.DB) {
 	SeedWarehouse(db)
 	SeedUserMaster(db)
 	SeedCategory(db)
+	SeedDivision(db)
 }
 
 func SeedUnit(db *gorm.DB) {
@@ -64,12 +67,14 @@ func SeedUoms(db *gorm.DB) {
 		{Code: "PCS", Name: "Piece"},
 		{Code: "BOX", Name: "Box"},
 		{Code: "CTN", Name: "Carton"},
+		{Code: "DOZ", Name: "Dozen"},
 	}
 
 	for _, u := range uoms {
 		var existing models.Uom
 		if err := db.Where("code = ?", u.Code).First(&existing).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
+				u.ID = types.SnowflakeID(idgen.GenerateID())
 				db.Create(&u)
 			}
 		}
@@ -86,7 +91,25 @@ func SeedWarehouse(db *gorm.DB) {
 		var existing models.Warehouse
 		if err := db.Where("code = ?", w.Code).First(&existing).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
+				w.ID = types.SnowflakeID(idgen.GenerateID())
 				db.Create(&w)
+			}
+		}
+	}
+}
+
+func SeedDivision(db *gorm.DB) {
+	divisions := []models.Division{
+		{Code: "DIV1", Name: "Division 1", Description: "Division 1 description"},
+		{Code: "DIV2", Name: "Division 2", Description: "Division 2 description"},
+	}
+
+	for _, d := range divisions {
+		var existing models.Division
+		if err := db.Where("code = ?", d.Code).First(&existing).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				d.ID = types.SnowflakeID(idgen.GenerateID())
+				db.Create(&d)
 			}
 		}
 	}

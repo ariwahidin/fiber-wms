@@ -99,3 +99,26 @@ func (c *UomController) UpdateUOMConversion(ctx *fiber.Ctx) error {
 	c.DB.Save(&uom)
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "UOM updated successfully", "data": uom})
 }
+
+func (c *UomController) GetUomByItemCode(ctx *fiber.Ctx) error {
+	var payload struct {
+		ItemCode string `json:"item_code" validate:"required"`
+	}
+
+	if err := ctx.BodyParser(&payload); err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error(), "message": "Invalid request payload"})
+	}
+
+	item_code := payload.ItemCode
+
+	var uoms []models.UomConversion
+	if err := c.DB.Where("item_code = ? AND is_base = ?", item_code, true).Find(&uoms).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	if len(uoms) == 0 {
+		uoms = []models.UomConversion{}
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "UOM retrieved successfully", "data": uoms})
+}

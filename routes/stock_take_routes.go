@@ -1,22 +1,25 @@
 package routes
 
 import (
+	"fiber-app/config"
 	"fiber-app/controllers"
+	"fiber-app/database"
 	"fiber-app/middleware"
 
 	"github.com/gofiber/fiber/v2"
-	"gorm.io/gorm"
 )
 
-func SetupStockTakeRoutes(app *fiber.App, db *gorm.DB) {
-	stockTakeController := controllers.NewStockTakeController(db)
-	// inboundMidleware := middleware.NewAuthMiddleware(db)
+func SetupStockTakeRoutes(app *fiber.App) {
+	stockTakeController := &controllers.StockTakeController{}
 	api := app.Group(
-		"/api/v1/stock-take",
+		config.MAIN_ROUTES+"/stock-take",
 		middleware.AuthMiddleware,
-		// inboundMidleware.CheckPermission("create_inbound"),
 	)
 
+	api.Use(database.InjectDBMiddleware(stockTakeController))
+
+	api.Get("/locations", stockTakeController.LoadLocations)
+	api.Post("/stock-card", stockTakeController.GetCardStockTake)
 	api.Get("/progress/:code", stockTakeController.GetProgressStockTakeByCode)
 	api.Post("/scan", stockTakeController.ScanStockTake)
 	api.Get("/barcode/:code", stockTakeController.GetStockTakeBarcodeByCode)

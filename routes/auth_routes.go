@@ -3,6 +3,7 @@ package routes
 import (
 	"fiber-app/config"
 	"fiber-app/controllers"
+	"fiber-app/database"
 	"fiber-app/middleware"
 
 	"github.com/gofiber/fiber/v2"
@@ -17,6 +18,6 @@ func SetupAuthRoutes(app *fiber.App) {
 	// api.Get("/isLoggedIn", middleware.AuthMiddleware, authController.IsLoggedIn)
 
 	apiLogout := app.Group(config.MAIN_ROUTES+"/auth", middleware.AuthMiddleware)
-	apiLogout.Use(middleware.InjectDBMiddleware(authController))
+	apiLogout.Use(database.InjectDBMiddleware(authController))
 	apiLogout.Get("/logout", authController.Logout)
 }

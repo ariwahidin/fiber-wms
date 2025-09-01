@@ -16,6 +16,10 @@ type listInventory struct {
 	ItemCode     string `json:"item_code"`
 	ItemName     string `json:"item_name"`
 	Location     string `json:"location"`
+	Barcode      string `json:"barcode"`
+	OwnerCode    string `json:"owner_code"`
+	RecDate      string `json:"rec_date"`
+	Category     string `json:"category"`
 	WhsCode      string `json:"whs_code"`
 	QaStatus     string `json:"qa_status"`
 	QtyOnhand    int    `json:"qty_onhand"`
@@ -25,20 +29,35 @@ type listInventory struct {
 
 func (r *InventoryRepository) GetInventory() ([]listInventory, error) {
 
-	sqlInventory := `select a.whs_code, a.location, 
+	sqlInventory := `select a.whs_code, a.location, a.barcode, a.owner_code, a.rec_date, b.category,
 	b.item_code, b.item_name, a.qa_status, 
 	sum(a.qty_onhand) as qty_onhand,
 	sum(a.qty_available) as qty_available,
 	sum(a.qty_allocated) as qty_allocated
 	from inventories a
 	inner join products b on a.item_id = b.id
-	group by a.whs_code, a.location, b.item_code, b.item_name, a.qa_status
+	where a.qty_available > 0 or a.qty_allocated > 0
+	group by a.whs_code, a.location, b.item_code, b.item_name, a.qa_status,
+	a.barcode, a.owner_code, a.rec_date, b.category
 	`
+	// sqlInventory := `select a.whs_code, a.location,
+	// b.item_code, b.item_name, a.qa_status,
+	// sum(a.qty_onhand) as qty_onhand,
+	// sum(a.qty_available) as qty_available,
+	// sum(a.qty_allocated) as qty_allocated
+	// from inventories a
+	// inner join products b on a.item_id = b.id
+	// group by a.whs_code, a.location, b.item_code, b.item_name, a.qa_status
+	// `
 
 	var inventories []listInventory
 
 	if err := r.db.Raw(sqlInventory).Scan(&inventories).Error; err != nil {
 		return nil, err
+	}
+
+	if len(inventories) == 0 {
+		inventories = []listInventory{}
 	}
 
 	return inventories, nil

@@ -17,8 +17,8 @@ type StockTake struct {
 type StockTakeItem struct {
 	gorm.Model
 	StockTakeID  uint `gorm:"foreignKey:StockTakeID" json:"stock_take_id"`
-	ItemID       uint
-	InventoryID  uint
+	ItemID       int64
+	InventoryID  int64
 	Location     string
 	Pallet       string
 	Barcode      string
@@ -42,4 +42,16 @@ type StockTakeBarcode struct {
 	CreatedBy   int
 	UpdatedBy   int
 	DeletedBy   int
+}
+
+type StockCardFilter struct {
+	FromRow   string `json:"fromRow"`
+	ToRow     string `json:"toRow"`
+	FromBay   string `json:"fromBay"`
+	ToBay     string `json:"toBay"`
+	FromLevel string `json:"fromLevel"`
+	ToLevel   string `json:"toLevel"`
+	FromBin   string `json:"fromBin"`
+	ToBin     string `json:"toBin"`
+	Area      string `json:"area"`
 }

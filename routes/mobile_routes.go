@@ -3,6 +3,7 @@ package routes
 import (
 	"fiber-app/config"
 	"fiber-app/controllers/mobiles"
+	"fiber-app/database"
 	"fiber-app/middleware"
 
 	"github.com/gofiber/fiber/v2"
@@ -11,7 +12,7 @@ import (
 func SetupMobileInboundRoutes(app *fiber.App) {
 	mobileInboundController := &mobiles.MobileInboundController{}
 	api := app.Group(config.MAIN_ROUTES+"/mobile", middleware.AuthMiddleware)
-	api.Use(middleware.InjectDBMiddleware(mobileInboundController))
+	api.Use(database.InjectDBMiddleware(mobileInboundController))
 
 	api.Get("/inbound/list/open", mobileInboundController.GetListInbound)
 	api.Post("/inbound/scan", mobileInboundController.ScanInbound)
@@ -28,19 +29,19 @@ func SetupMobileInboundRoutes(app *fiber.App) {
 func SetupMobileInventoryRoutes(app *fiber.App) {
 	mobileInventoryController := &mobiles.MobileInventoryController{}
 	api := app.Group(config.MAIN_ROUTES+"/mobile", middleware.AuthMiddleware)
-	api.Use(middleware.InjectDBMiddleware(mobileInventoryController))
+	api.Use(database.InjectDBMiddleware(mobileInventoryController))
 
 	api.Get("/inventory/location/:location", mobileInventoryController.GetItemsByLocation)
 	api.Post("/inventory/dummy", mobileInventoryController.CreateDummyInventory)
 	api.Post("/inventory/location/barcode", mobileInventoryController.GetItemsByLocationAndBarcode)
 	api.Post("/inventory/transfer/location/barcode", mobileInventoryController.ConfirmTransferByLocationAndBarcode)
-	api.Post("/inventory/transfer/location/serial", mobileInventoryController.ConfirmTransferBySerial)
+	api.Post("/inventory/transfer-by-inventory-id", mobileInventoryController.ConfirmTransferByInventoryID)
 }
 
 func SetupMobileOutboundRoutes(app *fiber.App) {
 	mobileOutboundController := &mobiles.MobileOutboundController{}
 	api := app.Group(config.MAIN_ROUTES+"/mobile", middleware.AuthMiddleware)
-	api.Use(middleware.InjectDBMiddleware(mobileOutboundController))
+	api.Use(database.InjectDBMiddleware(mobileOutboundController))
 
 	api.Get("/outbound/list/open", mobileOutboundController.GetListOutbound)
 	api.Get("/outbound/detail/:outbound_no", mobileOutboundController.GetListOutboundDetail)
@@ -59,7 +60,7 @@ func SetupMobileShippingGuestRoutes(app *fiber.App, shippingGuestController *mob
 func SetupMobilePackingRoutes(app *fiber.App) {
 	packingController := &mobiles.MobilePackingController{}
 	api := app.Group(config.MAIN_ROUTES+"/mobile", middleware.AuthMiddleware)
-	api.Use(middleware.InjectDBMiddleware(packingController))
+	api.Use(database.InjectDBMiddleware(packingController))
 
 	api.Post("/packing/generate", packingController.GenerateKoli)
 	api.Get("/packing/koli/:outbound_no", packingController.GetKoliByOutbound)

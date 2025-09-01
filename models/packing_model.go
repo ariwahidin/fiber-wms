@@ -1,20 +1,22 @@
 package models
 
 import (
+	"fiber-app/types"
+
 	"gorm.io/gorm"
 )
 
-type KoliHeader struct {
+type OutboundScan struct {
 	gorm.Model
-	NoKoli     string       `json:"no_koli"`
-	OutboundID uint         `json:"outbound_id"`
-	CreatedBy  int          `json:"created_by"`
-	UpdatedBy  int          `json:"updated_by"`
-	DeletedBy  int          `json:"deleted_by"`
-	Details    []KoliDetail `gorm:"foreignKey:KoliID;references:ID;constraint:OnDelete:CASCADE" json:"details"`
+	NoKoli     string               `json:"no_koli"`
+	OutboundID types.SnowflakeID    `json:"outbound_id"`
+	CreatedBy  int                  `json:"created_by"`
+	UpdatedBy  int                  `json:"updated_by"`
+	DeletedBy  int                  `json:"deleted_by"`
+	Details    []OutboundScanDetail `gorm:"foreignKey:KoliID;references:ID;constraint:OnDelete:CASCADE" json:"details"`
 }
 
-type KoliDetail struct {
+type OutboundScanDetail struct {
 	gorm.Model
 	KoliID           int    `json:"koli_id"`
 	NoKoli           string `json:"no_koli"`

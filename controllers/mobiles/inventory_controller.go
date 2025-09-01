@@ -1,8 +1,10 @@
 package mobiles
 
 import (
+	"errors"
 	"fiber-app/models"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -45,27 +47,27 @@ func (c *MobileInventoryController) CreateDummyInventory(ctx *fiber.Ctx) error {
 		fmt.Println("Loop ke-", i, "Data : ", inventories)
 		now := time.Now()
 		inventory := models.Inventory{
-			InboundDetailId:  rand.Intn(1000),
-			InboundBarcodeId: rand.Intn(1000),
-			RecDate:          now.Format("2006-01-02"),
-			Owner:            fmt.Sprintf("Owner%d", rand.Intn(100)),
-			WhsCode:          fmt.Sprintf("WHS%d", rand.Intn(10)),
-			Pallet:           fmt.Sprintf("Pallet%d", rand.Intn(100)),
-			Location:         fmt.Sprintf("Loc%d", rand.Intn(50)),
-			ItemId:           rand.Intn(1000),
-			ItemCode:         fmt.Sprintf("ITEMCODE%d", rand.Intn(10000)),
-			Barcode:          fmt.Sprintf("BARCODE%d", rand.Intn(99999)),
-			SerialNumber:     fmt.Sprintf("SN%d", rand.Intn(99999)),
-			QaStatus:         "A",
-			QtyOrigin:        rand.Intn(100),
-			QtyOnhand:        rand.Intn(100),
-			QtyAvailable:     rand.Intn(100),
-			QtyAllocated:     rand.Intn(100),
-			QtySuspend:       rand.Intn(100),
-			QtyShipped:       rand.Intn(100),
-			Trans:            "dummy",
-			CreatedBy:        1,
-			UpdatedBy:        1,
+			InboundDetailId: rand.Intn(1000),
+			// InboundBarcodeId: rand.Intn(1000),
+			RecDate:   now.Format("2006-01-02"),
+			OwnerCode: fmt.Sprintf("Owner%d", rand.Intn(100)),
+			WhsCode:   fmt.Sprintf("WHS%d", rand.Intn(10)),
+			Pallet:    fmt.Sprintf("Pallet%d", rand.Intn(100)),
+			Location:  fmt.Sprintf("Loc%d", rand.Intn(50)),
+			ItemId:    rand.Intn(1000),
+			ItemCode:  fmt.Sprintf("ITEMCODE%d", rand.Intn(10000)),
+			Barcode:   fmt.Sprintf("BARCODE%d", rand.Intn(99999)),
+			// SerialNumber:     fmt.Sprintf("SN%d", rand.Intn(99999)),
+			QaStatus:     "A",
+			QtyOrigin:    rand.Intn(100),
+			QtyOnhand:    rand.Intn(100),
+			QtyAvailable: rand.Intn(100),
+			QtyAllocated: rand.Intn(100),
+			QtySuspend:   rand.Intn(100),
+			QtyShipped:   rand.Intn(100),
+			Trans:        "dummy",
+			CreatedBy:    1,
+			UpdatedBy:    1,
 		}
 		inventories = append(inventories, inventory)
 	}
@@ -123,7 +125,7 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 		FromLocation  string `json:"from_location"`
 		ToLocation    string `json:"to_location"`
 		ListInventory []struct {
-			ID int `json:"id"`
+			ID string `json:"id"`
 		} `json:"list_inventory"`
 	}
 
@@ -143,6 +145,12 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 
 	if len(input.ListInventory) == 0 {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "List Inventory is required"})
+	}
+
+	// check ToLocation is registered
+	var location models.Location
+	if err := c.DB.Where("location_code = ?", input.ToLocation).First(&location).Error; err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "To Location is not registered"})
 	}
 
 	// start db transaction
@@ -176,8 +184,10 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 		}
 
 		var newInventory models.Inventory
+		newInventory.OwnerCode = inventory.OwnerCode
+		newInventory.DivisionCode = inventory.DivisionCode
+		newInventory.Uom = inventory.Uom
 		newInventory.InboundDetailId = inventory.InboundDetailId
-		newInventory.InboundBarcodeId = inventory.InboundBarcodeId
 		newInventory.RecDate = inventory.RecDate
 		newInventory.ItemId = inventory.ItemId
 		newInventory.ItemCode = inventory.ItemCode
@@ -186,7 +196,6 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 		newInventory.Pallet = input.ToLocation
 		newInventory.Location = input.ToLocation
 		newInventory.QaStatus = inventory.QaStatus
-		newInventory.SerialNumber = inventory.SerialNumber
 		newInventory.QtyOrigin = inventory.QtyOrigin
 		newInventory.QtyOnhand = inventory.QtyOnhand
 		newInventory.QtyAvailable = inventory.QtyAvailable
@@ -228,12 +237,12 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Confirm putaway successfully"})
 }
 
-func (c *MobileInventoryController) ConfirmTransferBySerial(ctx *fiber.Ctx) error {
+func (c *MobileInventoryController) ConfirmTransferByInventoryID(ctx *fiber.Ctx) error {
 
 	var input struct {
 		FromLocation string `json:"from_location"`
 		ToLocation   string `json:"to_location"`
-		InvetoryID   int    `json:"inventory_id"`
+		InventoryID  string `json:"inventory_id"`
 		QtyTransfer  int    `json:"qty_transfer"`
 	}
 
@@ -241,7 +250,13 @@ func (c *MobileInventoryController) ConfirmTransferBySerial(ctx *fiber.Ctx) erro
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	if input.FromLocation == "" || input.ToLocation == "" || input.InvetoryID == 0 || input.QtyTransfer == 0 {
+	// convert InventoryID to int
+	inventoryID, err := strconv.Atoi(input.InventoryID)
+	if err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid Inventory ID"})
+	}
+
+	if input.FromLocation == "" || input.ToLocation == "" || inventoryID == 0 || input.QtyTransfer == 0 {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "From Location, To Location, Inventory ID and Qty Transfer are required"})
 	}
 
@@ -257,8 +272,18 @@ func (c *MobileInventoryController) ConfirmTransferBySerial(ctx *fiber.Ctx) erro
 		}
 	}()
 
+	// validate to location already exists on master locations
+	var toLocation models.Location
+	if err := tx.Where("location_code = ?", input.ToLocation).First(&toLocation).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "To Location is not registered"})
+		}
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
 	var inventory models.Inventory
-	if err := tx.Where("id = ? AND location = ? AND qty_available > 0", input.InvetoryID, input.FromLocation).First(&inventory).Error; err != nil {
+	if err := tx.Where("id = ? AND location = ? AND qty_available > 0", inventoryID, input.FromLocation).First(&inventory).Error; err != nil {
 		tx.Rollback()
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Inventory not found or not available"})
 	}
@@ -273,8 +298,10 @@ func (c *MobileInventoryController) ConfirmTransferBySerial(ctx *fiber.Ctx) erro
 	}
 
 	var newInventory models.Inventory
+	newInventory.OwnerCode = inventory.OwnerCode
+	newInventory.DivisionCode = inventory.DivisionCode
+	newInventory.Uom = inventory.Uom
 	newInventory.InboundDetailId = inventory.InboundDetailId
-	newInventory.InboundBarcodeId = inventory.InboundBarcodeId
 	newInventory.RecDate = inventory.RecDate
 	newInventory.ItemId = inventory.ItemId
 	newInventory.ItemCode = inventory.ItemCode
@@ -283,14 +310,13 @@ func (c *MobileInventoryController) ConfirmTransferBySerial(ctx *fiber.Ctx) erro
 	newInventory.Pallet = input.ToLocation
 	newInventory.Location = input.ToLocation
 	newInventory.QaStatus = inventory.QaStatus
-	newInventory.SerialNumber = inventory.SerialNumber
 	newInventory.QtyOrigin = inventory.QtyOrigin
 	newInventory.QtyOnhand = inventory.QtyOnhand
 	newInventory.QtyAvailable = inventory.QtyAvailable
 	newInventory.QtyAllocated = 0
 	newInventory.QtySuspend = 0
 	newInventory.QtyShipped = 0
-	newInventory.Trans = "transfer serial"
+	newInventory.Trans = "transfer"
 	newInventory.CreatedBy = inventory.CreatedBy
 	newInventory.UpdatedBy = inventory.UpdatedBy
 	newInventory.DeletedBy = inventory.DeletedBy
@@ -301,7 +327,7 @@ func (c *MobileInventoryController) ConfirmTransferBySerial(ctx *fiber.Ctx) erro
 	}
 
 	var oldInventory models.Inventory
-	if err := tx.Where("id = ?", input.InvetoryID).First(&oldInventory).Error; err != nil {
+	if err := tx.Where("id = ?", inventoryID).First(&oldInventory).Error; err != nil {
 		tx.Rollback()
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -321,5 +347,5 @@ func (c *MobileInventoryController) ConfirmTransferBySerial(ctx *fiber.Ctx) erro
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Confirm transfer by serial successfully"})
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Transfer successful"})
 }

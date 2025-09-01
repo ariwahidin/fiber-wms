@@ -1,9 +1,9 @@
-package configurations
+package database
 
 import (
 	"database/sql"
 	"fiber-app/config"
-	"fiber-app/database"
+	"fiber-app/migration"
 	"fiber-app/models"
 	"fmt"
 	"log"
@@ -124,8 +124,8 @@ func MigrateDB(c *fiber.Ctx) error {
 	}
 
 	// RunMigration(newDB)
-	database.MigrateBusinessUnit(newDB)
-	database.RunSeeders(newDB)
+	migration.MigrateBusinessUnit(newDB)
+	RunSeeders(newDB)
 	return c.JSON(fiber.Map{"message": "Database migrated", "success": true, "data": dbName})
 }
 

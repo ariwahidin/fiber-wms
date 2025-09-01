@@ -3,6 +3,7 @@ package routes
 import (
 	"fiber-app/config"
 	"fiber-app/controllers"
+	"fiber-app/database"
 	"fiber-app/middleware"
 
 	"github.com/gofiber/fiber/v2"
@@ -11,7 +12,7 @@ import (
 func SetupCustomerRoutes(app *fiber.App) {
 	api := app.Group(config.MAIN_ROUTES+"/customers", middleware.AuthMiddleware)
 	customerController := &controllers.CustomerController{}
-	api.Use(middleware.InjectDBMiddleware(customerController))
+	api.Use(database.InjectDBMiddleware(customerController))
 
 	api.Get("/", customerController.GetAllCustomers)
 	api.Post("/", customerController.CreateCustomer)

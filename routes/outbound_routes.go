@@ -3,6 +3,7 @@ package routes
 import (
 	"fiber-app/config"
 	"fiber-app/controllers"
+	"fiber-app/database"
 	"fiber-app/middleware"
 
 	"github.com/gofiber/fiber/v2"
@@ -17,13 +18,20 @@ func SetupOutboundRoutes(app *fiber.App) {
 		// inboundMidleware.CheckPermission("create_inbound"),
 	)
 
-	api.Use(middleware.InjectDBMiddleware(outboundController))
+	api.Use(database.InjectDBMiddleware(outboundController))
 
 	api.Post("/", outboundController.CreateOutbound)
 	api.Get("/", outboundController.GetOutboundList)
+	api.Post("/open", outboundController.HandleOpen)
+	api.Post("/open/process", outboundController.ProccesHandleOpen)
+	// api.Post("/open/temp", outboundController.HandleOpenBackToOriginLocation)
+	api.Get("/handling", outboundController.GetOutboundListOutboundHandling)
+	api.Get("/handling/bill/:outbound_no", outboundController.ViewBillHandlingByOutbound)
+	api.Get("/handling/:outbound_no", outboundController.GetOutboundHandlingByID)
+	api.Put("/handling/:outbound_no", outboundController.UpdateOutboundDetailHandling)
 	api.Get("/:outbound_no", outboundController.GetOutboundByID)
 	api.Put("/:outbound_no", outboundController.UpdateOutboundByID)
-	api.Post("/item/:id", outboundController.SaveItem)
+	// api.Post("/item/:id", outboundController.SaveItem)
 	api.Get("/item/:id", outboundController.GetItem)
 	api.Delete("/item/:id", outboundController.DeleteItem)
 	api.Post("/picking/:id", outboundController.PickingOutbound)

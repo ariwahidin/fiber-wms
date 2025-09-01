@@ -2,45 +2,55 @@ package models
 
 import (
 	"fiber-app/controllers/idgen"
+	"fiber-app/types"
+	"fmt"
+	"time"
 
 	"gorm.io/gorm"
 )
 
 type InboundHeader struct {
 	gorm.Model
-	ID              int64  `json:"id" gorm:"primary_key"`
-	InboundNo       string `json:"inbound_no" gorm:"unique"`
-	SupplierId      int    `json:"supplier_id"`
-	Supplier        string `json:"supplier"`
-	Status          string `json:"status" gorm:"default:'draft'"`
-	InboundDate     string `json:"inbound_date"`
-	Transporter     string `json:"transporter"`
-	Driver          string `json:"driver"`
-	TruckId         int    `json:"truck_id"`
-	NoTruck         string `json:"no_truck"`
-	Type            string `json:"type"`
-	Container       string `json:"container"`
-	PoNumber        string `json:"po_number"`
-	Invoice         string `json:"invoice"`
-	PoDate          string `gorm:"type:date" json:"po_date"`
-	OriginId        int    `json:"origin_id"`
-	TimeArrival     string `json:"time_arrival"`
-	StartUnloading  string `json:"start_unloading"`
-	FinishUnloading string `json:"finish_unloading"`
-	Remarks         string `json:"remarks_header"`
-	CreatedBy       int
-	UpdatedBy       int
-	DeletedBy       int
+	ID             types.SnowflakeID `json:"ID"`
+	InboundNo      string            `json:"inbound_no" gorm:"unique"`
+	OwnerCode      string            `json:"owner_code" required:"required"`
+	WhsCode        string            `json:"whs_code" required:"required"`
+	ReceiptID      string            `json:"receipt_id" required:"required" gorm:"unique"`
+	SupplierId     int               `json:"supplier_id"`
+	Supplier       string            `json:"supplier"`
+	Status         string            `json:"status" gorm:"default:'draft'"`
+	InboundDate    string            `json:"inbound_date"`
+	Transporter    string            `json:"transporter"`
+	Driver         string            `json:"driver"`
+	TruckId        int               `json:"truck_id"`
+	NoTruck        string            `json:"no_truck"`
+	Type           string            `json:"type"`
+	Container      string            `json:"container"`
+	Origin         string            `json:"origin"`
+	PoDate         string            `json:"po_date"`
+	ArrivalTime    string            `json:"arrival_time"`
+	StartUnloading string            `json:"start_unloading"`
+	EndUnloading   string            `json:"end_unloading"`
+	TruckSize      string            `json:"truck_size"`
+	BLNo           string            `json:"bl_no"`
+	Koli           int               `json:"koli"`
+	Remarks        string            `json:"remarks"`
+	CreatedBy      int
+	UpdatedBy      int
+	DeletedBy      int
+	CheckingAt     *time.Time `json:"checking_at" gorm:"type:datetime"`
+	CheckingBy     int
+	CancelAt       *time.Time `json:"cancel_at" gorm:"type:datetime"`
+	CancelBy       int
+	PutawayAt      *time.Time `json:"putaway_at" gorm:"type:datetime"`
+	PutawayBy      int
+	CompleteAt     *time.Time `json:"complete_at" gorm:"type:datetime"`
+	CompleteBy     int
 
 	// Relations
 	InboundReferences []InboundReference `gorm:"foreignKey:InboundId;references:ID;constraint:OnDelete:CASCADE" json:"references"`
 	Details           []InboundDetail    `gorm:"foreignKey:InboundId;references:ID;constraint:OnDelete:CASCADE" json:"details"`
 	Received          []InboundBarcode   `gorm:"foreignKey:InboundId;references:ID;constraint:OnDelete:CASCADE" json:"received"`
-}
-
-func (u *InboundHeader) BeforeCreate(tx *gorm.DB) (err error) {
-	u.ID = idgen.GenerateID()
-	return
 }
 
 type InboundReference struct {
@@ -51,24 +61,30 @@ type InboundReference struct {
 
 type InboundDetail struct {
 	gorm.Model
-	InboundId    uint   `json:"inbound_id" gorm:"default:null"`
-	InboundNo    string `json:"inbound_no"`
-	ItemId       int    `json:"item_id"`
-	ItemCode     string `json:"item_code" required:"required"`
-	Barcode      string `json:"barcode"`
-	Quantity     int    `json:"quantity" required:"required"`
-	Location     string `json:"location" required:"required"`
-	Status       string `json:"status" gorm:"default:'draft'"`
-	WhsCode      string `json:"whs_code" required:"required"`
-	RecDate      string `json:"rec_date" required:"required"`
-	Uom          string `json:"uom" required:"required"`
-	IsSerial     string `json:"is_serial"`
-	HandlingId   int    `json:"handling_id" required:"required"`
-	HandlingUsed string `json:"handling_used"`
-	TotalVas     int    `json:"total_vas"`
-	Remarks      string `json:"remarks"`
-	RefId        int    `json:"ref_id"`
-	RefNo        string `json:"ref_no"`
+	ID           types.SnowflakeID `json:"ID"`
+	OwnerCode    string            `json:"owner_code" required:"required"`
+	WhsCode      string            `json:"whs_code" required:"required"`
+	DivisionCode string            `json:"division_code" required:"required"`
+	InboundId    types.SnowflakeID `json:"inbound_id" gorm:"default:null"`
+	InboundNo    string            `json:"inbound_no"`
+	ItemId       types.SnowflakeID `json:"item_id" required:"required"`
+	ItemCode     string            `json:"item_code" required:"required"`
+	Barcode      string            `json:"barcode"`
+	Quantity     int               `json:"quantity" required:"required"`
+	RcvLocation  string            `json:"rcv_location"`
+	QaStatus     string            `json:"qa_status" gorm:"default:'pending'"`
+	Location     string            `json:"location" required:"required"`
+	Status       string            `json:"status" gorm:"default:'draft'"`
+	RecDate      string            `json:"rec_date" required:"required"`
+	Uom          string            `json:"uom" required:"required"`
+	IsSerial     string            `json:"is_serial"`
+	SN           string            `json:"sn"`
+	HandlingId   int               `json:"handling_id" required:"required"`
+	HandlingUsed string            `json:"handling_used"`
+	TotalVas     int               `json:"total_vas"`
+	Remarks      string            `json:"remarks"`
+	RefId        int               `json:"ref_id"`
+	RefNo        string            `json:"ref_no"`
 	CreatedBy    int
 	UpdatedBy    int
 	DeletedBy    int
@@ -90,24 +106,37 @@ type InboundDetailHandling struct {
 }
 
 type InboundBarcode struct {
-	gorm.Model
-	InboundId       int    `json:"inbound_id" gorm:"default:null"`
-	InboundDetailId int    `gorm:"foreignKey:InboundDetailId" json:"inbound_detail_id"`
-	ItemID          int    `json:"item_id"`
-	ItemCode        string `json:"item_code"`
-	ScanType        string `json:"scan_type"`
-	ScanData        string `json:"scan_data"`
-	Barcode         string `json:"barcode"`
-	SerialNumber    string `json:"serial_number"`
-	Pallet          string `json:"pallet"`
-	Location        string `json:"location"`
-	Quantity        int    `json:"quantity"`
-	WhsCode         string `json:"whs_code"`
-	QaStatus        string `json:"qa_status"`
-	Status          string `json:"status" gorm:"default:'pending'"`
+	ID              types.SnowflakeID `gorm:"primaryKey" json:"ID"`
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	DeletedAt       gorm.DeletedAt `gorm:"index"`
+	InboundId       int            `json:"inbound_id" gorm:"default:null"`
+	InboundDetailId int            `gorm:"foreignKey:InboundDetailId" json:"inbound_detail_id"`
+	ItemID          int            `json:"item_id"`
+	ItemCode        string         `json:"item_code"`
+	ScanType        string         `json:"scan_type"`
+	ScanData        string         `json:"scan_data"`
+	Barcode         string         `json:"barcode"`
+	SerialNumber    string         `json:"serial_number"`
+	Pallet          string         `json:"pallet"`
+	Location        string         `json:"location"`
+	Quantity        int            `json:"quantity"`
+	WhsCode         string         `json:"whs_code"`
+	OwnerCode       string         `json:"owner_code"`
+	DivisionCode    string         `json:"division_code"`
+	QaStatus        string         `json:"qa_status"`
+	Status          string         `json:"status" gorm:"default:'pending'"`
 	CreatedBy       int
 	UpdatedBy       int
 	DeletedBy       int
+}
+
+func (i *InboundBarcode) BeforeCreate(tx *gorm.DB) (err error) {
+	fmt.Println("ID Inbound Barcode Before Create : ", i.ID)
+	if i.ID == 0 {
+		i.ID = types.SnowflakeID(idgen.GenerateID())
+	}
+	return nil
 }
 
 type FormItemInbound struct {

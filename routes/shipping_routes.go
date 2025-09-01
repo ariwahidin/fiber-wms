@@ -3,6 +3,7 @@ package routes
 import (
 	"fiber-app/config"
 	"fiber-app/controllers"
+	"fiber-app/database"
 	"fiber-app/middleware"
 
 	"github.com/gofiber/fiber/v2"
@@ -17,7 +18,7 @@ func SetupShippingRoutes(app *fiber.App) {
 		// inboundMidleware.CheckPermission("create_inbound"),
 	)
 
-	api.Use(middleware.InjectDBMiddleware(shippingController))
+	api.Use(database.InjectDBMiddleware(shippingController))
 
 	api.Put("/order/:id", shippingController.UpdateOrderHeaderByID)
 	api.Get("/list-order-part", shippingController.GetListDNOpen)

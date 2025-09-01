@@ -18,6 +18,11 @@ type HandlingController struct {
 	DB *gorm.DB
 }
 
+type payloadItemHandling struct {
+	ItemCode  string   `json:"item_code" validate:"required,min=3"`
+	Handlings []string `json:"handlings" validate:"required,min=1"`
+}
+
 func NewHandlingController(db *gorm.DB) *HandlingController {
 	return &HandlingController{DB: db}
 }
@@ -325,4 +330,123 @@ func (c *HandlingController) CreateCombineHandling(ctx *fiber.Ctx) error {
 	// }
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Handling created successfully"})
+}
+
+func (c *HandlingController) CreateItemHandling(ctx *fiber.Ctx) error {
+	var input payloadItemHandling
+
+	if err := ctx.BodyParser(&input); err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	// insert to handling items and handling item details
+	handlingItem := models.HandlingItem{
+		ItemCode:  input.ItemCode,
+		Area:      "DALAM KOTA",
+		CreatedBy: int(ctx.Locals("userID").(float64)),
+	}
+
+	if err := c.DB.Create(&handlingItem).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	for _, detail := range input.Handlings {
+		handlingItemDetail := models.HandlingItemDetail{
+			HandlingItemId: int(handlingItem.ID),
+			ItemCode:       input.ItemCode,
+			Handling:       detail,
+			CreatedBy:      int(ctx.Locals("userID").(float64)),
+		}
+
+		if err := c.DB.Create(&handlingItemDetail).Error; err != nil {
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Item handling created successfully"})
+}
+
+func (c *HandlingController) GetAllItemHandling(ctx *fiber.Ctx) error {
+
+	var products []models.HandlingItem
+	if err := c.DB.Preload("Details").Find(&products).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Item Handlings found", "data": products})
+}
+func (c *HandlingController) GetItemHandlingByID(ctx *fiber.Ctx) error {
+
+	var product models.HandlingItem
+	// by handling id dengan preload
+	if err := c.DB.Preload("Details").Where("id = ?", ctx.Params("id")).First(&product).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Detail Item Handlings found", "data": product})
+}
+
+func (c *HandlingController) UpdateItemHandlingByID(ctx *fiber.Ctx) error {
+	var input payloadItemHandling
+	id := ctx.Params("id")
+
+	// Parse body
+	if err := ctx.BodyParser(&input); err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	// Cari data induk
+	var product models.HandlingItem
+	if err := c.DB.First(&product, id).Error; err != nil {
+		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Item not found"})
+	}
+
+	// Update induk
+	product.ItemCode = input.ItemCode
+	product.Area = "DALAM KOTA"
+	product.UpdatedBy = int(ctx.Locals("userID").(float64))
+
+	if err := c.DB.Save(&product).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	// Hapus semua detail lama
+	if err := c.DB.Unscoped().Where("handling_item_id = ?", product.ID).Delete(&models.HandlingItemDetail{}).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	// Insert detail baru
+	for _, h := range input.Handlings {
+		detail := models.HandlingItemDetail{
+			HandlingItemId: int(product.ID),
+			ItemCode:       input.ItemCode,
+			Handling:       h,
+			CreatedBy:      int(ctx.Locals("userID").(float64)),
+		}
+		if err := c.DB.Create(&detail).Error; err != nil {
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": "Item handling updated successfully",
+		"data":    product,
+	})
+}
+
+func (c *HandlingController) DeleteItemHandling(ctx *fiber.Ctx) error {
+	id := ctx.Params("id")
+
+	// Hapus detail terlebih dahulu
+	if err := c.DB.Unscoped().Where("handling_item_id = ?", id).Delete(&models.HandlingItemDetail{}).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	// Hapus induk
+	if err := c.DB.Unscoped().Delete(&models.HandlingItem{}, id).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Item handling deleted successfully"})
 }

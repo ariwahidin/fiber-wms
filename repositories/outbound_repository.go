@@ -17,7 +17,8 @@ type OutboundRepository struct {
 type OutboundList struct {
 	ID           uint   `json:"ID"`
 	OutboundNo   string `json:"outbound_no"`
-	DeliveryNo   string `json:"delivery_no"`
+	ShipmentID   string `json:"shipment_id"`
+	OwnerCode    string `json:"owner_code"`
 	OutboundDate string `json:"outbound_date"`
 	CustomerCode string `json:"customer_code"`
 	CustomerName string `json:"customer_name"`
@@ -26,13 +27,14 @@ type OutboundList struct {
 	QtyPlan      int    `json:"qty_plan"`
 	QtyPack      int    `json:"qty_pack"`
 	Status       string `json:"status"`
+	TotalPrice   int    `json:"total_price"`
 }
 
 type OutboundDetailList struct {
 	OutboundDetailID int    `json:"outbound_detail_id"`
 	OutboundID       int    `json:"outbound_id"`
 	OutboundNo       string `json:"outbound_no"`
-	DeliveryNo       string `json:"delivery_no"`
+	DeliveryNo       string `json:"shipment_id"`
 	CustomerCode     string `json:"customer_code"`
 	CustomerName     string `json:"customer_name"`
 	ItemID           int    `json:"item_id"`
@@ -159,15 +161,15 @@ func (r *OutboundRepository) CreateItemOutbound(header *models.OutboundHeader, d
 	total_idr := 0
 	for _, handling := range handlingUsed {
 		inboundDetailHandling := models.OutboundDetailHandling{
-			OutboundDetailId:  int(outboundDetailID),
-			HandlingId:        handling.HandlingID,
-			HandlingUsed:      handling.HandlingUsed,
-			HandlingCombineId: handling.HandlingCombineID,
-			OriginHandlingId:  handling.OriginHandlingID,
-			OriginHandling:    handling.OriginHandling,
-			RateId:            handling.RateID,
-			RateIdr:           handling.RateIDR,
-			CreatedBy:         int(data.CreatedBy),
+			OutboundDetailId: int(outboundDetailID),
+			// HandlingId:        handling.HandlingID,
+			HandlingUsed: handling.HandlingUsed,
+			// HandlingCombineId: handling.HandlingCombineID,
+			// OriginHandlingId:  handling.OriginHandlingID,
+			// OriginHandling:    handling.OriginHandling,
+			// RateId:            handling.RateID,
+			RateIdr:   handling.RateIDR,
+			CreatedBy: int(data.CreatedBy),
 		}
 
 		total_idr += handling.RateIDR
@@ -195,28 +197,6 @@ func (r *OutboundRepository) CreateItemOutbound(header *models.OutboundHeader, d
 func (r *OutboundRepository) GetAllOutboundList() ([]OutboundList, error) {
 	var outboundList []OutboundList
 
-	// sql := `with details as
-	// (select outbound_id, count(outbound_id) as total_line,
-	// sum(quantity) as total_qty_req, sum(scan_qty) as scan_qty
-	// from outbound_details od
-	// group by outbound_id),
-	// plan_pick as(
-	//         select outbound_id, sum(qty_onhand) as plan_pick
-	//         from picking_sheets
-	//         where is_suggestion = 'Y'
-	//         group by outbound_id
-	// )
-	//         select a.id, a.outbound_no, a.delivery_no, a.status,
-	//         a.outbound_date, a.customer_code, c.customer_name,
-	//         b.total_line, b.total_qty_req,
-	//         coalesce(e.plan_pick, 0) as plan_pick,
-	//         coalesce(b.scan_qty, 0) as picked_qty
-	//         from outbound_headers a
-	//         left join details b on a.id = b.outbound_id
-	//         left join customers c on a.customer_code = c.customer_code
-	//         left join plan_pick e on e.outbound_id = a.id
-	//         order by a.id desc`
-
 	sql := `WITH od AS 
 	 (select outbound_id, count(outbound_id) as total_item,
     sum(quantity) as qty_req
@@ -224,16 +204,16 @@ func (r *OutboundRepository) GetAllOutboundList() ([]OutboundList, error) {
     group by outbound_id),
    ps AS(
 		SELECT outbound_id, COUNT(item_id) AS total_item,  
-		SUM(qty_onhand) AS qty_plan
-		FROM picking_sheets
+		SUM(quantity) AS qty_plan
+		FROM outbound_pickings
 		GROUP BY outbound_id
 	),
 	kd AS(
 		SELECT outbound_id, SUM(qty) AS qty_pack
-		FROM koli_details
+		FROM outbound_scan_details
 		GROUP BY outbound_id
 	)
-   select a.id, a.outbound_no, a.delivery_no, a.status,
+   select a.id, a.outbound_no, a.shipment_id, a.status, a.owner_code, a.shipment_id,
             a.outbound_date, a.customer_code,
             od.total_item, od.qty_req, COALESCE(ps.qty_plan, 0) AS qty_plan,
             COALESCE(kd.qty_pack, 0) AS qty_pack,
@@ -243,6 +223,90 @@ func (r *OutboundRepository) GetAllOutboundList() ([]OutboundList, error) {
             LEFT JOIN ps ON a.id = ps.outbound_id
             LEFT JOIN kd ON a.id = kd.outbound_id
             LEFT JOIN customers cs ON a.customer_code = cs.customer_code
+			order by a.id desc`
+
+	if err := r.db.Raw(sql).Scan(&outboundList).Error; err != nil {
+		return nil, err
+	}
+
+	return outboundList, nil
+}
+func (r *OutboundRepository) GetAllOutboundListComplete() ([]OutboundList, error) {
+	var outboundList []OutboundList
+
+	sql := `WITH od AS 
+	 (select outbound_id, count(outbound_id) as total_item,
+    sum(quantity) as qty_req
+    from outbound_details od
+    group by outbound_id),
+   ps AS(
+		SELECT outbound_id, COUNT(item_id) AS total_item,  
+		SUM(quantity) AS qty_plan
+		FROM outbound_pickings
+		GROUP BY outbound_id
+	),
+	kd AS(
+		SELECT outbound_id, SUM(qty) AS qty_pack
+		FROM outbound_scan_details
+		GROUP BY outbound_id
+	)
+   select a.id, a.outbound_no, a.shipment_id, a.status, a.owner_code, a.shipment_id,
+            a.outbound_date, a.customer_code,
+            od.total_item, od.qty_req, COALESCE(ps.qty_plan, 0) AS qty_plan,
+            COALESCE(kd.qty_pack, 0) AS qty_pack,
+            cs.customer_name
+            from outbound_headers a
+            left join od on a.id = od.outbound_id
+            LEFT JOIN ps ON a.id = ps.outbound_id
+            LEFT JOIN kd ON a.id = kd.outbound_id
+            LEFT JOIN customers cs ON a.customer_code = cs.customer_code
+			WHERE a.status = 'complete'
+			order by a.id desc`
+
+	if err := r.db.Raw(sql).Scan(&outboundList).Error; err != nil {
+		return nil, err
+	}
+
+	return outboundList, nil
+}
+
+func (r *OutboundRepository) GetAllOutboundListOutboundHandling() ([]OutboundList, error) {
+	var outboundList []OutboundList
+
+	sql := `WITH od AS 
+	 (select outbound_id, count(outbound_id) as total_item,
+    sum(quantity) as qty_req
+    from outbound_details od
+    group by outbound_id),
+   ps AS(
+		SELECT outbound_id, COUNT(item_id) AS total_item,  
+		SUM(quantity) AS qty_plan
+		FROM outbound_pickings
+		GROUP BY outbound_id
+	),
+	kd AS(
+		SELECT outbound_id, SUM(qty) AS qty_pack
+		FROM outbound_scan_details
+		GROUP BY outbound_id
+	),
+	hd AS (
+		SELECT outbound_no,
+		SUM(total_price) as total_price
+		FROM outbound_detail_handlings
+		GROUP BY outbound_no
+	)
+   select a.id, a.outbound_no, a.shipment_id, a.status, a.owner_code, a.shipment_id,
+            a.outbound_date, a.customer_code,
+            od.total_item, od.qty_req, COALESCE(ps.qty_plan, 0) AS qty_plan,
+            COALESCE(kd.qty_pack, 0) AS qty_pack, hd.total_price,
+            cs.customer_name
+            from outbound_headers a
+            left join od on a.id = od.outbound_id
+            LEFT JOIN ps ON a.id = ps.outbound_id
+            LEFT JOIN kd ON a.id = kd.outbound_id
+            LEFT JOIN customers cs ON a.customer_code = cs.customer_code
+			LEFT JOIN hd ON a.outbound_no = hd.outbound_no
+			WHERE a.status = 'complete'
 			order by a.id desc`
 
 	if err := r.db.Raw(sql).Scan(&outboundList).Error; err != nil {
@@ -261,7 +325,7 @@ func (r *OutboundRepository) GetOutboundOpen() ([]OutboundList, error) {
 		from outbound_details od
 		group by outbound_id)
 
-		select a.id, a.outbound_no, a.delivery_no, a.status,
+		select a.id, a.outbound_no, a.shipment_id, a.status,
 		a.outbound_date, a.customer_code, c.customer_name,
 		b.total_line, b.total_qty_req
 		from outbound_headers a
@@ -285,7 +349,7 @@ func (r *OutboundRepository) GetOutboundPicking() ([]OutboundList, error) {
 		from outbound_details od
 		group by outbound_id)
 
-		select a.id, a.outbound_no, a.delivery_no, a.status,
+		select a.id, a.outbound_no, a.shipment_id, a.status,
 		a.outbound_date, a.customer_code, c.customer_name,
 		b.total_line, b.total_qty_req
 		from outbound_headers a
@@ -301,43 +365,42 @@ func (r *OutboundRepository) GetOutboundPicking() ([]OutboundList, error) {
 }
 
 type PaperPickingSheet struct {
-	OutboundNo   string `json:"outbound_no"`
-	InventoryID  int    `json:"inventory_id"`
-	ItemID       int    `json:"item_id"`
-	ItemCode     string `json:"item_code"`
-	Quantity     int    `json:"quantity"`
-	Barcode      string `json:"barcode"`
-	ItemName     string `json:"item_name"`
-	Pallet       string `json:"pallet"`
-	Location     string `json:"location"`
-	Cbm          int    `json:"cbm"`
-	WhsCode      string `json:"whs_code"`
-	RecDate      string `json:"rec_date"`
-	OutboundDate string `json:"outbound_date"`
-	DeliveryNo   string `json:"delivery_no"`
-	CustomerCode string `json:"customer_code"`
-	CustomerName string `json:"customer_name"`
+	OutboundNo   string  `json:"outbound_no"`
+	InventoryID  int     `json:"inventory_id"`
+	ItemID       int     `json:"item_id"`
+	ItemCode     string  `json:"item_code"`
+	Quantity     int     `json:"quantity"`
+	Barcode      string  `json:"barcode"`
+	ItemName     string  `json:"item_name"`
+	Pallet       string  `json:"pallet"`
+	Location     string  `json:"location"`
+	Cbm          float64 `json:"cbm"`
+	WhsCode      string  `json:"whs_code"`
+	RecDate      string  `json:"rec_date"`
+	OutboundDate string  `json:"outbound_date"`
+	ShipmentID   string  `json:"shipment_id"`
+	CustomerCode string  `json:"customer_code"`
+	CustomerName string  `json:"customer_name"`
 }
 
 func (r *OutboundRepository) GetPickingSheet(outbound_id int) ([]PaperPickingSheet, error) {
 	var outboundList []PaperPickingSheet
 
-	sql := `select a.item_id, a.item_code, sum(a.qty_onhand) as quantity, a.pallet, a.location,
+	sql := `select a.item_id, a.item_code, sum(a.quantity) as quantity, a.pallet, a.location,
 	b.barcode, b.item_name, b.cbm, 
-	c.rec_date, c.whs_code, e.outbound_no, e.customer_code, e.outbound_date, e.delivery_no,
+	c.rec_date, c.whs_code, e.outbound_no, e.customer_code, e.outbound_date, e.shipment_id,
 	f.customer_name
-	from picking_sheets a
+	from outbound_pickings a
 	inner join products b on a.item_id = b.id
 	inner join inventories c on a.inventory_id = c.id
 	inner join outbound_headers e on a.outbound_id = e.id
 	inner join customers f on e.customer_code = f.customer_code
 	where a.outbound_id = ?
-	AND a.is_suggestion = 'Y'
 	group by a.location, a.pallet, a.item_id, a.item_code,
 	b.barcode, b.item_name, b.cbm, c.rec_date, c.whs_code,
-	e.outbound_no, e.customer_code, f.customer_name, e.outbound_date, e.delivery_no`
+	e.outbound_no, e.customer_code, f.customer_name, e.outbound_date, e.shipment_id`
 
-	if err := r.db.Raw(sql, outbound_id).Scan(&outboundList).Error; err != nil {
+	if err := r.db.Debug().Raw(sql, outbound_id).Scan(&outboundList).Error; err != nil {
 		return nil, err
 	}
 
@@ -354,7 +417,7 @@ func (r *OutboundRepository) GetOutboundDetailList(outbound_id int) ([]OutboundD
 				where status = 'picked'
 				group by outbound_id, outbound_detail_id
 			)
-			select a.id as outbound_detail_id, a.outbound_id, a.outbound_no, c.delivery_no, c.customer_code, d.customer_name,
+			select a.id as outbound_detail_id, a.outbound_id, a.outbound_no, c.shipment_id, c.customer_code, d.customer_name,
 			a.item_id, a.item_code, b.item_name, b.has_serial,
 			a.quantity as qty_req, a.uom, isnull(e.qty_scan, 0) as qty_scan
 			from outbound_details a
@@ -381,7 +444,7 @@ func (r *OutboundRepository) GetOutboundDetailItem(outbound_id int, outbound_det
 				where status = 'picked'
 				group by outbound_id, outbound_detail_id
 			)
-			select a.id as outbound_detail_id, a.outbound_id, a.outbound_no, c.delivery_no, c.customer_code, d.customer_name,
+			select a.id as outbound_detail_id, a.outbound_id, a.outbound_no, c.shipment_id, c.customer_code, d.customer_name,
 			a.item_id, a.item_code, b.item_name, b.has_serial, a.whs_code,
 			a.quantity as qty_req, a.uom, isnull(e.qty_scan, 0) as qty_scan
 			from outbound_details a
@@ -431,7 +494,7 @@ func (r *OutboundRepository) GetOutboundItemByID(outbound_id int) ([]OutboundIte
 					item_id, 
 					SUM(qty) AS qty_pack, 
 					outbound_detail_id
-				FROM koli_details
+				FROM outbound_scan_details
 				GROUP BY outbound_id, item_id, outbound_detail_id
 			)
 			SELECT 

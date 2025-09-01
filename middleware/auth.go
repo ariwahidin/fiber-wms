@@ -2,7 +2,7 @@ package middleware
 
 import (
 	"fiber-app/config"
-	"fiber-app/controllers/configurations"
+	"fiber-app/database"
 	"fiber-app/models"
 	"fmt"
 	"strings"
@@ -122,13 +122,13 @@ func AuthMiddleware(ctx *fiber.Ctx) error {
 		ctx.Locals("userData", claims)
 
 		// 🔑 Panggil GetDBConnection di sini
-		_, err := configurations.GetDBConnection(unit)
+		_, err := database.GetDBConnection(unit)
 		if err != nil {
 			return ctx.Status(500).JSON(fiber.Map{"message": "Failed to connect database"})
 		} else {
 			fmt.Println("Connected to database:", unit)
 		}
-		configurations.PrintActiveDBConnections()
+		database.PrintActiveDBConnections()
 
 		return ctx.Next() // Lanjut ke handler berikutnya
 	} else {

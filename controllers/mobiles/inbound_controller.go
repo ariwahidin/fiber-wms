@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fiber-app/models"
 	"fiber-app/repositories"
+	"fiber-app/types"
 	"fmt"
 	"strconv"
 	"strings"
@@ -26,11 +27,11 @@ func (c *MobileInboundController) GetListInbound(ctx *fiber.Ctx) error {
 		ID           uint      `json:"id"`
 		InboundNo    string    `json:"inbound_no"`
 		SupplierName string    `json:"supplier_name"`
+		ReceiptID    string    `json:"receipt_id"`
 		ReqQty       int       `json:"req_qty"`
 		ScanQty      int       `json:"scan_qty"`
 		QtyStock     int       `json:"qty_stock"`
 		Status       string    `json:"status"`
-		PoNumber     string    `json:"po_number"`
 		UpdatedAt    time.Time `json:"updated_at"`
 	}
 
@@ -52,7 +53,7 @@ func (c *MobileInboundController) GetListInbound(ctx *fiber.Ctx) error {
 	from inbound_barcodes
 	group by inbound_id)
 
-	SELECT a.id, a.inbound_no, b.supplier_name, a.po_number,
+	SELECT a.id, a.inbound_no, b.supplier_name, a.receipt_id,
 	COALESCE(id.req_qty, 0) as req_qty, COALESCE(ibp.scan_qty, 0) as scan_qty, 
 	COALESCE(ib.qty_stock,0) as qty_stock,
 	a.status, a.updated_at 
@@ -186,6 +187,8 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 		Barcode:         scanInbound.Barcode,
 		ScanType:        scanInbound.ScanType,
 		WhsCode:         inboundDetail.WhsCode,
+		OwnerCode:       inboundDetail.OwnerCode,
+		DivisionCode:    inboundDetail.DivisionCode,
 		QaStatus:        scanInbound.QaStatus,
 		ScanData:        scanInbound.Serial,
 		SerialNumber:    scanInbound.Serial,
@@ -198,6 +201,8 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 		tx.Rollback()
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
+
+	fmt.Println("ID yang dihasilkan:", inboundBarcode.ID)
 
 	if err := tx.Commit().Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
@@ -248,7 +253,7 @@ func (c *MobileInboundController) GetInboundDetail(ctx *fiber.Ctx) error {
 		var scanQty int
 
 		for _, item := range inboundBarcode {
-			if v.ID == uint(item.InboundDetailId) {
+			if v.ID == types.SnowflakeID(int64(item.InboundDetailId)) {
 				scanQty += item.Quantity
 			}
 		}

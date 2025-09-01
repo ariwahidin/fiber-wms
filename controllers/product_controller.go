@@ -60,11 +60,26 @@ func (c *ProductController) CreateProduct(ctx *fiber.Ctx) error {
 		Category:  productInput.Category,
 		HasSerial: productInput.Serial,
 		Uom:       productInput.Uom,
-		// BaseUomID: Uom.ID,
 		CreatedBy: int(ctx.Locals("userID").(float64)),
 	}
 
 	if err := c.DB.Create(&product).Error; err != nil {
+		c.DB.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	uomConversion := models.UomConversion{
+		ItemCode:       product.ItemCode,
+		FromUom:        product.Uom,
+		ToUom:          product.Uom,
+		IsBase:         true,
+		ConversionRate: 1,
+		CreatedBy:      int(ctx.Locals("userID").(float64)),
+	}
+
+	if err := c.DB.Create(&uomConversion).Error; err != nil {
+		// Jika terjadi error saat membuat UomConversion, rollback perubahan pada Product
+		c.DB.Rollback()
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 

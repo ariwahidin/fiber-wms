@@ -2,6 +2,7 @@ package routes
 
 import (
 	"fiber-app/controllers"
+	"fiber-app/database"
 	"fiber-app/middleware"
 
 	"github.com/gofiber/fiber/v2"
@@ -11,7 +12,7 @@ func SetupTransporterRoutes(app *fiber.App) {
 
 	transporterController := &controllers.TransporterController{}
 	api := app.Group("/api/v1/transporters", middleware.AuthMiddleware)
-	api.Use(middleware.InjectDBMiddleware(transporterController))
+	api.Use(database.InjectDBMiddleware(transporterController))
 
 	api.Post("/", transporterController.CreateTransporter)
 	api.Get("/", transporterController.GetAllTransporter)

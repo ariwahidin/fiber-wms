@@ -3,6 +3,7 @@ package routes
 import (
 	"fiber-app/config"
 	"fiber-app/controllers"
+	"fiber-app/database"
 	"fiber-app/middleware"
 
 	"github.com/gofiber/fiber/v2"
@@ -12,7 +13,7 @@ func SetupUserRoutes(app *fiber.App) {
 	userController := &controllers.UserController{}
 
 	api := app.Group(config.MAIN_ROUTES+"/users", middleware.AuthMiddleware)
-	api.Use(middleware.InjectDBMiddleware(userController))
+	api.Use(database.InjectDBMiddleware(userController))
 
 	api.Post("/", userController.CreateUser)
 	api.Put("/:id", userController.UpdateUser)
@@ -24,14 +25,14 @@ func SetupUserRoutes(app *fiber.App) {
 	// profile.Get("/profile", userController.GetProfile)
 
 	role := app.Group(config.MAIN_ROUTES+"/roles", middleware.AuthMiddleware)
-	role.Use(middleware.InjectDBMiddleware(userController))
+	role.Use(database.InjectDBMiddleware(userController))
 
 	role.Get("/", userController.GetRoles)
 	role.Post("/", userController.CreateRole)
 	role.Put("/permissions/:id", userController.UpdatePermissionsForRole)
 
 	permission := app.Group(config.MAIN_ROUTES+"/permissions", middleware.AuthMiddleware)
-	permission.Use(middleware.InjectDBMiddleware(userController))
+	permission.Use(database.InjectDBMiddleware(userController))
 
 	permission.Get("/", userController.GetPermissions)
 	permission.Get("/:id", userController.GetPermissionByID)

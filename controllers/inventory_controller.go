@@ -74,10 +74,127 @@ type MovePayload struct {
 	Timestamp      time.Time `json:"timestamp"`
 }
 
+// func (c *InventoryController) MoveItem(ctx *fiber.Ctx) error {
+// 	movePayload := MovePayload{}
+// 	if err := ctx.BodyParser(&movePayload); err != nil {
+// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Failed to parse JSON" + err.Error()})
+// 	}
+
+// 	if movePayload.SourcePallet == "" || movePayload.SourceLocation == "" {
+// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Source pallet and location are required"})
+// 	}
+
+// 	if movePayload.TargetPallet == "" || movePayload.TargetLocation == "" {
+// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Target pallet and location are required"})
+// 	}
+
+// 	if movePayload.SourceLocation == movePayload.TargetLocation {
+// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Source and target locations cannot be the same"})
+// 	}
+
+// 	for _, item := range movePayload.Items {
+
+// 		var oldInventory models.Inventory
+// 		if err := c.DB.Where("id = ?", item.InventoryID).First(&oldInventory).Error; err != nil {
+// 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false, "message": "Failed to find source inventory" + err.Error()})
+// 		}
+
+// 		if oldInventory.QtyAvailable < item.Quantity {
+// 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Insufficient quantity in source pallet"})
+// 		}
+
+// 		// Update the source inventory
+// 		oldInventory.QtyAvailable -= item.Quantity
+// 		oldInventory.QtyOnhand -= item.Quantity
+// 		oldInventory.QtyOrigin -= item.Quantity
+// 		oldInventory.UpdatedBy = int(ctx.Locals("userID").(float64))
+// 		oldInventory.UpdatedAt = time.Now()
+
+// 		if err := c.DB.Debug().Where("id = ?", oldInventory.ID).
+// 			Select("qty_available", "qty_onhand", "quantity", "updated_by", "updated_at").
+// 			Updates(&oldInventory).Error; err != nil {
+// 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false, "message": "Failed to update source inventory" + err.Error()})
+// 		}
+
+// 		// Create new inventory for target pallet
+// 		newInventory := models.Inventory{
+// 			InboundDetailId: oldInventory.InboundDetailId,
+// 			RecDate:         oldInventory.RecDate,
+// 			ItemId:          item.ItemID,
+// 			ItemCode:        oldInventory.ItemCode,
+// 			WhsCode:         oldInventory.WhsCode,
+// 			DivisionCode:    oldInventory.DivisionCode,
+// 			InboundID:       oldInventory.InboundID,
+// 			OwnerCode:       oldInventory.OwnerCode,
+// 			Pallet:          movePayload.TargetPallet,
+// 			Location:        movePayload.TargetLocation,
+// 			QaStatus:        oldInventory.QaStatus,
+// 			QtyOrigin:       item.Quantity,
+// 			QtyOnhand:       item.Quantity,
+// 			QtyAvailable:    item.Quantity,
+// 			QtyAllocated:    0,
+// 			Trans:           "move item",
+// 			CreatedBy:       int(ctx.Locals("userID").(float64)),
+// 		}
+// 		if err := c.DB.Create(&newInventory).Error; err != nil {
+// 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false, "message": "Failed to create target inventory" + err.Error()})
+// 		}
+
+// 	}
+
+// 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Items moved successfully"})
+// }
+
+// 🔹 Helper untuk update inventory existing
+func (c *InventoryController) updateInventoryQuantity(ctx *fiber.Ctx, inv *models.Inventory, qty int) error {
+	inv.QtyAvailable -= qty
+	inv.QtyOnhand -= qty
+	inv.QtyOrigin -= qty
+	inv.UpdatedBy = int(ctx.Locals("userID").(float64))
+	inv.UpdatedAt = time.Now()
+
+	if err := c.DB.Model(inv).
+		Select("qty_available", "qty_onhand", "qty_origin", "updated_by", "updated_at").
+		Where("id = ?", inv.ID).
+		Updates(inv).Error; err != nil {
+		return err
+	}
+	return nil
+}
+
+// 🔹 Helper untuk create inventory baru (target pallet)
+func (c *InventoryController) createNewInventory(ctx *fiber.Ctx, oldInv *models.Inventory, targetPallet, targetLocation string, itemID, qty int) error {
+	newInventory := models.Inventory{
+		InboundDetailId: oldInv.InboundDetailId,
+		RecDate:         oldInv.RecDate,
+		ItemId:          itemID,
+		ItemCode:        oldInv.ItemCode,
+		WhsCode:         oldInv.WhsCode,
+		DivisionCode:    oldInv.DivisionCode,
+		InboundID:       oldInv.InboundID,
+		OwnerCode:       oldInv.OwnerCode,
+		Pallet:          targetPallet,
+		Location:        targetLocation,
+		QaStatus:        oldInv.QaStatus,
+		QtyOrigin:       qty,
+		QtyOnhand:       qty,
+		QtyAvailable:    qty,
+		QtyAllocated:    0,
+		Trans:           "move item",
+		CreatedBy:       int(ctx.Locals("userID").(float64)),
+	}
+
+	if err := c.DB.Create(&newInventory).Error; err != nil {
+		return err
+	}
+	return nil
+}
+
+// 🔹 Function utama untuk move item
 func (c *InventoryController) MoveItem(ctx *fiber.Ctx) error {
 	movePayload := MovePayload{}
 	if err := ctx.BodyParser(&movePayload); err != nil {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Failed to parse JSON" + err.Error()})
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Failed to parse JSON: " + err.Error()})
 	}
 
 	if movePayload.SourcePallet == "" || movePayload.SourceLocation == "" {
@@ -93,56 +210,35 @@ func (c *InventoryController) MoveItem(ctx *fiber.Ctx) error {
 	}
 
 	for _, item := range movePayload.Items {
-
+		// cari inventory lama
 		var oldInventory models.Inventory
 		if err := c.DB.Where("id = ?", item.InventoryID).First(&oldInventory).Error; err != nil {
-			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false, "message": "Failed to find source inventory" + err.Error()})
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false, "message": "Failed to find source inventory: " + err.Error()})
 		}
 
+		// validasi stock cukup
 		if oldInventory.QtyAvailable < item.Quantity {
 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Insufficient quantity in source pallet"})
 		}
 
-		// Update the source inventory
-		oldInventory.QtyAvailable -= item.Quantity
-		oldInventory.QtyOnhand -= item.Quantity
-		oldInventory.QtyOrigin -= item.Quantity
-		oldInventory.UpdatedBy = int(ctx.Locals("userID").(float64))
-		oldInventory.UpdatedAt = time.Now()
-
-		if err := c.DB.Debug().Where("id = ?", oldInventory.ID).
-			Select("qty_available", "qty_onhand", "quantity", "updated_by", "updated_at").
-			Updates(&oldInventory).Error; err != nil {
-			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false, "message": "Failed to update source inventory" + err.Error()})
+		// update inventory lama
+		if err := c.updateInventoryQuantity(ctx, &oldInventory, item.Quantity); err != nil {
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"success": false,
+				"message": "Failed to update source inventory: " + err.Error(),
+			})
 		}
 
-		// Create new inventory for target pallet
-		newInventory := models.Inventory{
-			InboundDetailId:  oldInventory.InboundDetailId,
-			InboundBarcodeId: oldInventory.InboundBarcodeId,
-			RecDate:          oldInventory.RecDate,
-			ItemId:           item.ItemID,
-			ItemCode:         oldInventory.ItemCode,
-			WhsCode:          oldInventory.WhsCode,
-			Owner:            oldInventory.Owner,
-			Pallet:           movePayload.TargetPallet,
-			Location:         movePayload.TargetLocation,
-			QaStatus:         oldInventory.QaStatus,
-			SerialNumber:     oldInventory.SerialNumber,
-			QtyOrigin:        item.Quantity,
-			QtyOnhand:        item.Quantity,
-			QtyAvailable:     item.Quantity,
-			QtyAllocated:     0,
-			Trans:            "move item",
-			CreatedBy:        int(ctx.Locals("userID").(float64)),
+		// create inventory baru di target
+		if err := c.createNewInventory(ctx, &oldInventory, movePayload.TargetPallet, movePayload.TargetLocation, item.ItemID, item.Quantity); err != nil {
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"success": false,
+				"message": "Failed to create target inventory: " + err.Error(),
+			})
 		}
-		if err := c.DB.Create(&newInventory).Error; err != nil {
-			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false, "message": "Failed to create target inventory" + err.Error()})
-		}
-
 	}
 
-	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Items moved successfully"})
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Item moved successfully"})
 }
 
 // Handler untuk generate dan kirim file Excel

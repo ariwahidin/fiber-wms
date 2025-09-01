@@ -3,6 +3,7 @@ package routes
 import (
 	"fiber-app/config"
 	"fiber-app/controllers"
+	"fiber-app/database"
 	"fiber-app/middleware"
 
 	"github.com/gofiber/fiber/v2"
@@ -14,7 +15,7 @@ func SetupMenuRoutes(app *fiber.App) {
 		config.MAIN_ROUTES+"/menus",
 		middleware.AuthMiddleware,
 	)
-	api.Use(middleware.InjectDBMiddleware(menuController))
+	api.Use(database.InjectDBMiddleware(menuController))
 
 	api.Get("/permissions/:id", menuController.GetMenuPermission)
 	api.Post("/permissions/:id", menuController.UpdatePermissionMenus)

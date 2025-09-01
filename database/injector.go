@@ -1,7 +1,6 @@
-package middleware
+package database
 
 import (
-	"fiber-app/controllers/configurations"
 	"fmt"
 	"reflect"
 
@@ -19,7 +18,7 @@ func InjectDBMiddleware(controller interface{}) fiber.Handler {
 			return fiber.NewError(fiber.StatusInternalServerError, "database name not found in context")
 		}
 
-		db, err := configurations.GetDBConnection(dbName)
+		db, err := GetDBConnection(dbName)
 		if err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, "error connecting to database")
 		}

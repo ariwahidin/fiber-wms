@@ -3,7 +3,7 @@ package controllers
 import (
 	"errors"
 	"fiber-app/config"
-	"fiber-app/controllers/configurations"
+	"fiber-app/database"
 	"fiber-app/models"
 	"fmt"
 	"time"
@@ -158,9 +158,9 @@ func (c *AuthController) Logout(ctx *fiber.Ctx) error {
 
 func Login(ctx *fiber.Ctx) error {
 	var input struct {
-		Email        string `json:"email"`
-		Password     string `json:"password"`
-		BusinessUnit string `json:"business_unit"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
+		// BusinessUnit string `json:"business_unit"`
 	}
 
 	// Parsing request body
@@ -170,13 +170,13 @@ func Login(ctx *fiber.Ctx) error {
 		})
 	}
 
-	if input.Email == "" || input.Password == "" || input.BusinessUnit == "" {
+	if input.Email == "" || input.Password == "" {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"message": "Missing required fields",
 		})
 	}
 
-	db, err := configurations.GetDBConnection(input.BusinessUnit)
+	db, err := database.GetDBConnection(config.DBUnit)
 	if err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"message": "Failed to connect to database",
@@ -228,7 +228,7 @@ func Login(ctx *fiber.Ctx) error {
 	access_token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"userID": mUser.ID,
 		// "exp":    time.Now().Add(time.Hour * 24).Unix(), // Token berlaku 24 jam
-		"unit": input.BusinessUnit,
+		"unit": config.DBUnit,
 		// Setting 30 Detik untuk testing
 		"exp": time.Now().Add(time.Second * 15).Unix(),
 	})
@@ -236,7 +236,7 @@ func Login(ctx *fiber.Ctx) error {
 	// Buat refresh token JWT
 	refresh_token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"userID": mUser.ID,
-		"unit":   input.BusinessUnit,
+		"unit":   config.DBUnit,
 		"exp":    time.Now().Add(time.Hour * 24).Unix(), // Token berlaku 24 jam
 	})
 
@@ -299,7 +299,7 @@ func Login(ctx *fiber.Ctx) error {
 			"username": mUser.Username,
 			"name":     mUser.Name,
 			"base_url": mUser.BaseRoute,
-			"unit":     input.BusinessUnit,
+			"unit":     config.DBUnit,
 		},
 		"menus": resultMenu,
 	})
