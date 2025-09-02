@@ -25,7 +25,8 @@ func NewInboundController(DB *gorm.DB) *InboundController {
 }
 
 type Inbound struct {
-	ID             types.SnowflakeID         `json:"ID"`
+	ID types.SnowflakeID `json:"ID"`
+	// ID             int                       `json:"ID"`
 	InboundNo      string                    `json:"inbound_no"`
 	InboundDate    string                    `json:"inbound_date"`
 	Supplier       string                    `json:"supplier"`
@@ -56,7 +57,7 @@ type Inbound struct {
 }
 
 type InboundItem struct {
-	// ID        int    `json:"ID"`
+	// ID int `json:"ID"`
 	ID          types.SnowflakeID `json:"ID"`
 	InboundID   types.SnowflakeID `json:"inbound_id"`
 	ItemCode    string            `json:"item_code"`
@@ -89,7 +90,6 @@ type ItemInboundBarcode struct {
 func (c *InboundController) CreateInbound(ctx *fiber.Ctx) error {
 	var payload Inbound
 
-	// Parse JSON payload
 	if err := ctx.BodyParser(&payload); err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"success": false,
@@ -581,7 +581,8 @@ func (c *InboundController) GetItem(ctx *fiber.Ctx) error {
 	}
 
 	resultItem := InboundItem{
-		ID:        types.SnowflakeID(inboundDetail.ID),
+		ID: types.SnowflakeID(inboundDetail.ID),
+		// ID:        int(inboundDetail.ID),
 		InboundID: types.SnowflakeID(inboundDetail.InboundId),
 		ItemCode:  inboundDetail.ItemCode,
 		Quantity:  inboundDetail.Quantity,
@@ -633,22 +634,36 @@ func (c *InboundController) GetPutawaySheet(ctx *fiber.Ctx) error {
 	}
 
 	type PutawaySheet struct {
-		InboundDate  string `json:"inbound_date"`
-		ReceiptID    string `json:"receipt_id"`
-		PoNumber     string `json:"po_number"`
-		InboundNo    string `json:"inbound_no"`
-		ItemCode     string `json:"item_code"`
-		Barcode      string `json:"barcode"`
-		SupplierName string `json:"supplier_name"`
-		Quantity     int    `json:"quantity"`
+		InboundDate    string  `json:"inbound_date"`
+		ReceiptID      string  `json:"receipt_id"`
+		PoNumber       string  `json:"po_number"`
+		InboundNo      string  `json:"inbound_no"`
+		ItemCode       string  `json:"item_code"`
+		Barcode        string  `json:"barcode"`
+		SupplierName   string  `json:"supplier_name"`
+		Quantity       int     `json:"quantity"`
+		Transporter    string  `json:"transporter"`
+		NoTruck        string  `json:"no_truck"`
+		Driver         string  `json:"driver"`
+		TruckSize      string  `json:"truck_size"`
+		ArrivalTime    string  `json:"arrival_time"`
+		StartUnloading string  `json:"start_unloading"`
+		EndUnloading   string  `json:"end_unloading"`
+		Cbm            float64 `json:"cbm"`
+		BLNo           string  `json:"bl_no"`
+		Remarks        string  `json:"remarks"`
+		Koli           int     `json:"koli"`
 	}
 
-	sql := `SELECT b.inbound_date, b.inbound_no, b.receipt_id,
-	a.item_code, a.barcode,
+	sql := `SELECT b.inbound_date, b.inbound_no, b.receipt_id, tp.transporter_name as transporter,
+	b.no_truck, b.driver, b.truck_size, b.arrival_time, b.start_unloading, b.end_unloading,
+	a.item_code, a.barcode, p.cbm, b.bl_no, b.remarks, b.koli,
 	s.supplier_name, a.quantity
 	FROM inbound_details a
 	INNER JOIN inbound_headers b ON a.inbound_id = b.id
 	LEFT JOIN suppliers s ON b.supplier_id = s.id
+	LEFT JOIN transporters tp ON b.transporter = tp.transporter_code
+	LEFT JOIN products p ON a.item_code = p.item_code
 	WHERE inbound_id = ?`
 
 	var putawaySheet []PutawaySheet
