@@ -15,6 +15,7 @@ func SetupMobileInboundRoutes(app *fiber.App) {
 	api.Use(database.InjectDBMiddleware(mobileInboundController))
 
 	api.Get("/inbound/list/open", mobileInboundController.GetListInbound)
+	api.Post("/inbound/check", mobileInboundController.CheckItem)
 	api.Post("/inbound/scan", mobileInboundController.ScanInbound)
 	api.Get("/inbound/scan/:id", mobileInboundController.GetScanInbound)
 	api.Delete("/inbound/scan/:id", mobileInboundController.DeleteScannedInbound)

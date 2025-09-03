@@ -216,12 +216,3 @@ func (c *ProductController) DeleteProduct(ctx *fiber.Ctx) error {
 	// Respons sukses
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Product deleted successfully", "data": product})
 }
-
-func (c *ProductController) GetAllUOM(ctx *fiber.Ctx) error {
-	var uoms []models.Uom
-	if err := c.DB.Find(&uoms).Error; err != nil {
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-	}
-
-	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Uoms found", "data": uoms})
-}

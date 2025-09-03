@@ -73,6 +73,29 @@ func (c *MobileInboundController) GetListInbound(ctx *fiber.Ctx) error {
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"data": listInbound})
 }
 
+func (c *MobileInboundController) CheckItem(ctx *fiber.Ctx) error {
+	var scanInbound struct {
+		InboundNo string `json:"inboundNo"`
+		Location  string `json:"location"`
+		Barcode   string `json:"barcode"`
+	}
+
+	if err := ctx.BodyParser(&scanInbound); err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	var product models.Product
+	if err := c.DB.Where("barcode = ?", scanInbound.Barcode).First(&product).Error; err != nil {
+		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Product not found", "message": "Product not found"})
+	}
+
+	if product.HasSerial == "Y" {
+		return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Item checked successfully", "data": product, "is_serial": true})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Item checked successfully", "data": product, "is_serial": false})
+}
+
 func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 
 	var scanInbound struct {
@@ -121,22 +144,22 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Product not found", "message": "Product not found"})
 	}
 
-	if product.HasSerial == "Y" && scanInbound.ScanType != "SERIAL" {
-		tx.Rollback()
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Scan type must be serial", "message": "Scan type must be serial"})
-	}
+	// if product.HasSerial == "Y" && scanInbound.ScanType != "SERIAL" {
+	// 	tx.Rollback()
+	// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Scan type must be serial", "message": "Scan type must be serial"})
+	// }
 
-	if product.HasSerial == "N" && scanInbound.ScanType != "BARCODE" {
-		tx.Rollback()
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Scan type must be barcode", "message": "Scan type must be barcode"})
-	}
+	// if product.HasSerial == "N" && scanInbound.ScanType != "BARCODE" {
+	// 	tx.Rollback()
+	// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Scan type must be barcode", "message": "Scan type must be barcode"})
+	// }
 
-	if product.HasSerial == "Y" && scanInbound.ScanType == "SERIAL" {
-		if scanInbound.Barcode == scanInbound.Serial {
-			tx.Rollback()
-			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Serial must not be same with barcode", "message": "Serial must not be same with barcode"})
-		}
-	}
+	// if product.HasSerial == "Y" && scanInbound.ScanType == "SERIAL" {
+	// 	if scanInbound.Barcode == scanInbound.Serial {
+	// 		tx.Rollback()
+	// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Serial must not be same with barcode", "message": "Serial must not be same with barcode"})
+	// 	}
+	// }
 
 	var inboundDetail models.InboundDetail
 	if err := tx.Debug().Where("inbound_no = ? AND item_code = ?", scanInbound.InboundNo, product.ItemCode).First(&inboundDetail).Error; err != nil {
@@ -158,7 +181,7 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 
 	if inboundDetail.Quantity < scanInbound.QtyScan+qtyScanned {
 		tx.Rollback()
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Quantity is not enough", "message": "Quantity is not enough"})
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Quantity exceeds planned receipt", "message": "Quantity exceeds planned receipt"})
 	}
 
 	inboundDetail.UpdatedBy = int(ctx.Locals("userID").(float64))

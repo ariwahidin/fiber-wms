@@ -10,8 +10,6 @@ import (
 
 func SetupInboundRoutes(app *fiber.App) {
 
-	// inboundMidleware := middleware.NewAuthMiddleware(db)
-
 	inboundController := &controllers.InboundController{}
 	api := app.Group("/api/v1/inbound", middleware.AuthMiddleware)
 	api.Use(database.InjectDBMiddleware(inboundController))
@@ -26,7 +24,6 @@ func SetupInboundRoutes(app *fiber.App) {
 	api.Delete("/item/:id", inboundController.DeleteItem)
 	api.Get("/putaway/sheet/:id", inboundController.GetPutawaySheet)
 	api.Post("/complete/:inbound_no", inboundController.HandleComplete)
-	// api.Put("/putaway/item/:id", inboundController.PutawayPerItem)
 	api.Post("/open", inboundController.HandleOpen)
 	api.Post("/checking", inboundController.HandleChecking)
 	api.Post("/checked", inboundController.HandleChecked)

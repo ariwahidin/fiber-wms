@@ -122,3 +122,12 @@ func (c *UomController) GetUomByItemCode(ctx *fiber.Ctx) error {
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "UOM retrieved successfully", "data": uoms})
 }
+
+func (c *UomController) GetAllUOM(ctx *fiber.Ctx) error {
+	var uoms []models.Uom
+	if err := c.DB.Find(&uoms).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Uoms found", "data": uoms})
+}

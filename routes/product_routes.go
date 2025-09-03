@@ -25,7 +25,7 @@ func SetupProductRoutes(app *fiber.App) {
 	uomController := &controllers.UomController{}
 	uom.Use(database.InjectDBMiddleware(uomController))
 
-	uom.Get("/", productController.GetAllUOM)
+	uom.Get("/", uomController.GetAllUOM)
 	uom.Post("/item/", uomController.GetUomByItemCode)
 	uom.Post("/conversion", uomController.CreateUom)
 	uom.Get("/conversion", uomController.GetAllUOMConversion)

@@ -653,11 +653,13 @@ func (c *InboundController) GetPutawaySheet(ctx *fiber.Ctx) error {
 		BLNo           string  `json:"bl_no"`
 		Remarks        string  `json:"remarks"`
 		Koli           int     `json:"koli"`
+		Container      string  `json:"container"`
+		WhsCode        string  `json:"whs_code"`
 	}
 
 	sql := `SELECT b.inbound_date, b.inbound_no, b.receipt_id, tp.transporter_name as transporter,
 	b.no_truck, b.driver, b.truck_size, b.arrival_time, b.start_unloading, b.end_unloading,
-	a.item_code, a.barcode, p.cbm, b.bl_no, b.remarks, b.koli,
+	a.item_code, a.barcode, p.cbm, b.bl_no, b.remarks, b.koli, b.container, a.whs_code,
 	s.supplier_name, a.quantity
 	FROM inbound_details a
 	INNER JOIN inbound_headers b ON a.inbound_id = b.id
