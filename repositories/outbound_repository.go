@@ -364,41 +364,113 @@ func (r *OutboundRepository) GetOutboundPicking() ([]OutboundList, error) {
 	return outboundList, nil
 }
 
+// type PaperPickingSheet struct {
+// 	OutboundNo   string  `json:"outbound_no"`
+// 	InventoryID  int     `json:"inventory_id"`
+// 	ItemID       int     `json:"item_id"`
+// 	ItemCode     string  `json:"item_code"`
+// 	Quantity     int     `json:"quantity"`
+// 	Barcode      string  `json:"barcode"`
+// 	ItemName     string  `json:"item_name"`
+// 	Pallet       string  `json:"pallet"`
+// 	Location     string  `json:"location"`
+// 	Cbm          float64 `json:"cbm"`
+// 	WhsCode      string  `json:"whs_code"`
+// 	RecDate      string  `json:"rec_date"`
+// 	OutboundDate string  `json:"outbound_date"`
+// 	ShipmentID   string  `json:"shipment_id"`
+// 	CustomerCode string  `json:"customer_code"`
+// 	CustomerName string  `json:"customer_name"`
+// }
+
 type PaperPickingSheet struct {
-	OutboundNo   string  `json:"outbound_no"`
-	InventoryID  int     `json:"inventory_id"`
-	ItemID       int     `json:"item_id"`
-	ItemCode     string  `json:"item_code"`
-	Quantity     int     `json:"quantity"`
-	Barcode      string  `json:"barcode"`
-	ItemName     string  `json:"item_name"`
-	Pallet       string  `json:"pallet"`
-	Location     string  `json:"location"`
-	Cbm          float64 `json:"cbm"`
-	WhsCode      string  `json:"whs_code"`
-	RecDate      string  `json:"rec_date"`
-	OutboundDate string  `json:"outbound_date"`
-	ShipmentID   string  `json:"shipment_id"`
-	CustomerCode string  `json:"customer_code"`
-	CustomerName string  `json:"customer_name"`
+	OutboundNo      string  `json:"outbound_no"`
+	InventoryID     int     `json:"inventory_id,omitempty"` // gak ada di select, bisa dihapus kalau gak dipakai
+	ItemID          int     `json:"item_id"`
+	ItemCode        string  `json:"item_code"`
+	Quantity        int     `json:"quantity"`
+	Barcode         string  `json:"barcode"`
+	ItemName        string  `json:"item_name"`
+	Pallet          string  `json:"pallet"`
+	Location        string  `json:"location"`
+	Cbm             float64 `json:"cbm"`
+	WhsCode         string  `json:"whs_code"`
+	RecDate         string  `json:"rec_date"`
+	OutboundDate    string  `json:"outbound_date"`
+	ShipmentID      string  `json:"shipment_id"`
+	CustomerCode    string  `json:"customer_code"`
+	CustomerName    string  `json:"customer_name"`
+	DelivTo         string  `json:"deliv_to"`
+	DelivToName     string  `json:"deliv_to_name"`
+	CustAddress     string  `json:"cust_address"`
+	CustCity        string  `json:"cust_city"`
+	DelivAddress    string  `json:"deliv_address"`
+	DelivCity       string  `json:"deliv_city"`
+	QtyKoli         int     `json:"qty_koli"`
+	QtyKoliSeal     int     `json:"qty_koli_seal"`
+	Remarks         string  `json:"remarks"`
+	PickerName      string  `json:"picker_name"`
+	PlanPickupDate  string  `json:"plan_pickup_date"`
+	PlanPickupTime  string  `json:"plan_pickup_time"`
+	TransporterCode string  `json:"transporter_code"`
 }
 
 func (r *OutboundRepository) GetPickingSheet(outbound_id int) ([]PaperPickingSheet, error) {
 	var outboundList []PaperPickingSheet
 
-	sql := `select a.item_id, a.item_code, sum(a.quantity) as quantity, a.pallet, a.location,
+	sql := `select
+	e.cust_address,
+	e.cust_city,
+	e.deliv_to,
+	e.deliv_address,
+	e.deliv_city,
+	e.qty_koli,
+	e.qty_koli_seal,
+	e.remarks,
+	e.picker_name,
+	e.plan_pickup_date,
+	e.plan_pickup_time,
+	a.item_id, 
+	a.item_code, 
+	sum(a.quantity) as quantity, 
+	a.pallet, a.location,
 	b.barcode, b.item_name, b.cbm, 
-	c.rec_date, c.whs_code, e.outbound_no, e.customer_code, e.outbound_date, e.shipment_id,
-	f.customer_name
+	c.rec_date, 
+	c.whs_code,
+	b.cbm,
+	b.item_name,
+	e.outbound_no, 
+	e.customer_code, 
+	e.outbound_date, 
+	e.shipment_id,
+	f.customer_name,
+	g.customer_name as deliv_to_name,
+	h.transporter_code
 	from outbound_pickings a
 	inner join products b on a.item_id = b.id
 	inner join inventories c on a.inventory_id = c.id
 	inner join outbound_headers e on a.outbound_id = e.id
 	inner join customers f on e.customer_code = f.customer_code
+	inner join customers g on e.deliv_to = g.customer_code
+	left join transporters h on e.transporter_code = h.transporter_code
 	where a.outbound_id = ?
 	group by a.location, a.pallet, a.item_id, a.item_code,
 	b.barcode, b.item_name, b.cbm, c.rec_date, c.whs_code,
-	e.outbound_no, e.customer_code, f.customer_name, e.outbound_date, e.shipment_id`
+	e.outbound_no, e.customer_code, f.customer_name, e.outbound_date, e.shipment_id,
+	e.cust_address,
+	e.cust_city,
+	e.deliv_to,
+	e.deliv_address,
+	e.deliv_city,
+	e.qty_koli,
+	e.qty_koli_seal,
+	e.remarks,
+	e.picker_name,
+	e.plan_pickup_date,
+	e.plan_pickup_time,
+	g.customer_name,
+	h.transporter_code
+	Order By a.[location] ASC`
 
 	if err := r.db.Debug().Raw(sql, outbound_id).Scan(&outboundList).Error; err != nil {
 		return nil, err

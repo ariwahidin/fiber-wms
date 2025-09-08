@@ -2,61 +2,122 @@ package models
 
 import "gorm.io/gorm"
 
-type Handling struct {
+// Master MainVas
+type MainVas struct {
+	gorm.Model
+	ID           int     `json:"ID"`
+	Name         string  `json:"name" gorm:"unique"`
+	IsKoli       bool    `json:"isKoli" gorm:"default:false"`
+	IsActive     bool    `json:"isActive" gorm:"default:true"`
+	DefaultPrice float64 `json:"defaultPrice" gorm:"default:0"`
+	CreatedBy    int
+	UpdatedBy    int
+	DeletedBy    int
+}
+
+func (MainVas) TableName() string {
+	return "main_vas"
+}
+
+type VasRate struct {
+	gorm.Model
+	MainVasId int
+	RateIdr   int `json:"rate_idr" gorm:"default:0"`
+	CreatedBy int
+	UpdatedBy int
+	DeletedBy int
+}
+
+func (VasRate) TableName() string {
+	return "vas_rate"
+}
+
+type Vas struct {
 	gorm.Model
 	Name      string `json:"name" gorm:"unique"`
-	Type      string `json:"type" gorm:"default:'single'"`
-	IsKoli    bool   `json:"is_koli" gorm:"default:false"`
 	IsActive  bool   `json:"is_active" gorm:"default:true"`
 	CreatedBy int
 	UpdatedBy int
 	DeletedBy int
+
+	MainVasDetails []VasDetail `json:"main_vas_details" gorm:"foreignKey:VasId;references:ID"`
 }
 
-type HandlingRate struct {
-	gorm.Model
-	HandlingId int
-	Name       string
-	RateIdr    int `json:"rate_idr" gorm:"default:0"`
-	CreatedBy  int
-	UpdatedBy  int
-	DeletedBy  int
+func (Vas) TableName() string {
+	return "vas"
 }
 
-type HandlingCombine struct {
+type VasDetail struct {
 	gorm.Model
-	HandlingId int
-	CreatedBy  int
-	UpdatedBy  int
-	DeletedBy  int
-}
-
-type HandlingCombineDetail struct {
-	gorm.Model
-	HandlingCombineId int
-	HandlingId        int
-	CreatedBy         int
-	UpdatedBy         int
-	DeletedBy         int
-}
-
-type HandlingItem struct {
-	gorm.Model
-	ItemCode  string `json:"item_code"`
-	Area      string `json:"area"`
+	VasId     int
+	MainVasId int
 	CreatedBy int
 	UpdatedBy int
 	DeletedBy int
-
-	Details []HandlingItemDetail `json:"details" gorm:"foreignKey:HandlingItemId;references:ID"`
 }
 
-type HandlingItemDetail struct {
-	gorm.Model
-	HandlingItemId int
-	ItemCode       string `json:"item_code"`
-	Handling       string
-	CreatedBy      int
-	UpdatedBy      int
-	DeletedBy      int
+func (VasDetail) TableName() string {
+	return "vas_detail"
 }
+
+// type Handling struct {
+// 	gorm.Model
+// 	Name      string `json:"name" gorm:"unique"`
+// 	Type      string `json:"type" gorm:"default:'single'"`
+// 	IsKoli    bool   `json:"is_koli" gorm:"default:false"`
+// 	IsActive  bool   `json:"is_active" gorm:"default:true"`
+// 	CreatedBy int
+// 	UpdatedBy int
+// 	DeletedBy int
+// }
+
+// type HandlingRate struct {
+// 	gorm.Model
+// 	HandlingId int
+// 	Name       string
+// 	RateIdr    int `json:"rate_idr" gorm:"default:0"`
+// 	CreatedBy  int
+// 	UpdatedBy  int
+// 	DeletedBy  int
+// }
+
+// type HandlingCombine struct {
+// 	gorm.Model
+// 	HandlingId int
+// 	Name       string
+// 	CreatedBy  int
+// 	UpdatedBy  int
+// 	DeletedBy  int
+// }
+
+// type HandlingCombineDetail struct {
+// 	gorm.Model
+// 	HandlingCombineId   int
+// 	HandlingId          int
+// 	HandlingCombineName string
+// 	HandlingName        string
+// 	CreatedBy           int
+// 	UpdatedBy           int
+// 	DeletedBy           int
+// }
+
+// type HandlingItem struct {
+// 	gorm.Model
+// 	ItemCode  string `json:"item_code"`
+// 	Area      string `json:"area"`
+// 	CreatedBy int
+// 	UpdatedBy int
+// 	DeletedBy int
+
+// 	Details []HandlingItemDetail `json:"details" gorm:"foreignKey:HandlingItemId;references:ID"`
+// }
+
+// type HandlingItemDetail struct {
+// 	gorm.Model
+// 	HandlingItemId int
+// 	ItemCode       string `json:"item_code"`
+// 	Handling       string
+// 	CreatedBy      int
+// 	UpdatedBy      int
+// 	DeletedBy      int
+// }

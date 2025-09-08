@@ -21,35 +21,35 @@ func NewOutboundController(DB *gorm.DB) *OutboundController {
 }
 
 type Outbound struct {
-	ID           types.SnowflakeID `json:"ID"`
-	OutboundNo   string            `json:"outbound_no"`
-	OutboundDate string            `json:"outbound_date"`
-	CustomerCode string            `json:"customer_code"`
-	ShipmentID   string            `json:"shipment_id"`
-	Mode         string            `json:"mode"`
-	Status       string            `json:"status"`
-	WhsCode      string            `json:"whs_code"`
-	OwnerCode    string            `json:"owner_code"`
-	Remarks      string            `json:"remarks"`
-
-	PickerName     string         `json:"picker_name"`
-	CustAddress    string         `json:"cust_address"`
-	CustCity       string         `json:"cust_city"`
-	PlanPickupDate string         `json:"plan_pickup_date"`
-	PlanPickupTime string         `json:"plan_pickup_time"`
-	RcvDoDate      string         `json:"rcv_do_date"`
-	RcvDoTime      string         `json:"rcv_do_time"`
-	StartPickTime  string         `json:"start_pick_time"`
-	EndPickTime    string         `json:"end_pick_time"`
-	DelivTo        string         `json:"deliv_to"`
-	DelivAddress   string         `json:"deliv_address"`
-	DelivCity      string         `json:"deliv_city"`
-	Driver         string         `json:"driver"`
-	QtyKoli        int            `json:"qty_koli"`
-	QtyKoliSeal    int            `json:"qty_koli_seal"`
-	TruckSize      string         `json:"truck_size"`
-	TruckNo        string         `json:"truck_no"`
-	Items          []OutboundItem `json:"items"`
+	ID              types.SnowflakeID `json:"ID"`
+	OutboundNo      string            `json:"outbound_no"`
+	OutboundDate    string            `json:"outbound_date"`
+	CustomerCode    string            `json:"customer_code"`
+	ShipmentID      string            `json:"shipment_id"`
+	Mode            string            `json:"mode"`
+	Status          string            `json:"status"`
+	WhsCode         string            `json:"whs_code"`
+	OwnerCode       string            `json:"owner_code"`
+	Remarks         string            `json:"remarks"`
+	TransporterCode string            `json:"transporter_code"`
+	PickerName      string            `json:"picker_name"`
+	CustAddress     string            `json:"cust_address"`
+	CustCity        string            `json:"cust_city"`
+	PlanPickupDate  string            `json:"plan_pickup_date"`
+	PlanPickupTime  string            `json:"plan_pickup_time"`
+	RcvDoDate       string            `json:"rcv_do_date"`
+	RcvDoTime       string            `json:"rcv_do_time"`
+	StartPickTime   string            `json:"start_pick_time"`
+	EndPickTime     string            `json:"end_pick_time"`
+	DelivTo         string            `json:"deliv_to"`
+	DelivAddress    string            `json:"deliv_address"`
+	DelivCity       string            `json:"deliv_city"`
+	Driver          string            `json:"driver"`
+	QtyKoli         int               `json:"qty_koli"`
+	QtyKoliSeal     int               `json:"qty_koli_seal"`
+	TruckSize       string            `json:"truck_size"`
+	TruckNo         string            `json:"truck_no"`
+	Items           []OutboundItem    `json:"items"`
 }
 
 type OutboundItem struct {
@@ -62,6 +62,7 @@ type OutboundItem struct {
 	Location   string            `json:"location"`
 	Remarks    string            `json:"remarks"`
 	Mode       string            `json:"mode"`
+	VasID      int               `json:"vas_id"`
 }
 
 func (c *OutboundController) CreateOutbound(ctx *fiber.Ctx) error {
@@ -134,7 +135,7 @@ func (c *OutboundController) CreateOutbound(ctx *fiber.Ctx) error {
 	OutboundHeader.CreatedBy = userID
 	OutboundHeader.UpdatedBy = userID
 	OutboundHeader.Status = "open"
-
+	OutboundHeader.TransporterCode = payload.TransporterCode
 	OutboundHeader.PickerName = payload.PickerName
 	OutboundHeader.CustAddress = payload.CustAddress
 	OutboundHeader.CustCity = payload.CustCity
@@ -192,6 +193,17 @@ func (c *OutboundController) CreateOutbound(ctx *fiber.Ctx) error {
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
 
+		var vas models.Vas
+
+		if err := tx.Debug().First(&vas, "id = ?", item.VasID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Vas not found"})
+			}
+
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+
 		var OutboundDetail models.OutboundDetail
 		OutboundDetail.OutboundNo = payload.OutboundNo
 		OutboundDetail.OutboundID = types.SnowflakeID(outboundID)
@@ -209,6 +221,8 @@ func (c *OutboundController) CreateOutbound(ctx *fiber.Ctx) error {
 		OutboundDetail.SNCheck = "N"
 		OutboundDetail.OwnerCode = OutboundHeader.OwnerCode
 		OutboundDetail.Remarks = item.Remarks
+		OutboundDetail.VasID = item.VasID
+		OutboundDetail.VasName = vas.Name
 		OutboundDetail.CreatedBy = userID
 		OutboundDetail.UpdatedBy = userID
 
@@ -346,7 +360,7 @@ func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
 	OutboundHeader.Remarks = payload.Remarks
 	OutboundHeader.UpdatedBy = userID
 	OutboundHeader.UpdatedAt = time.Now()
-
+	OutboundHeader.TransporterCode = payload.TransporterCode
 	OutboundHeader.PickerName = payload.PickerName
 	OutboundHeader.CustAddress = payload.CustAddress
 	OutboundHeader.CustCity = payload.CustCity
@@ -392,6 +406,17 @@ func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
 
+		var vas models.Vas
+
+		if err := tx.Debug().First(&vas, "id = ?", item.VasID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Vas not found"})
+			}
+
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+
 		// Coba cari berdasarkan ID
 		err := tx.Debug().First(&outboundDetail, "id = ?", item.ID).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -413,6 +438,8 @@ func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
 				Remarks:      item.Remarks,
 				SN:           item.SN,
 				SNCheck:      "N",
+				VasID:        item.VasID,
+				VasName:      vas.Name,
 				CreatedBy:    int(ctx.Locals("userID").(float64)),
 			}
 			if err := tx.Create(&newDetail).Error; err != nil {
@@ -435,6 +462,8 @@ func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
 			outboundDetail.Remarks = item.Remarks
 			outboundDetail.SN = item.SN
 			outboundDetail.SNCheck = "N"
+			outboundDetail.VasID = item.VasID
+			outboundDetail.VasName = vas.Name
 			outboundDetail.UpdatedBy = int(ctx.Locals("userID").(float64))
 			outboundDetail.UpdatedAt = time.Now()
 
@@ -599,7 +628,7 @@ func (c *OutboundController) DeleteItem(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Item deleted successfully"})
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Item deleted successfully", "data": outboundDetail})
 }
 
 func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
@@ -827,47 +856,47 @@ func (c *OutboundController) PickingComplete(ctx *fiber.Ctx) error {
 	}
 
 	// Proses Handling dari outound detail dengan item_code yang akan mencari ke handling detail item
-	for _, outboundDetail := range outboundDetails {
+	// for _, outboundDetail := range outboundDetails {
 
-		var handlingItemDetail []models.HandlingItemDetail
-		if err := tx.Debug().Where("item_code = ?", outboundDetail.ItemCode).Find(&handlingItemDetail).Error; err != nil {
-			tx.Rollback()
-			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-		}
-		if len(handlingItemDetail) > 0 {
-			for _, handling := range handlingItemDetail {
+	// 	var handlingItemDetail []models.HandlingItemDetail
+	// 	if err := tx.Debug().Where("item_code = ?", outboundDetail.ItemCode).Find(&handlingItemDetail).Error; err != nil {
+	// 		tx.Rollback()
+	// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	// 	}
+	// 	if len(handlingItemDetail) > 0 {
+	// 		for _, handling := range handlingItemDetail {
 
-				var handlingRate models.HandlingRate
-				if err := tx.Debug().
-					Where("name = ?", handling.Handling).
-					Order("handling_rates.id DESC").
-					Take(&handlingRate).Error; err != nil {
+	// 			var handlingRate models.HandlingRate
+	// 			if err := tx.Debug().
+	// 				Where("name = ?", handling.Handling).
+	// 				Order("handling_rates.id DESC").
+	// 				Take(&handlingRate).Error; err != nil {
 
-					tx.Rollback()
-					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-						"error": err.Error(),
-					})
-				}
+	// 				tx.Rollback()
+	// 				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+	// 					"error": err.Error(),
+	// 				})
+	// 			}
 
-				// Insert ke Outbound Detail Handlings
-				outboundDetailHandling := models.OutboundDetailHandling{
-					OutboundID:       outboundDetail.OutboundID,
-					OutboundNo:       outboundDetail.OutboundNo,
-					OutboundDetailId: int(outboundDetail.ID),
-					ItemCode:         outboundDetail.ItemCode,
-					HandlingUsed:     handling.Handling,
-					HandlingId:       handlingRate.HandlingId,
-					RateIdr:          handlingRate.RateIdr,
-					CreatedBy:        int(ctx.Locals("userID").(float64)),
-				}
-				if err := tx.Create(&outboundDetailHandling).Error; err != nil {
-					tx.Rollback()
-					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-				}
-			}
+	// 			// Insert ke Outbound Detail Handlings
+	// 			outboundDetailHandling := models.OutboundDetailHandling{
+	// 				OutboundID:       outboundDetail.OutboundID,
+	// 				OutboundNo:       outboundDetail.OutboundNo,
+	// 				OutboundDetailId: int(outboundDetail.ID),
+	// 				ItemCode:         outboundDetail.ItemCode,
+	// 				HandlingUsed:     handling.Handling,
+	// 				HandlingId:       handlingRate.HandlingId,
+	// 				RateIdr:          handlingRate.RateIdr,
+	// 				CreatedBy:        int(ctx.Locals("userID").(float64)),
+	// 			}
+	// 			if err := tx.Create(&outboundDetailHandling).Error; err != nil {
+	// 				tx.Rollback()
+	// 				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	// 			}
+	// 		}
 
-		}
-	}
+	// 	}
+	// }
 
 	// UPDATE OUTBOUND STATUS
 	if err := tx.Debug().
@@ -1041,62 +1070,62 @@ func (c *OutboundController) UpdateOutboundDetailHandling(ctx *fiber.Ctx) error 
 			})
 		}
 
-		for _, handling := range item.Handling {
+		// for _, handling := range item.Handling {
 
-			var handlingRate models.HandlingRate
-			if err := tx.Debug().
-				Where("name = ?", handling).
-				Order("handling_rates.id DESC").
-				Take(&handlingRate).Error; err != nil {
+		// 	var handlingRate models.HandlingRate
+		// 	if err := tx.Debug().
+		// 		Where("name = ?", handling).
+		// 		Order("handling_rates.id DESC").
+		// 		Take(&handlingRate).Error; err != nil {
 
-				tx.Rollback()
-				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-					"error": err.Error(),
-				})
-			}
+		// 		tx.Rollback()
+		// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+		// 			"error": err.Error(),
+		// 		})
+		// 	}
 
-			var handlingSelected models.Handling
-			if err := tx.Debug().
-				Where("id = ?", handlingRate.HandlingId).
-				Take(&handlingSelected).Error; err != nil {
+		// 	var handlingSelected models.Handling
+		// 	if err := tx.Debug().
+		// 		Where("id = ?", handlingRate.HandlingId).
+		// 		Take(&handlingSelected).Error; err != nil {
 
-				tx.Rollback()
-				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-					"error": err.Error(),
-				})
-			}
+		// 		tx.Rollback()
+		// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+		// 			"error": err.Error(),
+		// 		})
+		// 	}
 
-			var totalPrice = 0
-			var qtyHandling = 0
+		// 	var totalPrice = 0
+		// 	var qtyHandling = 0
 
-			if handlingSelected.IsKoli {
-				qtyHandling = 1
-				totalPrice = handlingRate.RateIdr * qtyHandling
-			} else {
-				qtyHandling = outboundDetail.Quantity
-				totalPrice = handlingRate.RateIdr * qtyHandling
-			}
+		// 	if handlingSelected.IsKoli {
+		// 		qtyHandling = 1
+		// 		totalPrice = handlingRate.RateIdr * qtyHandling
+		// 	} else {
+		// 		qtyHandling = outboundDetail.Quantity
+		// 		totalPrice = handlingRate.RateIdr * qtyHandling
+		// 	}
 
-			// Insert ke Outbound Detail Handlings
-			outboundDetailHandling := models.OutboundDetailHandling{
-				OutboundID:       outboundDetail.OutboundID,
-				OutboundNo:       outboundDetail.OutboundNo,
-				OutboundDetailId: int(outboundDetail.ID),
-				ItemCode:         outboundDetail.ItemCode,
-				HandlingUsed:     handlingRate.Name,
-				HandlingId:       handlingRate.HandlingId,
-				RateIdr:          handlingRate.RateIdr,
-				IsKoli:           handlingSelected.IsKoli,
-				QtyHandling:      qtyHandling,
-				TotalPrice:       totalPrice,
-				CreatedBy:        int(ctx.Locals("userID").(float64)),
-			}
-			if err := tx.Create(&outboundDetailHandling).Error; err != nil {
-				tx.Rollback()
-				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-			}
+		// 	// Insert ke Outbound Detail Handlings
+		// 	outboundDetailHandling := models.OutboundDetailHandling{
+		// 		OutboundID:       outboundDetail.OutboundID,
+		// 		OutboundNo:       outboundDetail.OutboundNo,
+		// 		OutboundDetailId: int(outboundDetail.ID),
+		// 		ItemCode:         outboundDetail.ItemCode,
+		// 		HandlingUsed:     handlingRate.Name,
+		// 		HandlingId:       handlingRate.HandlingId,
+		// 		RateIdr:          handlingRate.RateIdr,
+		// 		IsKoli:           handlingSelected.IsKoli,
+		// 		QtyHandling:      qtyHandling,
+		// 		TotalPrice:       totalPrice,
+		// 		CreatedBy:        int(ctx.Locals("userID").(float64)),
+		// 	}
+		// 	if err := tx.Create(&outboundDetailHandling).Error; err != nil {
+		// 		tx.Rollback()
+		// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		// 	}
 
-		}
+		// }
 
 		if err := tx.Commit().Error; err != nil {
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})

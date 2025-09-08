@@ -102,6 +102,7 @@ func main() {
 	owner.SetupOwnerRoutes(app)
 	routes.SetupStockTakeRoutes(app)
 	routes.SetupLocationRoutes(app)
+	routes.SetupVasRoutes(app)
 
 	// routes.SetupRfInboundRoutes(app, RfInboundController)
 	// routes.SetupOutboundRoutes(app, db)

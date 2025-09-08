@@ -361,7 +361,7 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 			})
 		}
 
-		itemCodes[item.ItemCode] = true // tandai sebagai sudah ditemukan
+		itemCodes[item.ItemCode] = true
 	}
 
 	payloadItem := payload.Items

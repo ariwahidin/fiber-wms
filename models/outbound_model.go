@@ -39,6 +39,7 @@ type OutboundHeader struct {
 	QtyKoliSeal     int               `json:"qty_koli_seal"`
 	TruckSize       string            `json:"truck_size"`
 	TruckNo         string            `json:"truck_no"`
+	TransporterCode string            `json:"transporter_code"`
 	CreatedBy       int
 	UpdatedBy       int
 	DeletedBy       int
@@ -64,21 +65,20 @@ type OutboundDetail struct {
 	QaStatus     string            `json:"qa_status" gorm:"default:'A'"`
 	SN           string            `json:"sn"`
 	SNCheck      string            `json:"sn_check" gorm:"default:'N'"`
-	// HandlingId   int               `json:"handling_id" required:"required"`
-	// TotalVas     int               `json:"total_vas" gorm:"default:0"`
-	// HandlingUsed string            `json:"handling_used"`
-	Remarks   string `json:"remarks"`
-	FileName  string `json:"file_name"`
-	CreatedBy int
-	UpdatedBy int
-	DeletedBy int
+	VasID        int               `json:"vas_id"`
+	VasName      string            `json:"vas_name"`
+	VasPrice     float64           `json:"vas_price"`
+	Remarks      string            `json:"remarks"`
+	FileName     string            `json:"file_name"`
+	CreatedBy    int
+	UpdatedBy    int
+	DeletedBy    int
 
 	// Relationship
 	Product                 Product                  `gorm:"foreignKey:ItemID;references:ID" json:"product"`
 	OutboundDetailHandlings []OutboundDetailHandling `gorm:"foreignKey:OutboundDetailId;references:ID;constraint:OnDelete:CASCADE" json:"outbound_detail_handlings"`
 	OutboundPickings        []OutboundPicking        `gorm:"foreignKey:OutboundDetailId;references:ID;constraint:OnDelete:CASCADE" json:"picking_sheets"`
-	Handling                []OutboundDetailHandling `gorm:"foreignKey:OutboundDetailId;references:ID;" json:"handling"` // gorm:"-" biar ga nyari relasi otomatis
-	// Handling []HandlingItemDetail `gorm:"foreignKey:ItemCode;references:ItemCode" json:"handling"`
+	Handling                []OutboundDetailHandling `gorm:"foreignKey:OutboundDetailId;references:ID;" json:"handling"`
 }
 
 type OutboundFile struct {

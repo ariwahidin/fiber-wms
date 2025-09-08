@@ -15,19 +15,19 @@ func SetupHandlingRoutes(app *fiber.App) {
 
 	api.Use(database.InjectDBMiddleware(handlingController))
 
-	api.Get("/items", handlingController.GetAllItemHandling)
-	api.Get("/items/:id", handlingController.GetItemHandlingByID)
-	api.Put("/items/:id", handlingController.UpdateItemHandlingByID)
-	api.Delete("/items/:id", handlingController.DeleteItemHandling)
+	// api.Get("/items", handlingController.GetAllItemHandling)
+	// api.Get("/items/:id", handlingController.GetItemHandlingByID)
+	// api.Put("/items/:id", handlingController.UpdateItemHandlingByID)
+	// api.Delete("/items/:id", handlingController.DeleteItemHandling)
 
 	api.Post("/", handlingController.Create)
-	api.Post("/combine", handlingController.CreateCombineHandling)
-	api.Get("/", handlingController.GetAll)
-	api.Get("/origin", handlingController.GetAllOriginHandling)
-	api.Get("/:id", handlingController.GetByID)
-	api.Put("/:id", handlingController.Update)
-	api.Delete("/:id", handlingController.Delete)
+	// api.Post("/combine", handlingController.CreateCombineHandling)
+	// api.Get("/", handlingController.GetAll)
+	// api.Get("/origin", handlingController.GetAllOriginHandling)
+	// api.Get("/:id", handlingController.GetByID)
+	// api.Put("/:id", handlingController.Update)
+	// api.Delete("/:id", handlingController.Delete)
 
-	api.Post("/items", handlingController.CreateItemHandling)
+	// api.Post("/items", handlingController.CreateItemHandling)
 
 }
