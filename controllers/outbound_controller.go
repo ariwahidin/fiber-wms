@@ -324,9 +324,6 @@ func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	fmt.Println("payload: ", payload)
-	// return nil
-
 	// Mulai transaction
 	tx := c.DB.Begin()
 	defer func() {
@@ -393,6 +390,8 @@ func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
 		})
 	}
 
+	// if OutboundHeader.Status == "open" {
+
 	// update outbound detail
 	for _, item := range payload.Items {
 		var outboundDetail models.OutboundDetail
@@ -420,52 +419,85 @@ func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
 		// Coba cari berdasarkan ID
 		err := tx.Debug().First(&outboundDetail, "id = ?", item.ID).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			// ❌ Tidak ditemukan → insert baru
-			newDetail := models.OutboundDetail{
-				OutboundID:   OutboundHeader.ID,
-				OutboundNo:   OutboundHeader.OutboundNo,
-				ItemID:       int(product.ID),
-				ItemCode:     item.ItemCode,
-				Barcode:      product.Barcode,
-				Quantity:     item.Quantity,
-				Location:     item.Location,
-				WhsCode:      OutboundHeader.WhsCode,
-				OwnerCode:    OutboundHeader.OwnerCode,
-				CustomerCode: customer.CustomerCode,
-				Uom:          item.UOM,
-				DivisionCode: "REGULAR",
-				QaStatus:     "A",
-				Remarks:      item.Remarks,
-				SN:           item.SN,
-				SNCheck:      "N",
-				VasID:        item.VasID,
-				VasName:      vas.Name,
-				CreatedBy:    int(ctx.Locals("userID").(float64)),
+
+			if OutboundHeader.Status == "open" {
+
+				newDetail := models.OutboundDetail{
+					OutboundID:   OutboundHeader.ID,
+					OutboundNo:   OutboundHeader.OutboundNo,
+					ItemID:       int(product.ID),
+					ItemCode:     item.ItemCode,
+					Barcode:      product.Barcode,
+					Quantity:     item.Quantity,
+					Location:     item.Location,
+					WhsCode:      OutboundHeader.WhsCode,
+					OwnerCode:    OutboundHeader.OwnerCode,
+					CustomerCode: customer.CustomerCode,
+					Uom:          item.UOM,
+					DivisionCode: "REGULAR",
+					QaStatus:     "A",
+					Remarks:      item.Remarks,
+					SN:           item.SN,
+					SNCheck:      "N",
+					VasID:        item.VasID,
+					VasName:      vas.Name,
+					CreatedBy:    int(ctx.Locals("userID").(float64)),
+				}
+				if err := tx.Create(&newDetail).Error; err != nil {
+					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+				}
+
 			}
-			if err := tx.Create(&newDetail).Error; err != nil {
-				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-			}
+
 		} else if err == nil {
 			// ✅ Ditemukan → update
-			outboundDetail.OutboundID = OutboundHeader.ID
-			outboundDetail.ItemID = int(product.ID)
-			outboundDetail.ItemCode = item.ItemCode
-			outboundDetail.Barcode = product.Barcode
-			outboundDetail.Uom = item.UOM
-			outboundDetail.WhsCode = OutboundHeader.WhsCode
-			outboundDetail.OwnerCode = OutboundHeader.OwnerCode
-			outboundDetail.DivisionCode = "REGULAR"
-			outboundDetail.CustomerCode = customer.CustomerCode
-			outboundDetail.QaStatus = "A"
-			outboundDetail.Quantity = item.Quantity
-			outboundDetail.Location = item.Location
-			outboundDetail.Remarks = item.Remarks
-			outboundDetail.SN = item.SN
-			outboundDetail.SNCheck = "N"
-			outboundDetail.VasID = item.VasID
-			outboundDetail.VasName = vas.Name
-			outboundDetail.UpdatedBy = int(ctx.Locals("userID").(float64))
-			outboundDetail.UpdatedAt = time.Now()
+
+			if OutboundHeader.Status == "open" {
+				outboundDetail.OutboundID = OutboundHeader.ID
+				outboundDetail.ItemID = int(product.ID)
+				outboundDetail.ItemCode = item.ItemCode
+				outboundDetail.Barcode = product.Barcode
+				outboundDetail.Uom = item.UOM
+				outboundDetail.WhsCode = OutboundHeader.WhsCode
+				outboundDetail.OwnerCode = OutboundHeader.OwnerCode
+				outboundDetail.DivisionCode = "REGULAR"
+				outboundDetail.CustomerCode = customer.CustomerCode
+				outboundDetail.QaStatus = "A"
+				outboundDetail.Quantity = item.Quantity
+				outboundDetail.Location = item.Location
+				outboundDetail.Remarks = item.Remarks
+				outboundDetail.SN = item.SN
+				outboundDetail.SNCheck = "N"
+				outboundDetail.VasID = item.VasID
+				outboundDetail.VasName = vas.Name
+				outboundDetail.UpdatedBy = int(ctx.Locals("userID").(float64))
+				outboundDetail.UpdatedAt = time.Now()
+			} else {
+				outboundDetail.VasID = item.VasID
+				outboundDetail.VasName = vas.Name
+				outboundDetail.UpdatedBy = int(ctx.Locals("userID").(float64))
+				outboundDetail.UpdatedAt = time.Now()
+			}
+
+			// outboundDetail.OutboundID = OutboundHeader.ID
+			// outboundDetail.ItemID = int(product.ID)
+			// outboundDetail.ItemCode = item.ItemCode
+			// outboundDetail.Barcode = product.Barcode
+			// outboundDetail.Uom = item.UOM
+			// outboundDetail.WhsCode = OutboundHeader.WhsCode
+			// outboundDetail.OwnerCode = OutboundHeader.OwnerCode
+			// outboundDetail.DivisionCode = "REGULAR"
+			// outboundDetail.CustomerCode = customer.CustomerCode
+			// outboundDetail.QaStatus = "A"
+			// outboundDetail.Quantity = item.Quantity
+			// outboundDetail.Location = item.Location
+			// outboundDetail.Remarks = item.Remarks
+			// outboundDetail.SN = item.SN
+			// outboundDetail.SNCheck = "N"
+			// outboundDetail.VasID = item.VasID
+			// outboundDetail.VasName = vas.Name
+			// outboundDetail.UpdatedBy = int(ctx.Locals("userID").(float64))
+			// outboundDetail.UpdatedAt = time.Now()
 
 			if err := tx.Save(&outboundDetail).Error; err != nil {
 				tx.Rollback()
@@ -477,6 +509,8 @@ func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
 	}
+
+	// }
 
 	// Commit
 	if err := tx.Commit().Error; err != nil {
