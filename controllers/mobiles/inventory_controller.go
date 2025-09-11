@@ -58,8 +58,8 @@ func (c *MobileInventoryController) CreateDummyInventory(ctx *fiber.Ctx) error {
 			ItemCode:  fmt.Sprintf("ITEMCODE%d", rand.Intn(10000)),
 			Barcode:   fmt.Sprintf("BARCODE%d", rand.Intn(99999)),
 			// SerialNumber:     fmt.Sprintf("SN%d", rand.Intn(99999)),
-			QaStatus:     "A",
-			QtyOrigin:    rand.Intn(100),
+			QaStatus: "A",
+			// QtyOrigin:    rand.Intn(100),
 			QtyOnhand:    rand.Intn(100),
 			QtyAvailable: rand.Intn(100),
 			QtyAllocated: rand.Intn(100),
@@ -196,7 +196,7 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 		newInventory.Pallet = input.ToLocation
 		newInventory.Location = input.ToLocation
 		newInventory.QaStatus = inventory.QaStatus
-		newInventory.QtyOrigin = inventory.QtyOrigin
+		// newInventory.QtyOrigin = inventory.QtyOrigin
 		newInventory.QtyOnhand = inventory.QtyOnhand
 		newInventory.QtyAvailable = inventory.QtyAvailable
 		newInventory.QtyAllocated = 0
@@ -217,7 +217,7 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
 
-		oldInventory.QtyOrigin = oldInventory.QtyOrigin - inventory.QtyAvailable
+		// oldInventory.QtyOrigin = oldInventory.QtyOrigin - inventory.QtyAvailable
 		oldInventory.QtyOnhand = oldInventory.QtyOnhand - inventory.QtyAvailable
 		oldInventory.QtyAvailable = oldInventory.QtyAvailable - inventory.QtyAvailable
 		oldInventory.UpdatedAt = time.Now()
@@ -310,7 +310,7 @@ func (c *MobileInventoryController) ConfirmTransferByInventoryID(ctx *fiber.Ctx)
 	newInventory.Pallet = input.ToLocation
 	newInventory.Location = input.ToLocation
 	newInventory.QaStatus = inventory.QaStatus
-	newInventory.QtyOrigin = inventory.QtyOrigin
+	// newInventory.QtyOrigin = inventory.QtyOrigin
 	newInventory.QtyOnhand = inventory.QtyOnhand
 	newInventory.QtyAvailable = inventory.QtyAvailable
 	newInventory.QtyAllocated = 0
@@ -332,7 +332,7 @@ func (c *MobileInventoryController) ConfirmTransferByInventoryID(ctx *fiber.Ctx)
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	oldInventory.QtyOrigin = oldInventory.QtyOrigin - input.QtyTransfer
+	// oldInventory.QtyOrigin = oldInventory.QtyOrigin - input.QtyTransfer
 	oldInventory.QtyOnhand = oldInventory.QtyOnhand - input.QtyTransfer
 	oldInventory.QtyAvailable = oldInventory.QtyAvailable - input.QtyTransfer
 	oldInventory.UpdatedAt = time.Now()

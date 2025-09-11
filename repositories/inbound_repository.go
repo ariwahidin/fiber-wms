@@ -649,12 +649,12 @@ func (r *InboundRepository) PutawayItem(ctx *fiber.Ctx, inboundBarcodeID int, lo
 				Location:        location,
 				QaStatus:        barcode.QaStatus,
 				Uom:             uomConversion.ToUom,
-				QtyOrigin:       qtyConverted,
-				QtyOnhand:       qtyConverted,
-				QtyAvailable:    qtyConverted,
-				QtyAllocated:    0,
-				Trans:           "putaway",
-				CreatedBy:       int(userID),
+				// QtyOrigin:       qtyConverted,
+				QtyOnhand:    qtyConverted,
+				QtyAvailable: qtyConverted,
+				QtyAllocated: 0,
+				Trans:        "putaway",
+				CreatedBy:    int(userID),
 			}
 
 			if err := tx.Create(&newInv).Error; err != nil {
@@ -663,7 +663,7 @@ func (r *InboundRepository) PutawayItem(ctx *fiber.Ctx, inboundBarcodeID int, lo
 		} else if invQuery.Error == nil {
 			// Sudah ada → Update qty
 			if err := tx.Model(&existingInv).Updates(map[string]interface{}{
-				"qty_origin":    existingInv.QtyOrigin + qtyConverted,
+				// "qty_origin":    existingInv.QtyOrigin + qtyConverted,
 				"qty_onhand":    existingInv.QtyOnhand + qtyConverted,
 				"qty_available": existingInv.QtyAvailable + qtyConverted,
 				"updated_at":    time.Now().UTC(),

@@ -145,46 +145,77 @@ type OutboundPicking struct {
 	DivisionCode     string            `json:"division_code" gorm:"default:'REGULAR'"`
 	ItemID           int               `json:"item_id"`
 	ItemCode         string            `json:"item_code"`
-	// ScanType         string            `json:"scan_type"`
-	// ScanData         string            `json:"scan_data"`
-	Barcode string `json:"barcode"`
-	// SerialNumber     string            `json:"serial_number"`
-	Pallet   string `json:"pallet"`
-	Location string `json:"location"`
-	Quantity int    `json:"quantity"`
-	// QtyOnhand     int    `json:"qty_onhand" gorm:"default:0"`
-	// QtyAvailable  int    `json:"qty_available" gorm:"default:0"`
-	// QtyAllocated  int    `json:"qty_allocated" gorm:"default:0"`
-	// PickingStatus string `json:"picking_status" gorm:"default:'pending'"`
-	QaStatus string `json:"qa_status"`
-	// Status        string `json:"status" gorm:"default:'pending'"`
-	// IsSuggestion     string            `json:"is_suggestion" gorm:"default:'N'"`
-	CreatedBy int
-	UpdatedBy int
-	DeletedBy int
+	Barcode          string            `json:"barcode"`
+	Pallet           string            `json:"pallet"`
+	Location         string            `json:"location"`
+	Quantity         int               `json:"quantity"`
+	QaStatus         string            `json:"qa_status"`
+	Reason           string            `json:"reason"`
+	CreatedBy        int
+	UpdatedBy        int
+	DeletedBy        int
 }
 
 // type OutboundBarcode struct {
 // 	gorm.Model
-// 	InventoryID       int    `json:"inventory_id"`
-// 	InventoryDetailID int    `json:"inventory_detail_id"`
-// 	OutboundId        int    `json:"outbound_id"`
-// 	OutboundDetailId  int    `gorm:"foreignKey:OutboundDetailId" json:"outbound_detail_id"`
-// 	PickingSheetId    int    `json:"picking_sheet_id" gorm:"default:0"`
-// 	SeqBox            int    `json:"seq_box"`
-// 	ItemID            int    `json:"item_id"`
-// 	ItemCode          string `json:"item_code"`
-// 	ScanType          string `json:"scan_type"`
-// 	ScanData          string `json:"scan_data"`
-// 	Barcode           string `json:"barcode"`
-// 	SerialNumber      string `json:"serial_number"`
-// 	Location          string `json:"location"`
-// 	Pallet            string `json:"pallet"`
-// 	Quantity          int    `json:"quantity"`
-// 	WhsCode           string `json:"whs_code"`
-// 	QaStatus          string `json:"qa_status"`
-// 	Status            string `json:"status" gorm:"default:'pending'"`
-// 	CreatedBy         int
-// 	UpdatedBy         int
-// 	DeletedBy         int
+// 	ID               int    `json:"id"`
+// 	PackingNo        string `json:"packing_no" gorm:"foreignKey:PackingNo"`
+// 	InventoryID      int    `json:"inventory_id"`
+// 	OutboundId       int    `json:"outbound_id"`
+// 	OutboundNo       string `json:"outbound_no"`
+// 	OutboundDetailId int    `gorm:"foreignKey:OutboundDetailId" json:"outbound_detail_id"`
+// 	PickingSheetId   int    `json:"picking_sheet_id" gorm:"default:0"`
+// 	ItemID           int    `json:"item_id"`
+// 	ItemCode         string `json:"item_code"`
+// 	Barcode          string `json:"barcode"`
+// 	SerialNumber     string `json:"serial_number"`
+// 	Quantity         int    `json:"quantity"`
+// 	Status           string `json:"status" gorm:"default:'pending'"`
+// 	CreatedBy        int
+// 	UpdatedBy        int
+// 	DeletedBy        int
 // }
+
+// type OutboundPacking struct {
+// 	PackingNo string `gorm:"primaryKey" json:"packing_no"`
+// 	CreatedAt time.Time
+// 	UpdatedAt time.Time
+// 	DeletedAt time.Time
+// 	CreatedBy int
+// 	UpdatedBy int
+// 	DeletedBy int
+// 	Orders    []OutboundBarcode `json:"orders" gorm:"foreignKey:PackingNo"`
+// }
+
+type OutboundBarcode struct {
+	gorm.Model
+	ID          int `json:"id"`
+	PackingId   uint
+	PackingNo   string `json:"packing_no" gorm:"size:50"` // sama persis dengan parent
+	InventoryID int    `json:"inventory_id"`
+	// OutboundId       int    `json:"outbound_id"`
+	OutboundId       types.SnowflakeID `json:"outbound_id"`
+	OutboundNo       string            `json:"outbound_no"`
+	OutboundDetailId int               `json:"outbound_detail_id"`
+	PickingSheetId   int               `json:"picking_sheet_id" gorm:"default:0"`
+	ItemID           int               `json:"item_id"`
+	ItemCode         string            `json:"item_code"`
+	Barcode          string            `json:"barcode"`
+	SerialNumber     string            `json:"serial_number"`
+	Quantity         int               `json:"quantity"`
+	Status           string            `json:"status" gorm:"default:'pending'"`
+	CreatedBy        int
+	UpdatedBy        int
+	DeletedBy        int
+
+	OutboundHeader OutboundHeader `json:"Outbound" gorm:"foreignKey:OutboundId;references:ID"`
+}
+
+type OutboundPacking struct {
+	gorm.Model
+	PackingNo string
+	CreatedBy int
+	UpdatedBy int
+	DeletedBy int
+	// Orders    []OutboundBarcode `json:"orders" gorm:"foreignKey:PackingId;references:ID"`
+}

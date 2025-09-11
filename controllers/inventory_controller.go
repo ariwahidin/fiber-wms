@@ -149,7 +149,7 @@ type MovePayload struct {
 func (c *InventoryController) updateInventoryQuantity(ctx *fiber.Ctx, inv *models.Inventory, qty int) error {
 	inv.QtyAvailable -= qty
 	inv.QtyOnhand -= qty
-	inv.QtyOrigin -= qty
+	// inv.QtyOrigin -= qty
 	inv.UpdatedBy = int(ctx.Locals("userID").(float64))
 	inv.UpdatedAt = time.Now()
 
@@ -176,12 +176,12 @@ func (c *InventoryController) createNewInventory(ctx *fiber.Ctx, oldInv *models.
 		Pallet:          targetPallet,
 		Location:        targetLocation,
 		QaStatus:        oldInv.QaStatus,
-		QtyOrigin:       qty,
-		QtyOnhand:       qty,
-		QtyAvailable:    qty,
-		QtyAllocated:    0,
-		Trans:           "move item",
-		CreatedBy:       int(ctx.Locals("userID").(float64)),
+		// QtyOrigin:       qty,
+		QtyOnhand:    qty,
+		QtyAvailable: qty,
+		QtyAllocated: 0,
+		Trans:        "move item",
+		CreatedBy:    int(ctx.Locals("userID").(float64)),
 	}
 
 	if err := c.DB.Create(&newInventory).Error; err != nil {

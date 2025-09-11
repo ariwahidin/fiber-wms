@@ -113,6 +113,39 @@ func (r *OutboundRepository) GenerateOutboundNumber() (string, error) {
 	return outboundNo, nil
 }
 
+func (r *OutboundRepository) GeneratePackingNumber() (string, error) {
+	var lastPacking models.OutboundPacking
+
+	// Ambil outbound terakhir
+	if err := r.db.Last(&lastPacking).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return "", err
+	}
+
+	// Ambil tanggal sekarang dalam format YYMMDD
+	now := time.Now()
+	currentDate := now.Format("060102") // 06=YY, 01=MM, 02=DD
+
+	var packingNo string
+	if lastPacking.PackingNo != "" && len(lastPacking.PackingNo) >= 12 {
+		lastDatePart := lastPacking.PackingNo[2:8]
+		lastSequenceStr := lastPacking.PackingNo[len(lastPacking.PackingNo)-4:]
+
+		if currentDate != lastDatePart {
+			// Tanggal berubah → reset nomor urut ke 1
+			packingNo = fmt.Sprintf("PA%s%04d", currentDate, 1)
+		} else {
+			// Tanggal sama → tambahkan nomor urut
+			lastSequenceInt, _ := strconv.Atoi(lastSequenceStr)
+			packingNo = fmt.Sprintf("PA%s%04d", currentDate, lastSequenceInt+1)
+		}
+	} else {
+		// Tidak ada outbound sebelumnya
+		packingNo = fmt.Sprintf("PA%s%04d", currentDate, 1)
+	}
+
+	return packingNo, nil
+}
+
 func (r *OutboundRepository) CreateItemOutbound(header *models.OutboundHeader, data *models.OutboundDetail, handlingUsed []HandlingDetailUsed) (uint, error) {
 
 	fmt.Println("data Item : ", data)
@@ -592,4 +625,234 @@ func (r *OutboundRepository) GetOutboundItemByID(outbound_id int) ([]OutboundIte
 
 	return outboundItems, nil
 
+}
+
+type PickingItem struct {
+	OutboundNo  string `json:"outbound_no"`
+	InventoryID int    `json:"inventory_id,omitempty"` // gak ada di select, bisa dihapus kalau gak dipakai
+	ItemID      int    `json:"item_id"`
+	ItemCode    string `json:"item_code"`
+	Quantity    int    `json:"quantity"`
+	Barcode     string `json:"barcode"`
+	ItemName    string `json:"item_name"`
+	Pallet      string `json:"pallet"`
+}
+
+func (r *OutboundRepository) CheckPickingItem(outbound_id int, barcode string) ([]PickingItem, error) {
+	var outboundList []PickingItem
+
+	sql := `select
+	e.cust_address,
+	e.cust_city,
+	e.deliv_to,
+	e.deliv_address,
+	e.deliv_city,
+	e.qty_koli,
+	e.qty_koli_seal,
+	e.remarks,
+	e.picker_name,
+	e.plan_pickup_date,
+	e.plan_pickup_time,
+	a.item_id, 
+	a.item_code, 
+	sum(a.quantity) as quantity, 
+	a.pallet, a.location,
+	b.barcode, b.item_name, b.cbm, 
+	c.rec_date, 
+	c.whs_code,
+	b.cbm,
+	b.item_name,
+	e.outbound_no, 
+	e.customer_code, 
+	e.outbound_date, 
+	e.shipment_id,
+	f.customer_name,
+	g.customer_name as deliv_to_name,
+	h.transporter_code
+	from outbound_pickings a
+	inner join products b on a.item_id = b.id
+	inner join inventories c on a.inventory_id = c.id
+	inner join outbound_headers e on a.outbound_id = e.id
+	inner join customers f on e.customer_code = f.customer_code
+	inner join customers g on e.deliv_to = g.customer_code
+	left join transporters h on e.transporter_code = h.transporter_code
+	where a.outbound_id = ?
+	group by a.location, a.pallet, a.item_id, a.item_code,
+	b.barcode, b.item_name, b.cbm, c.rec_date, c.whs_code,
+	e.outbound_no, e.customer_code, f.customer_name, e.outbound_date, e.shipment_id,
+	e.cust_address,
+	e.cust_city,
+	e.deliv_to,
+	e.deliv_address,
+	e.deliv_city,
+	e.qty_koli,
+	e.qty_koli_seal,
+	e.remarks,
+	e.picker_name,
+	e.plan_pickup_date,
+	e.plan_pickup_time,
+	g.customer_name,
+	h.transporter_code
+	Order By a.[location] ASC`
+
+	if err := r.db.Debug().Raw(sql, outbound_id).Scan(&outboundList).Error; err != nil {
+		return nil, err
+	}
+
+	return outboundList, nil
+}
+
+type PackingSummary struct {
+	ID               int       `json:"id"`
+	CreatedAt        time.Time `json:"created_at"`
+	PackingNo        string    `json:"packing_no"`
+	TotItem          int       `json:"tot_item"`
+	TotQty           int       `json:"tot_qty"`
+	OutboundNo       string    `json:"outbound_no"`
+	OutboundID       int       `json:"outbound_id"`
+	CustomerCode     string    `json:"customer_code"`
+	CustAddress      string    `json:"cust_address"`
+	CustCity         string    `json:"cust_city"`
+	DelivTo          string    `json:"deliv_to"`
+	DelivAddress     string    `json:"deliv_address"`
+	DelivCity        string    `json:"deliv_city"`
+	CustomerName     string    `json:"customer_name"`
+	CustomerDelivery string    `json:"customer_delivery"`
+}
+
+func (r *OutboundRepository) GetPackingSummary() ([]PackingSummary, error) {
+	var result []PackingSummary
+
+	sql := `WITH ob AS (
+			SELECT count(item_id) as tot_item, sum(quantity) as tot_qty, outbound_no, outbound_id, 
+			packing_id, packing_no
+			FROM outbound_barcodes
+			WHERE packing_id <> 0
+			GROUP BY outbound_id, outbound_no, packing_id, packing_no
+		)
+
+		SELECT op.id, op.created_at, op.packing_no, ob.tot_item, ob.tot_qty, ob.outbound_no, ob.outbound_id,
+		oh.customer_code, oh.cust_address, oh.cust_city,
+		oh.deliv_to, oh.deliv_address, oh.deliv_city, cs.customer_name, cd.customer_name as customer_delivery
+		FROM 
+		outbound_packings op
+		LEFT JOIN ob on op.id = ob.packing_id
+		LEFT JOIN outbound_headers oh on ob.outbound_id = oh.id
+		LEFT JOIN customers cs on oh.customer_code = cs.customer_code
+		LEFT JOIN customers cd on cd.customer_code = oh.deliv_to
+		ORDER BY op.created_at DESC
+	`
+
+	if err := r.db.Debug().Raw(sql).Scan(&result).Error; err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+type PackingItem struct {
+	PackingNo       string    `json:"packing_no"`
+	PackingDate     time.Time `json:"packing_date"`
+	CustAddress     string    `json:"cust_address"`
+	CustCity        string    `json:"cust_city"`
+	DelivTo         string    `json:"deliv_to"`
+	DelivAddress    string    `json:"deliv_address"`
+	DelivCity       string    `json:"deliv_city"`
+	QtyKoli         int       `json:"qty_koli"`
+	QtyKoliSeal     int       `json:"qty_koli_seal"`
+	Remarks         string    `json:"remarks"`
+	PickerName      string    `json:"picker_name"`
+	PlanPickupDate  string    `json:"plan_pickup_date"`
+	PlanPickupTime  string    `json:"plan_pickup_time"`
+	ItemID          int       `json:"item_id"`
+	ItemCode        string    `json:"item_code"`
+	Quantity        int       `json:"quantity"`
+	Barcode         string    `json:"barcode"`
+	ItemName        string    `json:"item_name"`
+	CBM             float64   `json:"cbm"`
+	SerialNumber    string    `json:"serial_number"`
+	OutboundNo      string    `json:"outbound_no"`
+	CustomerCode    string    `json:"customer_code"`
+	OutboundDate    string    `json:"outbound_date"`
+	ShipmentID      string    `json:"shipment_id"`
+	CustomerName    string    `json:"customer_name"`
+	DelivToName     string    `json:"deliv_to_name"`
+	TransporterCode string    `json:"transporter_code"`
+}
+
+func (r *OutboundRepository) GetPackingItems(outboundID int, packingNo string) ([]PackingItem, error) {
+	var result []PackingItem
+
+	sql := `
+	SELECT
+		a.packing_no,
+		c.created_at as packing_date,
+		e.cust_address,
+		e.cust_city,
+		e.deliv_to,
+		e.deliv_address,
+		e.deliv_city,
+		e.qty_koli,
+		e.qty_koli_seal,
+		e.remarks,
+		e.picker_name,
+		e.plan_pickup_date,
+		e.plan_pickup_time,
+		a.item_id, 
+		a.item_code, 
+		sum(a.quantity) as quantity, 
+		b.barcode, 
+		b.item_name, 
+		b.cbm, 
+		a.serial_number,
+		e.outbound_no, 
+		e.customer_code, 
+		e.outbound_date, 
+		e.shipment_id,
+		f.customer_name,
+		g.customer_name as deliv_to_name,
+		h.transporter_code
+	FROM outbound_barcodes a
+	INNER JOIN products b ON a.item_id = b.id
+	INNER JOIN outbound_packings c ON a.packing_id = c.id
+	INNER JOIN outbound_headers e ON a.outbound_id = e.id
+	INNER JOIN customers f ON e.customer_code = f.customer_code
+	INNER JOIN customers g ON e.deliv_to = g.customer_code
+	LEFT JOIN transporters h ON e.transporter_code = h.transporter_code
+	WHERE a.outbound_id = ? AND a.packing_no = ?
+	GROUP BY 
+		a.item_id, 
+		a.item_code,
+		b.barcode, 
+		b.item_name, 
+		b.cbm,
+		e.outbound_no, 
+		e.customer_code, 
+		f.customer_name, 
+		e.outbound_date, 
+		e.shipment_id,
+		e.cust_address,
+		e.cust_city,
+		e.deliv_to,
+		e.deliv_address,
+		e.deliv_city,
+		e.qty_koli,
+		e.qty_koli_seal,
+		e.remarks,
+		e.picker_name,
+		e.plan_pickup_date,
+		e.plan_pickup_time,
+		g.customer_name,
+		h.transporter_code,
+		a.serial_number,
+		a.packing_no,
+		c.created_at
+	ORDER BY a.item_code ASC
+	`
+
+	if err := r.db.Debug().Raw(sql, outboundID, packingNo).Scan(&result).Error; err != nil {
+		return nil, err
+	}
+
+	return result, nil
 }
