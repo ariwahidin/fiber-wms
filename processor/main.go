@@ -143,7 +143,7 @@ func processReceivingCSV(db *gorm.DB, filename string) {
 
 		var supplier models.Supplier
 		var product models.Product
-		var wh_code models.WarehouseCode
+		// var wh_code models.WarehouseCode
 
 		quantity, _ := strconv.Atoi(record[4])
 

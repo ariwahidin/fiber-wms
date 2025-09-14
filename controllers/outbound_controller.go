@@ -89,9 +89,11 @@ func (c *OutboundController) CreateOutbound(ctx *fiber.Ctx) error {
 		}
 	}()
 
+	fmt.Println("Start DB Transaction:", payload)
+
 	repositories := repositories.NewOutboundRepository(tx)
 
-	inbound_no, err := repositories.GenerateOutboundNumber()
+	outbound_no, err := repositories.GenerateOutboundNumber()
 	if err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"success": false,
@@ -99,7 +101,10 @@ func (c *OutboundController) CreateOutbound(ctx *fiber.Ctx) error {
 			"error":   err.Error(),
 		})
 	}
-	payload.OutboundNo = inbound_no
+
+	fmt.Println("Outbound No:", outbound_no)
+
+	payload.OutboundNo = outbound_no
 	payload.Status = "open"
 	userID := int(ctx.Locals("userID").(float64))
 
@@ -197,6 +202,7 @@ func (c *OutboundController) CreateOutbound(ctx *fiber.Ctx) error {
 
 		if err := tx.Debug().First(&vas, "id = ?", item.VasID).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
+				tx.Rollback()
 				return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Vas not found"})
 			}
 
@@ -236,7 +242,10 @@ func (c *OutboundController) CreateOutbound(ctx *fiber.Ctx) error {
 				"error":   res.Error.Error(),
 			})
 		}
+
 	}
+
+	fmt.Println("End DB Transaction: ", outboundID)
 
 	// Commit
 	if err := tx.Commit().Error; err != nil {
@@ -304,7 +313,6 @@ func (c *OutboundController) GetOutboundByID(ctx *fiber.Ctx) error {
 	outbound_no := ctx.Params("outbound_no")
 	var OutboundHeader models.OutboundHeader
 	if err := c.DB.Debug().
-		// Preload("OutboundDetails").
 		Preload("OutboundDetails.Product"). // ✅ ambil product termasuk item_name
 		First(&OutboundHeader, "outbound_no = ?", outbound_no).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -400,6 +408,7 @@ func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
 		if err := tx.Debug().First(&product, "item_code = ?", item.ItemCode).Error; err != nil {
 			tx.Rollback()
 			if errors.Is(err, gorm.ErrRecordNotFound) {
+				tx.Rollback()
 				return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Product not found"})
 			}
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
@@ -409,6 +418,7 @@ func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
 
 		if err := tx.Debug().First(&vas, "id = ?", item.VasID).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
+				tx.Rollback()
 				return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Vas not found"})
 			}
 

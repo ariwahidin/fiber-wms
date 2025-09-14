@@ -39,36 +39,62 @@ type ListOrderPart struct {
 
 type OrderHeader struct {
 	gorm.Model
-	OrderNo      string `json:"order_no" gorm:"unique"`
-	Status       string `json:"status" gorm:"default:'open'"`
-	ShipMode     string `json:"ship_mode"`
-	DeliveryDate string `json:"delivery_date"`
-	OrderType    string `json:"order_type"`
-	TruckerID    uint   `json:"trucker_id"`
-	Driver       string `json:"driver"`
-	TruckNo      string `json:"truck_no"`
-	Transporter  string `json:"transporter"`
-	TotalOrder   int    `json:"total_order"`
-	CreatedBy    int    `json:"created_by"`
-	UpdatedBy    int    `json:"updated_by"`
-	DeletedBy    int    `json:"deleted_by"`
-
-	Details []OrderDetail `gorm:"foreignKey:OrderID;references:ID;constraint:OnDelete:CASCADE" json:"details"`
+	OrderNo         string        `json:"order_no" gorm:"unique"`
+	Status          string        `json:"status" gorm:"default:'open'"`
+	OrderDate       string        `json:"order_date"`
+	DeliveryDate    string        `json:"delivery_date"`
+	LoadDate        string        `json:"load_date"`
+	OrderType       string        `json:"order_type"`
+	Driver          string        `json:"driver"`
+	TruckType       string        `json:"truck_type"`
+	TruckSize       string        `json:"truck_size"`
+	TruckNo         string        `json:"truck_no"`
+	TransporterCode string        `json:"transporter_code"`
+	TransporterName string        `json:"transporter_name"`
+	LoadStartTime   string        `json:"load_start_time"`
+	LoadEndTime     string        `json:"load_end_time"`
+	Remarks         string        `json:"remarks"`
+	CreatedBy       int           `json:"created_by"`
+	UpdatedBy       int           `json:"updated_by"`
+	DeletedBy       int           `json:"deleted_by"`
+	Items           []OrderDetail `json:"items" gorm:"foreignKey:OrderID;references:ID"`
 }
+
+// type OrderDetailItem struct {
+// 	OutboundID  int     `json:"outbound_id"`
+// 	OutboundNo  string  `json:"outbound_no"`
+// 	DelivTo     string  `json:"deliv_to"`
+// 	DelivToName string  `json:"deliv_to_name"`
+// 	DelivCity   string  `json:"deliv_city"`
+// 	ShipmentID  string  `json:"shipment_id"`
+// 	TotalKoli   int     `json:"total_koli"`
+// 	Remarks     string  `json:"remarks"`
+// 	ItemCode    string  `json:"item_code"`
+// 	Quantity    int     `json:"quantity"`
+// 	CBM         float64 `json:"cbm"`
+// 	TotalCBM    float64 `json:"total_cbm"`
+// }
 
 type OrderDetail struct {
 	gorm.Model
-	OrderID        uint   `json:"order_id"`
-	OrderNo        string `json:"order_no"`
-	DeliveryNumber string `json:"delivery_number"`
-	Customer       string `json:"customer"`
-	ShipTo         string `json:"ship_to"`
-	Status         string `json:"status" gorm:"default:'open'"`
-	CreatedBy      int    `json:"created_by"`
-	UpdatedBy      int    `json:"updated_by"`
-	DeletedBy      int    `json:"deleted_by"`
-
-	// Parts []ListOrderPart `gorm:"foreignKey:OrderID;references:ID;constraint:OnDelete:CASCADE" json:"parts"`
+	OrderID      uint              `json:"order_id"`
+	OrderNo      string            `json:"order_no"`
+	ShipmentID   string            `json:"shipment_id"`
+	OutboundID   types.SnowflakeID `json:"outbound_id"`
+	OutboundNo   string            `json:"outbound_no"`
+	QtyKoli      int               `json:"qty_koli"`
+	TotalItem    int               `json:"total_item"`
+	TotalQty     int               `json:"total_qty"`
+	TotalCBM     float64           `json:"total_cbm"`
+	DelivTo      string            `json:"deliv_to"`
+	DelivToName  string            `json:"deliv_to_name"`
+	DelivAddress string            `json:"deliv_address"`
+	DelivCity    string            `json:"deliv_city"`
+	Status       string            `json:"status" gorm:"default:'open'"`
+	Remarks      string            `json:"remarks"`
+	CreatedBy    int               `json:"created_by"`
+	UpdatedBy    int               `json:"updated_by"`
+	DeletedBy    int               `json:"deleted_by"`
 }
 
 type OrderConsole struct {

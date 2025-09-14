@@ -219,3 +219,8 @@ type OutboundPacking struct {
 	DeletedBy int
 	// Orders    []OutboundBarcode `json:"orders" gorm:"foreignKey:PackingId;references:ID"`
 }
+
+// type OrderHeader struct {
+// 	gorm.Model
+// 	ID              types.SnowflakeID `json:"ID"`
+// }

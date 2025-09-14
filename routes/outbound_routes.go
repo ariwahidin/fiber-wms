@@ -42,6 +42,9 @@ func SetupOutboundRoutes(app *fiber.App) {
 	api.Post("/packing/generate/", outboundController.CreatePacking)
 	api.Get("/packing/all/", outboundController.GetAllPacking)
 	api.Get("/:id/packing/:packing_no", outboundController.GetPackingItems)
+
+	// api.Post("/order", outboundController.CreateOrder)
+
 	// api.Put("/:id", outboundController.SaveOutbound)
 	// api.Get("/draft", outboundController.GetOutboundDraft)
 	// api.Get("/create", outboundController.CreateOutbound)

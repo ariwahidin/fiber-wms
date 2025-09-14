@@ -14,22 +14,6 @@ type OutboundRepository struct {
 	db *gorm.DB
 }
 
-type OutboundList struct {
-	ID           uint   `json:"ID"`
-	OutboundNo   string `json:"outbound_no"`
-	ShipmentID   string `json:"shipment_id"`
-	OwnerCode    string `json:"owner_code"`
-	OutboundDate string `json:"outbound_date"`
-	CustomerCode string `json:"customer_code"`
-	CustomerName string `json:"customer_name"`
-	TotalItem    int    `json:"total_item"`
-	QtyReq       int    `json:"qty_req"`
-	QtyPlan      int    `json:"qty_plan"`
-	QtyPack      int    `json:"qty_pack"`
-	Status       string `json:"status"`
-	TotalPrice   int    `json:"total_price"`
-}
-
 type OutboundDetailList struct {
 	OutboundDetailID int    `json:"outbound_detail_id"`
 	OutboundID       int    `json:"outbound_id"`
@@ -227,13 +211,37 @@ func (r *OutboundRepository) CreateItemOutbound(header *models.OutboundHeader, d
 	return data.ID, nil
 }
 
+type OutboundList struct {
+	ID           uint    `json:"ID"`
+	OutboundNo   string  `json:"outbound_no"`
+	ShipmentID   string  `json:"shipment_id"`
+	OwnerCode    string  `json:"owner_code"`
+	OutboundDate string  `json:"outbound_date"`
+	CustomerCode string  `json:"customer_code"`
+	CustomerName string  `json:"customer_name"`
+	TotalItem    int     `json:"total_item"`
+	QtyReq       int     `json:"qty_req"`
+	QtyPlan      int     `json:"qty_plan"`
+	QtyPack      int     `json:"qty_pack"`
+	TotalQty     int     `json:"total_qty"`
+	Status       string  `json:"status"`
+	TotalPrice   int     `json:"total_price"`
+	DelivTo      string  `json:"deliv_to"`
+	DelivToName  string  `json:"deliv_to_name"`
+	DelivAddress string  `json:"deliv_address"`
+	DelivCity    string  `json:"deliv_city"`
+	QtyKoli      int     `json:"qty_koli"`
+	TotalCBM     float64 `json:"total_cbm"`
+}
+
 func (r *OutboundRepository) GetAllOutboundList() ([]OutboundList, error) {
 	var outboundList []OutboundList
 
-	sql := `WITH od AS 
-	 (select outbound_id, count(outbound_id) as total_item,
+	sql := ` WITH od AS 
+	 (select outbound_id, count(outbound_id) as total_item, sum(p.cbm) as total_cbm,
     sum(quantity) as qty_req
     from outbound_details od
+	inner join products as p on od.item_id = p.id
     group by outbound_id),
    ps AS(
 		SELECT outbound_id, COUNT(item_id) AS total_item,  
@@ -242,20 +250,31 @@ func (r *OutboundRepository) GetAllOutboundList() ([]OutboundList, error) {
 		GROUP BY outbound_id
 	),
 	kd AS(
-		SELECT outbound_id, SUM(qty) AS qty_pack
-		FROM outbound_scan_details
+		SELECT outbound_id, SUM(quantity) AS qty_pack
+		FROM outbound_barcodes
 		GROUP BY outbound_id
 	)
-   select a.id, a.outbound_no, a.shipment_id, a.status, a.owner_code, a.shipment_id,
+   select a.id, a.outbound_no, 
+			a.shipment_id, 
+			a.status, a.owner_code, 
+			a.shipment_id,
             a.outbound_date, a.customer_code,
             od.total_item, od.qty_req, COALESCE(ps.qty_plan, 0) AS qty_plan,
             COALESCE(kd.qty_pack, 0) AS qty_pack,
-            cs.customer_name
+            cs.customer_name,
+			a.deliv_to,
+			cd.customer_name as deliv_to_name,
+			cd.cust_addr1 as deliv_address,
+			cd.cust_city as deliv_city,
+			a.qty_koli,
+			od.total_cbm,
+			od.total_item
             from outbound_headers a
             left join od on a.id = od.outbound_id
             LEFT JOIN ps ON a.id = ps.outbound_id
             LEFT JOIN kd ON a.id = kd.outbound_id
             LEFT JOIN customers cs ON a.customer_code = cs.customer_code
+			LEFT JOIN customers cd ON a.deliv_to = cd.customer_code
 			order by a.id desc`
 
 	if err := r.db.Raw(sql).Scan(&outboundList).Error; err != nil {
