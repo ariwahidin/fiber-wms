@@ -50,6 +50,19 @@ func (c *VasController) CreateMainVas(ctx *fiber.Ctx) error {
 		})
 	}
 
+	vasRate := models.VasRate{
+		MainVasId: vas.ID,
+		RateIdr:   int(dto.DefaultPrice),
+		CreatedBy: int(ctx.Locals("userID").(float64)),
+	}
+
+	if err := c.DB.Create(&vasRate).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"error":   err.Error(),
+		})
+	}
+
 	// Return JSON dengan ID
 	return ctx.Status(fiber.StatusCreated).JSON(fiber.Map{
 		"success": true,
@@ -85,6 +98,27 @@ func (c *VasController) UpdateMainVas(ctx *fiber.Ctx) error {
 	if err := c.DB.Model(&models.MainVas{}).Where("id = ?", id).Updates(body).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"success": false, "message": "Failed to update", "error": err.Error(),
+		})
+	}
+
+	mainVas := models.MainVas{}
+	if err := c.DB.First(&mainVas, id).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false, "message": "Failed to fetch", "error": err.Error(),
+		})
+	}
+
+	vasRate := models.VasRate{
+		MainVasId: mainVas.ID,
+		RateIdr:   int(body.DefaultPrice),
+		CreatedBy: int(ctx.Locals("userID").(float64)),
+		UpdatedBy: int(ctx.Locals("userID").(float64)),
+	}
+
+	if err := c.DB.Create(&vasRate).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"error":   err.Error(),
 		})
 	}
 

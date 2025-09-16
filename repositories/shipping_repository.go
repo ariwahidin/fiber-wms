@@ -70,14 +70,17 @@ func (r *ShippingRepository) GetAllOutboundList() ([]OutboundList, error) {
 			a.qty_koli,
 			od.total_cbm * od.qty_req as total_cbm,
 			od.total_item,
-			ps.qty_plan as total_qty
+			ps.qty_plan as total_qty,
+			odt.outbound_id as odt_id
             from outbound_headers a
             left join od on a.id = od.outbound_id
             LEFT JOIN ps ON a.id = ps.outbound_id
             LEFT JOIN kd ON a.id = kd.outbound_id
             LEFT JOIN customers cs ON a.customer_code = cs.customer_code
 			LEFT JOIN customers cd ON a.deliv_to = cd.customer_code
+			LEFT JOIN order_details odt ON a.id = odt.outbound_id
 			WHERE a.status <> 'open'
+			AND odt.outbound_id IS NULL
 			order by a.id desc`
 
 	if err := r.db.Raw(sql).Scan(&outboundList).Error; err != nil {
@@ -176,7 +179,8 @@ func (r *ShippingRepository) GetOrderDetailItem(outboundID int) ([]OrderDetailIt
 	odt.item_code,
 	odt.quantity,
 	p.cbm,
-	p.cbm * odt.quantity as total_cbm
+	ROUND(p.cbm * odt.quantity, 4) as total_cbm
+	-- p.cbm * odt.quantity as total_cbm
 	FROM order_details od
 	INNER JOIN outbound_details odt ON od.outbound_id = odt.outbound_id
 	LEFT JOIN products p ON odt.item_id = p.id
@@ -184,6 +188,10 @@ func (r *ShippingRepository) GetOrderDetailItem(outboundID int) ([]OrderDetailIt
 
 	if err := r.db.Raw(sql, outboundID).Scan(&orderDetailItem).Error; err != nil {
 		return nil, err
+	}
+
+	if len(orderDetailItem) == 0 {
+		return []OrderDetailItem{}, nil
 	}
 
 	return orderDetailItem, nil

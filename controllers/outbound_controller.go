@@ -775,10 +775,16 @@ func (c *OutboundController) PickingComplete(ctx *fiber.Ctx) error {
 	}
 
 	for _, outboundItem := range outboundItems {
-		if outboundItem.QtyReq != outboundItem.QtyPack {
+		if outboundItem.QtyReq != outboundItem.QtyScan {
 			tx.Rollback()
-			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Packing not complete"})
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Scan picking not complete"})
 		}
+	}
+
+	var outboundHeader models.OutboundHeader
+	if err := tx.Where("id = ?", inputBody.OutboundID).First(&outboundHeader).Error; err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to get outbound header: " + err.Error()})
 	}
 
 	var outboundDetails []models.OutboundDetail
@@ -821,52 +827,54 @@ func (c *OutboundController) PickingComplete(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	var outboundHeader models.OutboundHeader
-	if err := tx.Where("id = ?", inputBody.OutboundID).First(&outboundHeader).Error; err != nil {
+	// Update Outbound Barcodes Status
+
+	if err := tx.Debug().
+		Model(&models.OutboundBarcode{}).
+		Where("outbound_id = ?", inputBody.OutboundID).
+		Updates(map[string]interface{}{
+			"status":     "complete",
+			"updated_by": int(ctx.Locals("userID").(float64)),
+		}).Error; err != nil {
 		tx.Rollback()
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to get outbound header: " + err.Error()})
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	// Create List Order Part
-	for _, partOrder := range outboundDetails {
+	vasCalculated, err := repo.CalculatVasOutbound(inputBody.OutboundID)
+	if err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
 
-		var customer models.Customer
-		if err := tx.Debug().Where("customer_code = ?", outboundHeader.CustomerCode).First(&customer).Error; err != nil {
-			tx.Rollback()
-			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to get customer: " + err.Error()})
-		}
+	if len(vasCalculated) > 0 {
+		for _, vas_item := range vasCalculated {
+			newOutboundVas := models.OutboundVas{
+				OutboundID:   vas_item.OutboundID,
+				OutboundNo:   vas_item.OutboundNo,
+				OutboundDate: vas_item.OutboundDate,
+				QtyItem:      vas_item.QtyItem,
+				QtyKoli:      vas_item.QtyKoli,
+				MainVasName:  vas_item.MainVasName,
+				DefaultPrice: vas_item.DefaultPrice,
+				IsKoli:       vas_item.IsKoli,
+				TotalPrice:   vas_item.TotalPrice,
+				CreatedBy:    int(ctx.Locals("userID").(float64)),
+				UpdatedBy:    int(ctx.Locals("userID").(float64)),
+			}
 
-		var product models.Product
-		if err := tx.Where("id = ?", partOrder.ItemID).First(&product).Error; err != nil {
-			tx.Rollback()
-			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to get product: " + err.Error()})
-		}
-
-		listOrderPart := models.ListOrderPart{
-			OutboundID:       outboundHeader.ID,
-			OutboundDetailID: partOrder.ID,
-			ItemID:           uint(partOrder.ItemID),
-			ItemCode:         partOrder.ItemCode,
-			ItemName:         product.ItemName,
-			Qty:              partOrder.Quantity,
-			CustomerID:       customer.ID,
-			CustomerCode:     outboundHeader.CustomerCode,
-			CustomerName:     customer.CustomerName,
-			Volume:           float64(partOrder.Quantity) * float64(product.Kubikasi),
-			CreatedBy:        int(ctx.Locals("userID").(float64)),
-		}
-
-		if err := tx.Create(&listOrderPart).Error; err != nil {
-			tx.Rollback()
-			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to create list order part: " + err.Error()})
+			if err := tx.Debug().Create(&newOutboundVas).Error; err != nil {
+				tx.Rollback()
+				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+			}
 		}
 	}
 
 	if err := tx.Commit().Error; err != nil {
+		tx.Rollback()
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Pick and Pack Outbound Success"})
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Picking Complete Success"})
 }
 
 func (c *OutboundController) GetKoliDetails(ctx *fiber.Ctx) error {
@@ -1112,8 +1120,8 @@ func (r *OutboundController) HandleOpen(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	if OutboundHeader.Status != "picking" {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Outbound " + payload.OutboundNo + " not in picking status", "message": "Outbound " + payload.OutboundNo + " not in picking status"})
+	if OutboundHeader.Status == "open" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Outbound " + payload.OutboundNo + " already in open status", "message": "Outbound " + payload.OutboundNo + " not in picking status"})
 	}
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Outbound is in picking status", "data": OutboundHeader})
@@ -1236,12 +1244,6 @@ func (r *OutboundController) ProccesHandleOpen(ctx *fiber.Ctx) error {
 		}
 	}
 
-	// Delete scan detail
-	// if err := tx.Unscoped().Where("outbound_id = ?", outboundHeader.ID).Delete(&models.OutboundScanDetail{}).Error; err != nil {
-	// 	tx.Rollback()
-	// 	return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-	// }
-
 	// Delete outbound picking
 	if err := tx.Unscoped().Where("outbound_id = ?", outboundHeader.ID).Delete(&models.OutboundPicking{}).Error; err != nil {
 		tx.Rollback()
@@ -1250,6 +1252,12 @@ func (r *OutboundController) ProccesHandleOpen(ctx *fiber.Ctx) error {
 
 	// Delete outbound barcodes
 	if err := tx.Unscoped().Where("outbound_id = ?", outboundHeader.ID).Delete(&models.OutboundBarcode{}).Error; err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	// Delete scan vas outbound
+	if err := tx.Unscoped().Where("outbound_id = ?", outboundHeader.ID).Delete(&models.OutboundVas{}).Error; err != nil {
 		tx.Rollback()
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -1368,4 +1376,49 @@ func (c *OutboundController) GetPackingItems(ctx *fiber.Ctx) error {
 		"message": "Packing Items Found",
 		"data":    items,
 	})
+}
+
+func (c *OutboundController) GetSerialNumberList(ctx *fiber.Ctx) error {
+	// ambil packing_no dari params URL
+	outbound_no := ctx.Params("outbound_no")
+
+	outboundRepo := repositories.NewOutboundRepository(c.DB)
+	header, err := outboundRepo.GetOutboundSummary(outbound_no)
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	serialNumberList, err := outboundRepo.GetOutboundSerialNumber(header.ID)
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": "Packing Items Found",
+		"data":    fiber.Map{"header": header, "items": serialNumberList},
+	})
+}
+func (c *OutboundController) GetOutboundVasSummary(ctx *fiber.Ctx) error {
+	outboundRepo := repositories.NewOutboundRepository(c.DB)
+	sum, err := outboundRepo.GetOutboundVasSum()
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": "Packing Items Found",
+		"data":    sum,
+	})
+}
+
+func (c *OutboundController) GetOutboundVasByID(ctx *fiber.Ctx) error {
+	outboundNo := ctx.Params("outbound_no")
+
+	var outboundVas []models.OutboundVas
+	if err := c.DB.Debug().Where("outbound_no = ?", outboundNo).Find(&outboundVas).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "data": outboundVas})
 }

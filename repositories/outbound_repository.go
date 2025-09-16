@@ -593,7 +593,7 @@ type OutboundItem struct {
 	QtyScan          int    `json:"qty_scan"`
 	Status           string `json:"status"`
 	OutboundNo       string `json:"outbound_no"`
-	QtyPack          int    `json:"qty_pack"`
+	// QtyPack          int    `json:"qty_pack"`
 }
 
 func (r *OutboundRepository) GetOutboundItemByID(outbound_id int) ([]OutboundItem, error) {
@@ -601,44 +601,43 @@ func (r *OutboundRepository) GetOutboundItemByID(outbound_id int) ([]OutboundIte
 	var outboundItems []OutboundItem
 
 	sql := `WITH od AS (
-				SELECT 
-					id AS outbound_detail_id, 
-					outbound_id, 
-					item_id, 
-					SUM(quantity) AS qty_req, 
-					SUM(scan_qty) AS scan_qty, 
-					status, 
-					outbound_no
-				FROM outbound_details
-				GROUP BY outbound_id, item_id, id, status, outbound_no
-			),
-			kd AS (
-				SELECT 
-					outbound_id, 
-					item_id, 
-					SUM(qty) AS qty_pack, 
-					outbound_detail_id
-				FROM outbound_scan_details
-				GROUP BY outbound_id, item_id, outbound_detail_id
-			)
-			SELECT 
-				od.outbound_detail_id,
-				od.outbound_id,
-				od.item_id,
-				od.qty_req,
-				od.scan_qty,
-				od.status,
-				od.outbound_no,
-				kd.qty_pack
-			FROM od
-			LEFT JOIN kd 
-				ON od.outbound_id = kd.outbound_id 
-				AND od.item_id = kd.item_id 
-				AND od.outbound_detail_id = kd.outbound_detail_id
-			WHERE od.outbound_id = ?
-			`
+    SELECT
+            id AS outbound_detail_id,
+            outbound_id,
+            item_id,
+            SUM(quantity) AS qty_req,
+            -- SUM(scan_qty) AS scan_qty,
+            status,
+            outbound_no
+    FROM outbound_details
+    GROUP BY outbound_id, item_id, id, status, outbound_no
+),
+kd AS (
+    SELECT
+            outbound_id,
+            item_id,
+            SUM(quantity) AS qty_scan,
+            outbound_detail_id
+    FROM outbound_barcodes
+    GROUP BY outbound_id, item_id, outbound_detail_id
+)
+SELECT
+    od.outbound_detail_id,
+    od.outbound_id,
+    od.item_id,
+    od.qty_req,
+    kd.qty_scan,
+    od.status,
+    od.outbound_no
+    -- kd.qty_pack
+FROM od
+LEFT JOIN kd
+    ON od.outbound_id = kd.outbound_id
+    AND od.item_id = kd.item_id
+    AND od.outbound_detail_id = kd.outbound_detail_id
+WHERE od.outbound_id = ?`
 
-	if err := r.db.Raw(sql, outbound_id).Scan(&outboundItems).Error; err != nil {
+	if err := r.db.Debug().Raw(sql, outbound_id).Scan(&outboundItems).Error; err != nil {
 		return nil, err
 	}
 
@@ -871,6 +870,213 @@ func (r *OutboundRepository) GetPackingItems(outboundID int, packingNo string) (
 
 	if err := r.db.Debug().Raw(sql, outboundID, packingNo).Scan(&result).Error; err != nil {
 		return nil, err
+	}
+
+	return result, nil
+}
+
+type OutboundSummary struct {
+	ID              int    `json:"id"`
+	OutboundNo      string `json:"outbound_no"`
+	ShipmentID      string `json:"shipment_id"`
+	OutboundDate    string `json:"outbound_date"`
+	CustomerCode    string `json:"customer_code"`
+	CustomerName    string `json:"customer_name"`
+	CustomerAddress string `json:"customer_address"`
+	CustomerCity    string `json:"customer_city"`
+	DelivTo         string `json:"deliv_to"`
+	DelivToName     string `json:"deliv_to_name"`
+	DelivAddress    string `json:"deliv_address"`
+	DelivCity       string `json:"deliv_city"`
+	TransporterCode string `json:"transporter_code"`
+	TransporterName string `json:"transporter_name"`
+}
+
+func (r *OutboundRepository) GetOutboundSummary(outboundNo string) (OutboundSummary, error) {
+	var result OutboundSummary
+
+	sql := `SELECT 
+		oh.id,
+		oh.outbound_no, 
+		oh.shipment_id,
+		oh.outbound_date,
+		oh.customer_code,
+		cs.customer_name,
+		cs.cust_addr1 as customer_address,
+		cs.cust_city as customer_city,
+		oh.deliv_to,
+		cd.customer_name as deliv_to_name,
+		cd.cust_addr1 as deliv_address,
+		cd.cust_city as deliv_city,
+		oh.transporter_code,
+		tr.transporter_name
+		FROM outbound_headers oh
+		LEFT JOIN customers cs ON oh.customer_code = cs.customer_code
+		LEFT JOIN customers cd ON oh.deliv_to = cd.customer_code
+		LEFT JOIN transporters tr ON oh.transporter_code = tr.transporter_code
+		WHERE oh.outbound_no = ?`
+
+	if err := r.db.Debug().Raw(sql, outboundNo).Scan(&result).Error; err != nil {
+		return result, err
+	}
+
+	return result, nil
+}
+
+type SerialNumberList struct {
+	ItemCode     string `json:"item_code"`
+	ItemName     string `json:"item_name"`
+	Barcode      string `json:"barcode"`
+	SerialNumber string `json:"serial_number"`
+	HasSerial    string `json:"has_serial"`
+}
+
+func (r *OutboundRepository) GetOutboundSerialNumber(outboundID int) ([]SerialNumberList, error) {
+	var result []SerialNumberList
+
+	sql := `select 
+	ob.item_code,
+	p.item_name,
+	p.barcode,
+	ob.serial_number,
+	p.has_serial
+	from outbound_barcodes ob
+	left join products p on ob.item_code = p.item_code
+	where ob.outbound_id = ?
+	AND p.has_serial = 'Y'`
+
+	if err := r.db.Debug().Raw(sql, outboundID).Scan(&result).Error; err != nil {
+		return result, err
+	}
+
+	if len(result) == 0 {
+		result = []SerialNumberList{}
+	}
+
+	return result, nil
+}
+
+type VasCalculate struct {
+	OutboundID   int     `json:"outbound_id"`
+	OutboundNo   string  `json:"outbound_no"`
+	OutboundDate string  `json:"outbound_date"`
+	MainVasName  string  `json:"main_vas_name"`
+	IsKoli       bool    `json:"is_koli"`
+	DefaultPrice float64 `json:"default_price"`
+	QtyItem      int     `json:"qty_item"`
+	QtyKoli      int     `json:"qty_koli"`
+	TotalPrice   float64 `json:"total_price"`
+}
+
+func (r *OutboundRepository) CalculatVasOutbound(outboundID int) ([]VasCalculate, error) {
+	var result []VasCalculate
+
+	sql := `WITH vas_sum AS
+	(SELECT v.id as vas_id, v.name as vas_name,
+	vd.main_vas_id, mv.name as main_vas_name, mv.default_price, mv.is_koli
+	FROM vas v
+	INNER JOIN vas_detail vd ON v.id = vd.vas_id
+	INNER JOIN main_vas mv ON mv.id = vd.main_vas_id),
+	vas_ob_item AS (
+		SELECT 
+		od.id as outbound_detail_id,
+		od.outbound_id,
+		od.outbound_no,
+		oh.outbound_date,
+		od.item_id,
+		od.item_code,
+		od.barcode,
+		od.quantity as qty_item,
+		oh.qty_koli,
+		od.vas_id ob_vas_id,
+		od.vas_name ob_vas_name,
+		vs.main_vas_id,
+		vs.main_vas_name,
+		vs.default_price,
+		vs.is_koli,
+		CASE WHEN vs.is_koli = 0 THEN od.quantity * vs.default_price ELSE oh.qty_koli * vs.default_price END AS total_price
+		FROM
+		outbound_details od
+		inner join outbound_headers oh ON od.outbound_id = oh.id
+		inner join vas_sum vs ON od.vas_id = vs.vas_id
+		WHERE outbound_id = ?
+		),
+	vas_ob_sum AS( 
+		select
+		vb.outbound_id, vb.outbound_no, vb.outbound_date,
+		vb.main_vas_name, vb.is_koli, vb.default_price,
+		sum(vb.qty_item) as qty_item, 
+		vb.qty_koli
+		from 
+		vas_ob_item vb
+		where vb.is_koli = 1
+		GROUP BY 
+		vb.outbound_id,
+		vb.outbound_no,
+		vb.outbound_date,
+		vb.is_koli,
+		vb.main_vas_name,
+		vb.default_price,
+		vb.qty_koli
+		UNION ALL
+		select
+		vb.outbound_id, vb.outbound_no, vb.outbound_date,
+		vb.main_vas_name, vb.is_koli, vb.default_price,vb.qty_item, vb.qty_koli
+		from 
+		vas_ob_item vb
+		where vb.is_koli = 0)
+	SELECT
+	vos.outbound_id,
+	vos.outbound_no,
+	vos.outbound_date,
+	vos.main_vas_name,
+	vos.is_koli,
+	vos.default_price,
+	vos.qty_item,
+	vos.qty_koli,
+	CASE WHEN vos.is_koli = 1 THEN vos.default_price * qty_koli ELSE vos.default_price * vos.qty_item END AS total_price
+	FROM vas_ob_sum vos
+	`
+
+	if err := r.db.Debug().Raw(sql, outboundID).Scan(&result).Error; err != nil {
+		return result, err
+	}
+
+	if len(result) == 0 {
+		result = []VasCalculate{}
+	}
+
+	return result, nil
+}
+
+type OutboundVasSum struct {
+	OutboundID   int     `json:"outbound_id"`
+	OutboundNo   string  `json:"outbound_no"`
+	OutboundDate string  `json:"outbound_date"`
+	TotalQty     int     `json:"total_qty"`
+	GrandTotal   float64 `json:"grand_total"`
+}
+
+func (r *OutboundRepository) GetOutboundVasSum() ([]OutboundVasSum, error) {
+	var result []OutboundVasSum
+
+	sql := `SELECT ob.outbound_id, ob.outbound_date,
+	ob.outbound_no, 
+	sum(qty_item) as total_qty,
+	sum(ob.total_price) as grand_total
+	FROM 
+	outbound_vas ob
+	group by
+	ob.outbound_date,
+	ob.outbound_id,  
+	ob.outbound_no`
+
+	if err := r.db.Debug().Raw(sql).Scan(&result).Error; err != nil {
+		return result, err
+	}
+
+	if len(result) == 0 {
+		result = []OutboundVasSum{}
 	}
 
 	return result, nil

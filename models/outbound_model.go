@@ -189,7 +189,7 @@ type OutboundPicking struct {
 
 type OutboundBarcode struct {
 	gorm.Model
-	ID          int `json:"id"`
+	ID          int `json:"ID"`
 	PackingId   uint
 	PackingNo   string `json:"packing_no" gorm:"size:50"` // sama persis dengan parent
 	InventoryID int    `json:"inventory_id"`
@@ -218,6 +218,22 @@ type OutboundPacking struct {
 	UpdatedBy int
 	DeletedBy int
 	// Orders    []OutboundBarcode `json:"orders" gorm:"foreignKey:PackingId;references:ID"`
+}
+
+type OutboundVas struct {
+	gorm.Model
+	OutboundID   int     `json:"outbound_id"`
+	OutboundNo   string  `json:"outbound_no"`
+	OutboundDate string  `json:"outbound_date"`
+	MainVasName  string  `json:"main_vas_name"`
+	IsKoli       bool    `json:"is_koli"`
+	DefaultPrice float64 `json:"default_price"`
+	QtyItem      int     `json:"qty_item"`
+	QtyKoli      int     `json:"qty_koli"`
+	TotalPrice   float64 `json:"total_price"`
+	CreatedBy    int
+	UpdatedBy    int
+	DeletedBy    int
 }
 
 // type OrderHeader struct {

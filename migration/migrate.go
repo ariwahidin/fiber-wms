@@ -53,11 +53,12 @@ func MigrateBusinessUnit(db *gorm.DB) error {
 		&models.UomConversion{},
 		&models.Division{},
 		&models.Location{},
-		&models.OutboundHandling{},
+		// &models.OutboundHandling{},
 
 		&models.MainVas{},
 		&models.VasRate{},
 		&models.Vas{},
 		&models.VasDetail{},
+		&models.OutboundVas{},
 	)
 }

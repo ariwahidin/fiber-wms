@@ -435,3 +435,24 @@ func (c *MobileOutboundController) OverridePicking(ctx *fiber.Ctx) error {
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "data": pickingSheet, "message": "Picking list updated successfully"})
 }
+
+func (c *MobileOutboundController) DeleteOutboundBarcode(ctx *fiber.Ctx) error {
+	idBarcode := ctx.Params("id")
+
+	var outboundBarcodes models.OutboundBarcode
+
+	if err := c.DB.Where("id = ?", idBarcode).First(&outboundBarcodes).Error; err != nil {
+		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Item not found"})
+	}
+
+	if outboundBarcodes.Status != "pending" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Item cannot be deleted"})
+	}
+
+	// Hard Delete
+	if err := c.DB.Where("id = ?", idBarcode).Unscoped().Delete(&models.OutboundBarcode{}).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Item deleted successfully"})
+}

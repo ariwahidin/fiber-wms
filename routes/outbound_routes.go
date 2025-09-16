@@ -22,6 +22,9 @@ func SetupOutboundRoutes(app *fiber.App) {
 
 	api.Post("/", outboundController.CreateOutbound)
 	api.Get("/", outboundController.GetOutboundList)
+	api.Get("/vas", outboundController.GetOutboundVasSummary)
+	api.Get("/:outbound_no/vas-items", outboundController.GetOutboundVasByID)
+	api.Get("/serial/:outbound_no", outboundController.GetSerialNumberList)
 	api.Post("/open", outboundController.HandleOpen)
 	api.Post("/open/process", outboundController.ProccesHandleOpen)
 	// api.Post("/open/temp", outboundController.HandleOpenBackToOriginLocation)
