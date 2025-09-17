@@ -16,6 +16,14 @@ var customerInput struct {
 	ID           uint   `json:"id"`
 	CustomerCode string `json:"customer_code" validate:"required,min=3"`
 	CustomerName string `json:"customer_name" validate:"required,min=3"`
+	CustAddr1    string `json:"cust_addr1"`
+	CustAddr2    string `json:"cust_addr2"`
+	CustCity     string `json:"cust_city"`
+	CustArea     string `json:"cust_area"`
+	CustPhone    string `json:"cust_phone"`
+	CustCountry  string `json:"cust_country"`
+	CustEmail    string `json:"cust_email"`
+	OwnerCode    string `json:"owner_code"`
 }
 
 func NewCustomerController(db *gorm.DB) *CustomerController {
@@ -56,6 +64,13 @@ func (c *CustomerController) CreateCustomer(ctx *fiber.Ctx) error {
 	customer := models.Customer{
 		CustomerCode: customerInput.CustomerCode,
 		CustomerName: customerInput.CustomerName,
+		CustAddr1:    customerInput.CustAddr1,
+		CustAddr2:    customerInput.CustAddr2,
+		CustCity:     customerInput.CustCity,
+		CustArea:     customerInput.CustArea,
+		CustPhone:    customerInput.CustPhone,
+		CustCountry:  customerInput.CustCountry,
+		CustEmail:    customerInput.CustEmail,
 		CreatedBy:    int(ctx.Locals("userID").(float64)),
 	}
 
@@ -76,18 +91,42 @@ func (c *CustomerController) UpdateCustomer(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	customer := models.Customer{
-		CustomerCode: customerInput.CustomerCode,
-		CustomerName: customerInput.CustomerName,
-		UpdatedBy:    int(ctx.Locals("userID").(float64)),
-	}
-
-	// Hanya menyimpan field yang dipilih dengan menggunakan Select
-	if err := c.DB.Select("customer_code", "customer_name", "updated_by").Where("id = ?", id).Updates(&customer).Error; err != nil {
+	if err := c.DB.Debug().
+		Model(&models.Customer{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{
+			// "customer_code": customerInput.CustomerCode,
+			"customer_name": customerInput.CustomerName,
+			"cust_addr1":    customerInput.CustAddr1,
+			"cust_city":     customerInput.CustCity,
+			"cust_area":     customerInput.CustArea,
+			"cust_phone":    customerInput.CustPhone,
+			"cust_country":  customerInput.CustCountry,
+			"cust_email":    customerInput.CustEmail,
+			"updated_by":    int(ctx.Locals("userID").(float64)),
+		}).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Customer updated successfully", "data": customer})
+	// customer := models.Customer{
+	// 	CustomerCode: customerInput.CustomerCode,
+	// 	CustomerName: customerInput.CustomerName,
+	// 	CustAddr1:    customerInput.CustAddr1,
+	// 	CustAddr2:    customerInput.CustAddr2,
+	// 	CustCity:     customerInput.CustCity,
+	// 	CustArea:     customerInput.CustArea,
+	// 	CustPhone:    customerInput.CustPhone,
+	// 	CustEmail:    customerInput.CustEmail,
+	// 	CustCountry:  customerInput.CustCountry,
+	// 	UpdatedBy:    int(ctx.Locals("userID").(float64)),
+	// }
+
+	// Hanya menyimpan field yang dipilih dengan menggunakan Select
+	// if err := c.DB.Select("customer_code", "customer_name", "updated_by").Where("id = ?", id).Updates(&customer).Error; err != nil {
+	// 	return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	// }
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Customer updated successfully", "data": customerInput})
 }
 
 func (c *CustomerController) DeleteCustomer(ctx *fiber.Ctx) error {

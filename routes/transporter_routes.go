@@ -17,6 +17,6 @@ func SetupTransporterRoutes(app *fiber.App) {
 	api.Post("/", transporterController.CreateTransporter)
 	api.Get("/", transporterController.GetAllTransporter)
 	// api.Get("/:id", supplierController.GetSupplierByID)
-	// api.Put("/:id", supplierController.UpdateSupplier)
+	api.Put("/:id", transporterController.UpdateTransporter)
 	// api.Delete("/:id", supplierController.DeleteSupplier)
 }

@@ -19,15 +19,18 @@ func NewProductController(DB *gorm.DB) *ProductController {
 }
 
 var productInput struct {
-	ID       uint    `json:"id"`
-	ItemCode string  `json:"item_code" validate:"required,min=3"`
-	ItemName string  `json:"item_name" validate:"required,min=3"`
-	CBM      float64 `json:"cbm" validate:"required"`
-	GMC      string  `json:"gmc" validate:"required,min=6"`
-	Group    string  `json:"group" validate:"required,min=3"`
-	Category string  `json:"category" validate:"required,min=3"`
-	Serial   string  `json:"serial" validate:"required,min=1"`
-	Uom      string  `json:"uom" validate:"required,min=3"`
+	ID         uint    `json:"id"`
+	ItemCode   string  `json:"item_code" validate:"required,min=3"`
+	ItemName   string  `json:"item_name" validate:"required,min=3"`
+	CBM        float64 `json:"cbm" validate:"required"`
+	GMC        string  `json:"gmc" validate:"required,min=6"`
+	Group      string  `json:"group" validate:"required,min=3"`
+	Category   string  `json:"category" validate:"required,min=3"`
+	Serial     string  `json:"serial" validate:"required,min=1"`
+	Waranty    string  `json:"waranty" validate:"required,min=1"`
+	Adaptor    string  `json:"adaptor" validate:"required,min=1"`
+	ManualBook string  `json:"manual_book" validate:"required,min=1"`
+	Uom        string  `json:"uom" validate:"required,min=3"`
 }
 
 func (c *ProductController) CreateProduct(ctx *fiber.Ctx) error {
@@ -51,16 +54,19 @@ func (c *ProductController) CreateProduct(ctx *fiber.Ctx) error {
 
 	// Membuat user dengan memasukkan data ke struct models.Product
 	product := models.Product{
-		ItemCode:  productInput.ItemCode,
-		ItemName:  productInput.ItemName,
-		CBM:       productInput.CBM,
-		Barcode:   productInput.GMC,
-		GMC:       productInput.GMC,
-		Group:     productInput.Group,
-		Category:  productInput.Category,
-		HasSerial: productInput.Serial,
-		Uom:       productInput.Uom,
-		CreatedBy: int(ctx.Locals("userID").(float64)),
+		ItemCode:   productInput.ItemCode,
+		ItemName:   productInput.ItemName,
+		CBM:        productInput.CBM,
+		Barcode:    productInput.GMC,
+		GMC:        productInput.GMC,
+		Group:      productInput.Group,
+		Category:   productInput.Category,
+		HasSerial:  productInput.Serial,
+		HasWaranty: productInput.Waranty,
+		HasAdaptor: productInput.Adaptor,
+		ManualBook: productInput.ManualBook,
+		Uom:        productInput.Uom,
+		CreatedBy:  int(ctx.Locals("userID").(float64)),
 	}
 
 	if err := c.DB.Create(&product).Error; err != nil {
@@ -142,6 +148,21 @@ func (c *ProductController) UpdateProduct(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Uom not found"})
 	}
 
+	// product.ItemCode = productInput.ItemCode
+	// product.ItemName = productInput.ItemName
+	// product.CBM = productInput.CBM
+	// product.Barcode = productInput.GMC
+	// product.GMC = productInput.GMC
+	// product.Group = productInput.Group
+	// product.Category = productInput.Category
+	// product.HasSerial = productInput.Serial
+	// product.Uom = productInput.Uom
+	// product.UpdatedBy = int(ctx.Locals("userID").(float64))
+
+	// if err := c.DB.Save(&product).Error; err != nil {
+	// 	return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	// }
+
 	if err := c.DB.Debug().
 		Model(&models.Product{}).
 		Where("id = ?", id).
@@ -154,8 +175,10 @@ func (c *ProductController) UpdateProduct(ctx *fiber.Ctx) error {
 			"group":       productInput.Group,
 			"category":    productInput.Category,
 			"has_serial":  productInput.Serial,
+			"has_waranty": productInput.Waranty,
+			"has_adaptor": productInput.Adaptor,
+			"manual_book": productInput.ManualBook,
 			"uom":         productInput.Uom,
-			"base_uom_id": Uom.ID,
 			"updated_by":  int(ctx.Locals("userID").(float64)),
 		}).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
@@ -169,7 +192,7 @@ func (c *ProductController) UpdateProduct(ctx *fiber.Ctx) error {
 func (c *ProductController) GetAllProducts(ctx *fiber.Ctx) error {
 
 	var products []models.Product
-	if err := c.DB.Find(&products).Error; err != nil {
+	if err := c.DB.Order("item_code ASC").Find(&products).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 

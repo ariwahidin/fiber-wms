@@ -8,9 +8,9 @@ import (
 
 type Origin struct {
 	gorm.Model
-	ID        types.SnowflakeID `json:"id" gorm:"primaryKey"`
-	Country   string            `json:"country" gorm:"unique"`
-	IsActive  bool              `json:"is_active" gorm:"default:true"`
+	// ID        types.SnowflakeID `json:"id" gorm:"primaryKey"`
+	Country   string `json:"country" gorm:"unique"`
+	IsActive  bool   `json:"is_active" gorm:"default:true"`
 	CreatedBy int
 	UpdatedBy int
 	DeletedBy int

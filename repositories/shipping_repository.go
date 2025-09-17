@@ -68,7 +68,7 @@ func (r *ShippingRepository) GetAllOutboundList() ([]OutboundList, error) {
 			cd.cust_addr1 as deliv_address,
 			cd.cust_city as deliv_city,
 			a.qty_koli,
-			od.total_cbm * od.qty_req as total_cbm,
+			ROUND(od.total_cbm, 4) as total_cbm,
 			od.total_item,
 			ps.qty_plan as total_qty,
 			odt.outbound_id as odt_id
@@ -85,6 +85,10 @@ func (r *ShippingRepository) GetAllOutboundList() ([]OutboundList, error) {
 
 	if err := r.db.Raw(sql).Scan(&outboundList).Error; err != nil {
 		return nil, err
+	}
+
+	if len(outboundList) == 0 {
+		return []OutboundList{}, nil
 	}
 
 	return outboundList, nil
@@ -111,12 +115,16 @@ func (r *ShippingRepository) GetOrderSummaryList() ([]OrderList, error) {
 	var orderList []OrderList
 	sql := `WITH obh AS
 (
-	SELECT a.order_id, count(shipment_id) as total_do, sum(qty_koli) as total_koli,
-	sum(total_item) as total_item, sum(total_cbm) as total_cbm, SUM(op.quantity) as total_qty
+		SELECT a.order_id, 
+	count(a.shipment_id) as total_do, 
+	sum(a.qty_koli) as total_koli,
+	sum(a.total_item) as total_item, 
+	sum(a.total_cbm) as total_cbm, 
+	sum(op.quantity) as total_qty
 	FROM order_details a
-	LEFT JOIN outbound_pickings op on a.outbound_id = op.outbound_id 
-	GROUP BY
-	a.order_id
+	LEFT JOIN (select outbound_id, sum(quantity) as quantity from outbound_pickings group by outbound_id) op 
+	on a.outbound_id = op.outbound_id 
+	GROUP BY a.order_id
 ), dlv AS (
 	SELECT a.order_id, count( distinct a.deliv_to) as total_drop
 	FROM order_details a
@@ -137,7 +145,7 @@ obh.total_do,
 obh.total_koli,
 obh.total_item,
 obh.total_qty,
-obh.total_cbm,
+ROUND(obh.total_cbm, 4) as total_cbm,
 dlv.total_drop
 FROM order_headers oh
 LEFT JOIN obh ON oh.id = obh.order_id
@@ -195,4 +203,86 @@ func (r *ShippingRepository) GetOrderDetailItem(outboundID int) ([]OrderDetailIt
 	}
 
 	return orderDetailItem, nil
+}
+
+func (r *ShippingRepository) CalculatVasOutbound(outboundID int) ([]VasCalculate, error) {
+	var result []VasCalculate
+
+	sql := `WITH vas_sum AS
+	(SELECT v.id as vas_id, v.name as vas_name,
+	vd.main_vas_id, mv.name as main_vas_name, mv.default_price, mv.is_koli
+	FROM vas v
+	INNER JOIN vas_detail vd ON v.id = vd.vas_id
+	INNER JOIN main_vas mv ON mv.id = vd.main_vas_id),
+	vas_ob_item AS (
+		SELECT 
+		od.id as outbound_detail_id,
+		od.outbound_id,
+		od.outbound_no,
+		oh.outbound_date,
+		od.item_id,
+		od.item_code,
+		od.barcode,
+		od.quantity as qty_item,
+		ordt.qty_koli,
+		od.vas_id ob_vas_id,
+		od.vas_name ob_vas_name,
+		vs.main_vas_id,
+		vs.main_vas_name,
+		vs.default_price,
+		vs.is_koli,
+		CASE WHEN vs.is_koli = 0 THEN od.quantity * vs.default_price ELSE oh.qty_koli * vs.default_price END AS total_price
+		FROM
+		outbound_details od
+		inner join outbound_headers oh ON od.outbound_id = oh.id
+		inner join vas_sum vs ON od.vas_id = vs.vas_id
+		inner join order_details ordt ON oh.id = ordt.outbound_id
+		WHERE od.outbound_id = ?
+		),
+	vas_ob_sum AS( 
+		select
+		vb.outbound_id, vb.outbound_no, vb.outbound_date,
+		vb.main_vas_name, vb.is_koli, vb.default_price,
+		sum(vb.qty_item) as qty_item, 
+		vb.qty_koli
+		from 
+		vas_ob_item vb
+		where vb.is_koli = 1
+		GROUP BY 
+		vb.outbound_id,
+		vb.outbound_no,
+		vb.outbound_date,
+		vb.is_koli,
+		vb.main_vas_name,
+		vb.default_price,
+		vb.qty_koli
+		UNION ALL
+		select
+		vb.outbound_id, vb.outbound_no, vb.outbound_date,
+		vb.main_vas_name, vb.is_koli, vb.default_price,vb.qty_item, vb.qty_koli
+		from 
+		vas_ob_item vb
+		where vb.is_koli = 0)
+	SELECT
+	vos.outbound_id,
+	vos.outbound_no,
+	vos.outbound_date,
+	vos.main_vas_name,
+	vos.is_koli,
+	vos.default_price,
+	vos.qty_item,
+	vos.qty_koli,
+	CASE WHEN vos.is_koli = 1 THEN vos.default_price * qty_koli ELSE vos.default_price * vos.qty_item END AS total_price
+	FROM vas_ob_sum vos
+	`
+
+	if err := r.db.Debug().Raw(sql, outboundID).Scan(&result).Error; err != nil {
+		return result, err
+	}
+
+	if len(result) == 0 {
+		result = []VasCalculate{}
+	}
+
+	return result, nil
 }

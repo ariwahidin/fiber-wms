@@ -17,6 +17,6 @@ func SetupOriginRoutes(app *fiber.App) {
 	api.Post("/", originController.Create)
 	api.Get("/", originController.GetAll)
 	// api.Get("/:id", supplierController.GetSupplierByID)
-	// api.Put("/:id", supplierController.UpdateSupplier)
+	api.Put("/:id", originController.Update)
 	// api.Delete("/:id", supplierController.DeleteSupplier)
 }

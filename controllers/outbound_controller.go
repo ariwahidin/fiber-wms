@@ -840,35 +840,6 @@ func (c *OutboundController) PickingComplete(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	vasCalculated, err := repo.CalculatVasOutbound(inputBody.OutboundID)
-	if err != nil {
-		tx.Rollback()
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-	}
-
-	if len(vasCalculated) > 0 {
-		for _, vas_item := range vasCalculated {
-			newOutboundVas := models.OutboundVas{
-				OutboundID:   vas_item.OutboundID,
-				OutboundNo:   vas_item.OutboundNo,
-				OutboundDate: vas_item.OutboundDate,
-				QtyItem:      vas_item.QtyItem,
-				QtyKoli:      vas_item.QtyKoli,
-				MainVasName:  vas_item.MainVasName,
-				DefaultPrice: vas_item.DefaultPrice,
-				IsKoli:       vas_item.IsKoli,
-				TotalPrice:   vas_item.TotalPrice,
-				CreatedBy:    int(ctx.Locals("userID").(float64)),
-				UpdatedBy:    int(ctx.Locals("userID").(float64)),
-			}
-
-			if err := tx.Debug().Create(&newOutboundVas).Error; err != nil {
-				tx.Rollback()
-				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-			}
-		}
-	}
-
 	if err := tx.Commit().Error; err != nil {
 		tx.Rollback()
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})

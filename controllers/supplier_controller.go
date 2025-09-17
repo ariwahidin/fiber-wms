@@ -15,6 +15,11 @@ type SupplierController struct {
 var supplierInput struct {
 	SupplierCode string `json:"supplier_code" gorm:"unique"`
 	SupplierName string `json:"supplier_name" gorm:"unique"`
+	SuppAddr1    string `json:"supp_addr1"`
+	SuppCity     string `json:"supp_city"`
+	SuppCountry  string `json:"supp_country"`
+	SuppPhone    string `json:"supp_phone"`
+	SuppEmail    string `json:"supp_email"`
 }
 
 func NewSupplierController(db *gorm.DB) *SupplierController {
@@ -29,10 +34,14 @@ func (c *SupplierController) CreateSupplier(ctx *fiber.Ctx) error {
 	supplier := models.Supplier{
 		SupplierCode: supplierInput.SupplierCode,
 		SupplierName: supplierInput.SupplierName,
+		SuppAddr1:    supplierInput.SuppAddr1,
+		SuppCity:     supplierInput.SuppCity,
+		SuppCountry:  supplierInput.SuppCountry,
+		SuppPhone:    supplierInput.SuppPhone,
+		SuppEmail:    supplierInput.SuppEmail,
+		OwnerCode:    "YMID",
+		CreatedBy:    int(ctx.Locals("userID").(float64)),
 	}
-
-	// Add SupplierID to CreatedBy field
-	supplier.CreatedBy = int(ctx.Locals("userID").(float64))
 
 	if err := c.DB.Create(&supplier).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
@@ -80,13 +89,23 @@ func (c *SupplierController) UpdateSupplier(ctx *fiber.Ctx) error {
 	supplier := models.Supplier{
 		SupplierCode: supplierInput.SupplierCode,
 		SupplierName: supplierInput.SupplierName,
+		SuppAddr1:    supplierInput.SuppAddr1,
+		SuppCity:     supplierInput.SuppCity,
+		SuppCountry:  supplierInput.SuppCountry,
+		SuppPhone:    supplierInput.SuppPhone,
+		SuppEmail:    supplierInput.SuppEmail,
+		OwnerCode:    "YMID",
 		UpdatedBy:    int(ctx.Locals("userID").(float64)),
 	}
 
-	// Hanya menyimpan field yang dipilih dengan menggunakan Select
-	if err := c.DB.Select("supplier_code", "supplier_name", "updated_by").Where("id = ?", id).Updates(&supplier).Error; err != nil {
+	if err := c.DB.Model(&supplier).Where("id = ?", id).Updates(supplier).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
+
+	// Hanya menyimpan field yang dipilih dengan menggunakan Select
+	// if err := c.DB.Select("supplier_code", "supplier_name", "updated_by").Where("id = ?", id).Updates(&supplier).Error; err != nil {
+	// 	return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	// }
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Supplier updated successfully", "data": supplier})
 }

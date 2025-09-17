@@ -968,86 +968,87 @@ type VasCalculate struct {
 	TotalPrice   float64 `json:"total_price"`
 }
 
-func (r *OutboundRepository) CalculatVasOutbound(outboundID int) ([]VasCalculate, error) {
-	var result []VasCalculate
+// func (r *OutboundRepository) CalculatVasOutbound(outboundID int) ([]VasCalculate, error) {
+// 	var result []VasCalculate
 
-	sql := `WITH vas_sum AS
-	(SELECT v.id as vas_id, v.name as vas_name,
-	vd.main_vas_id, mv.name as main_vas_name, mv.default_price, mv.is_koli
-	FROM vas v
-	INNER JOIN vas_detail vd ON v.id = vd.vas_id
-	INNER JOIN main_vas mv ON mv.id = vd.main_vas_id),
-	vas_ob_item AS (
-		SELECT 
-		od.id as outbound_detail_id,
-		od.outbound_id,
-		od.outbound_no,
-		oh.outbound_date,
-		od.item_id,
-		od.item_code,
-		od.barcode,
-		od.quantity as qty_item,
-		oh.qty_koli,
-		od.vas_id ob_vas_id,
-		od.vas_name ob_vas_name,
-		vs.main_vas_id,
-		vs.main_vas_name,
-		vs.default_price,
-		vs.is_koli,
-		CASE WHEN vs.is_koli = 0 THEN od.quantity * vs.default_price ELSE oh.qty_koli * vs.default_price END AS total_price
-		FROM
-		outbound_details od
-		inner join outbound_headers oh ON od.outbound_id = oh.id
-		inner join vas_sum vs ON od.vas_id = vs.vas_id
-		WHERE outbound_id = ?
-		),
-	vas_ob_sum AS( 
-		select
-		vb.outbound_id, vb.outbound_no, vb.outbound_date,
-		vb.main_vas_name, vb.is_koli, vb.default_price,
-		sum(vb.qty_item) as qty_item, 
-		vb.qty_koli
-		from 
-		vas_ob_item vb
-		where vb.is_koli = 1
-		GROUP BY 
-		vb.outbound_id,
-		vb.outbound_no,
-		vb.outbound_date,
-		vb.is_koli,
-		vb.main_vas_name,
-		vb.default_price,
-		vb.qty_koli
-		UNION ALL
-		select
-		vb.outbound_id, vb.outbound_no, vb.outbound_date,
-		vb.main_vas_name, vb.is_koli, vb.default_price,vb.qty_item, vb.qty_koli
-		from 
-		vas_ob_item vb
-		where vb.is_koli = 0)
-	SELECT
-	vos.outbound_id,
-	vos.outbound_no,
-	vos.outbound_date,
-	vos.main_vas_name,
-	vos.is_koli,
-	vos.default_price,
-	vos.qty_item,
-	vos.qty_koli,
-	CASE WHEN vos.is_koli = 1 THEN vos.default_price * qty_koli ELSE vos.default_price * vos.qty_item END AS total_price
-	FROM vas_ob_sum vos
-	`
+// 	sql := `WITH vas_sum AS
+// 	(SELECT v.id as vas_id, v.name as vas_name,
+// 	vd.main_vas_id, mv.name as main_vas_name, mv.default_price, mv.is_koli
+// 	FROM vas v
+// 	INNER JOIN vas_detail vd ON v.id = vd.vas_id
+// 	INNER JOIN main_vas mv ON mv.id = vd.main_vas_id),
+// 	vas_ob_item AS (
+// 		SELECT
+// 		od.id as outbound_detail_id,
+// 		od.outbound_id,
+// 		od.outbound_no,
+// 		oh.outbound_date,
+// 		od.item_id,
+// 		od.item_code,
+// 		od.barcode,
+// 		od.quantity as qty_item,
+// 		ordt.qty_koli,
+// 		od.vas_id ob_vas_id,
+// 		od.vas_name ob_vas_name,
+// 		vs.main_vas_id,
+// 		vs.main_vas_name,
+// 		vs.default_price,
+// 		vs.is_koli,
+// 		CASE WHEN vs.is_koli = 0 THEN od.quantity * vs.default_price ELSE oh.qty_koli * vs.default_price END AS total_price
+// 		FROM
+// 		outbound_details od
+// 		inner join outbound_headers oh ON od.outbound_id = oh.id
+// 		inner join vas_sum vs ON od.vas_id = vs.vas_id
+// 		inner join order_details ordt ON oh.id = ordt.outbound_id
+// 		WHERE od.outbound_id = ?
+// 		),
+// 	vas_ob_sum AS(
+// 		select
+// 		vb.outbound_id, vb.outbound_no, vb.outbound_date,
+// 		vb.main_vas_name, vb.is_koli, vb.default_price,
+// 		sum(vb.qty_item) as qty_item,
+// 		vb.qty_koli
+// 		from
+// 		vas_ob_item vb
+// 		where vb.is_koli = 1
+// 		GROUP BY
+// 		vb.outbound_id,
+// 		vb.outbound_no,
+// 		vb.outbound_date,
+// 		vb.is_koli,
+// 		vb.main_vas_name,
+// 		vb.default_price,
+// 		vb.qty_koli
+// 		UNION ALL
+// 		select
+// 		vb.outbound_id, vb.outbound_no, vb.outbound_date,
+// 		vb.main_vas_name, vb.is_koli, vb.default_price,vb.qty_item, vb.qty_koli
+// 		from
+// 		vas_ob_item vb
+// 		where vb.is_koli = 0)
+// 	SELECT
+// 	vos.outbound_id,
+// 	vos.outbound_no,
+// 	vos.outbound_date,
+// 	vos.main_vas_name,
+// 	vos.is_koli,
+// 	vos.default_price,
+// 	vos.qty_item,
+// 	vos.qty_koli,
+// 	CASE WHEN vos.is_koli = 1 THEN vos.default_price * qty_koli ELSE vos.default_price * vos.qty_item END AS total_price
+// 	FROM vas_ob_sum vos
+// 	`
 
-	if err := r.db.Debug().Raw(sql, outboundID).Scan(&result).Error; err != nil {
-		return result, err
-	}
+// 	if err := r.db.Debug().Raw(sql, outboundID).Scan(&result).Error; err != nil {
+// 		return result, err
+// 	}
 
-	if len(result) == 0 {
-		result = []VasCalculate{}
-	}
+// 	if len(result) == 0 {
+// 		result = []VasCalculate{}
+// 	}
 
-	return result, nil
-}
+// 	return result, nil
+// }
 
 type OutboundVasSum struct {
 	OutboundID   int     `json:"outbound_id"`

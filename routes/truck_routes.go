@@ -17,8 +17,7 @@ func SetupTruckRoutes(app *fiber.App) {
 	api.Use(database.InjectDBMiddleware(truckController))
 
 	api.Post("/", truckController.Create)
+	api.Put("/:id", truckController.Update)
 	api.Get("/", truckController.GetAll)
-	// api.Get("/:id", supplierController.GetSupplierByID)
-	// api.Put("/:id", supplierController.UpdateSupplier)
-	// api.Delete("/:id", supplierController.DeleteSupplier)
+
 }

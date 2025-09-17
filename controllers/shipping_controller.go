@@ -328,6 +328,8 @@ func (c *ShippingController) CreateOrder(ctx *fiber.Ctx) error {
 		})
 	}
 
+	shippingRepo := repositories.NewShippingRepository(tx)
+
 	// Insert To Order Header
 
 	var orderHeader models.OrderHeader
@@ -382,6 +384,34 @@ func (c *ShippingController) CreateOrder(ctx *fiber.Ctx) error {
 				"message": "Failed to insert order item",
 				"error":   err.Error(),
 			})
+		}
+
+		vasCalculated, err := shippingRepo.CalculatVasOutbound(int(item.OutboundID))
+		if err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+		if len(vasCalculated) > 0 {
+			for _, vas_item := range vasCalculated {
+				newOutboundVas := models.OutboundVas{
+					OutboundID:   vas_item.OutboundID,
+					OutboundNo:   vas_item.OutboundNo,
+					OutboundDate: vas_item.OutboundDate,
+					QtyItem:      vas_item.QtyItem,
+					QtyKoli:      vas_item.QtyKoli,
+					MainVasName:  vas_item.MainVasName,
+					DefaultPrice: vas_item.DefaultPrice,
+					IsKoli:       vas_item.IsKoli,
+					TotalPrice:   vas_item.TotalPrice,
+					CreatedBy:    int(ctx.Locals("userID").(float64)),
+					UpdatedBy:    int(ctx.Locals("userID").(float64)),
+				}
+
+				if err := tx.Debug().Create(&newOutboundVas).Error; err != nil {
+					tx.Rollback()
+					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+				}
+			}
 		}
 	}
 
@@ -535,8 +565,6 @@ func (c *ShippingController) UpdateOrderByID(ctx *fiber.Ctx) error {
 			}
 
 		} else if err == nil {
-			// ✅ Ditemukan → update
-
 			orderItem.OrderID = orderHeader.ID
 			orderItem.OrderNo = orderHeader.OrderNo
 			orderItem.OutboundID = item.OutboundID
@@ -559,9 +587,55 @@ func (c *ShippingController) UpdateOrderByID(ctx *fiber.Ctx) error {
 				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 			}
 		} else {
-			// ❌ Error lain
 			tx.Rollback()
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+	}
+
+	orderDetailNewest := []models.OrderDetail{}
+	if err := tx.Debug().Where("order_no = ?", order_no).Order("created_at desc").Find(&orderDetailNewest).Error; err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	shippingRepo := repositories.NewShippingRepository(tx)
+
+	if len(orderDetailNewest) > 0 {
+		for _, item := range orderDetailNewest {
+
+			// Delete Outbound Vas existing
+			if err := tx.Where("outbound_id = ?", item.OutboundID).Unscoped().Delete(&models.OutboundVas{}).Error; err != nil {
+				tx.Rollback()
+				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+			}
+
+			vasCalculated, err := shippingRepo.CalculatVasOutbound(int(item.OutboundID))
+			if err != nil {
+				tx.Rollback()
+				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+			}
+			if len(vasCalculated) > 0 {
+				for _, vas_item := range vasCalculated {
+					newOutboundVas := models.OutboundVas{
+						OutboundID:   vas_item.OutboundID,
+						OutboundNo:   vas_item.OutboundNo,
+						OutboundDate: vas_item.OutboundDate,
+						QtyItem:      vas_item.QtyItem,
+						QtyKoli:      vas_item.QtyKoli,
+						MainVasName:  vas_item.MainVasName,
+						DefaultPrice: vas_item.DefaultPrice,
+						IsKoli:       vas_item.IsKoli,
+						TotalPrice:   vas_item.TotalPrice,
+						CreatedBy:    int(ctx.Locals("userID").(float64)),
+						UpdatedBy:    int(ctx.Locals("userID").(float64)),
+					}
+
+					if err := tx.Debug().Create(&newOutboundVas).Error; err != nil {
+						tx.Rollback()
+						return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+					}
+				}
+			}
 		}
 	}
 
