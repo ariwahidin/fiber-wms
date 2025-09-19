@@ -79,7 +79,7 @@ func (r *ShippingRepository) GetAllOutboundList() ([]OutboundList, error) {
             LEFT JOIN customers cs ON a.customer_code = cs.customer_code
 			LEFT JOIN customers cd ON a.deliv_to = cd.customer_code
 			LEFT JOIN order_details odt ON a.id = odt.outbound_id
-			WHERE a.status <> 'open'
+			WHERE a.status = 'complete'
 			AND odt.outbound_id IS NULL
 			order by a.id desc`
 
