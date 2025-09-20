@@ -489,7 +489,7 @@ func (r *OutboundRepository) GetPickingSheet(outbound_id int) ([]PaperPickingShe
 	b.barcode, b.item_name, b.cbm, 
 	c.rec_date, 
 	c.whs_code,
-	b.cbm,
+	ROUND(b.cbm * sum(a.quantity), 4) as cbm,
 	b.item_name,
 	e.outbound_no, 
 	e.customer_code, 
