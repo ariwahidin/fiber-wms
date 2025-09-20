@@ -964,7 +964,7 @@ type VasCalculate struct {
 	IsKoli       bool    `json:"is_koli"`
 	DefaultPrice float64 `json:"default_price"`
 	QtyItem      int     `json:"qty_item"`
-	QtyKoli      int     `json:"qty_koli"`
+	VasKoli      int     `json:"vas_koli"`
 	TotalPrice   float64 `json:"total_price"`
 }
 
@@ -1052,25 +1052,45 @@ type VasCalculate struct {
 
 type OutboundVasSum struct {
 	OutboundID   int     `json:"outbound_id"`
-	OutboundNo   string  `json:"outbound_no"`
 	OutboundDate string  `json:"outbound_date"`
-	TotalQty     int     `json:"total_qty"`
-	GrandTotal   float64 `json:"grand_total"`
+	OutboundNo   string  `json:"outbound_no"`
+	KoliVas      int     `json:"koli_vas"`
+	TotalPrice   float64 `json:"total_price"`
+	ShipmentID   string  `json:"shipment_id"`
+	DelivTo      string  `json:"deliv_to"`
+	DelivToName  string  `json:"deliv_to_name"`
+	DelivCity    string  `json:"deliv_city"`
 }
 
 func (r *OutboundRepository) GetOutboundVasSum() ([]OutboundVasSum, error) {
 	var result []OutboundVasSum
 
-	sql := `SELECT ob.outbound_id, ob.outbound_date,
+	sql := `WITH ov AS
+(SELECT ob.outbound_id, ob.outbound_date,
 	ob.outbound_no, 
-	sum(qty_item) as total_qty,
-	sum(ob.total_price) as grand_total
+	qty_koli as koli_vas,
+	sum(total_price) as total_price
 	FROM 
 	outbound_vas ob
 	group by
 	ob.outbound_date,
 	ob.outbound_id,  
-	ob.outbound_no`
+	ob.outbound_no,
+	ob.qty_koli)
+select 
+ov.outbound_id,
+ov.outbound_date,
+ov.outbound_no,
+ov.koli_vas,
+ov.total_price,
+od.shipment_id,
+od.deliv_to,
+od.deliv_to_name,
+od.deliv_city
+from ov
+inner join order_details od ON ov.outbound_id = od.outbound_id
+order by ov.outbound_id desc
+`
 
 	if err := r.db.Debug().Raw(sql).Scan(&result).Error; err != nil {
 		return result, err

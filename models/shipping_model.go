@@ -83,6 +83,7 @@ type OrderDetail struct {
 	OutboundID   types.SnowflakeID `json:"outbound_id"`
 	OutboundNo   string            `json:"outbound_no"`
 	QtyKoli      int               `json:"qty_koli"`
+	VasKoli      int               `json:"vas_koli"`
 	TotalItem    int               `json:"total_item"`
 	TotalQty     int               `json:"total_qty"`
 	TotalCBM     float64           `json:"total_cbm"`

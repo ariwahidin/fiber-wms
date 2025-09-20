@@ -224,14 +224,14 @@ func (r *ShippingRepository) CalculatVasOutbound(outboundID int) ([]VasCalculate
 		od.item_code,
 		od.barcode,
 		od.quantity as qty_item,
-		ordt.qty_koli,
+		ordt.vas_koli,
 		od.vas_id ob_vas_id,
 		od.vas_name ob_vas_name,
 		vs.main_vas_id,
 		vs.main_vas_name,
 		vs.default_price,
 		vs.is_koli,
-		CASE WHEN vs.is_koli = 0 THEN od.quantity * vs.default_price ELSE oh.qty_koli * vs.default_price END AS total_price
+		CASE WHEN vs.is_koli = 0 THEN od.quantity * vs.default_price ELSE ordt.vas_koli * vs.default_price END AS total_price
 		FROM
 		outbound_details od
 		inner join outbound_headers oh ON od.outbound_id = oh.id
@@ -244,7 +244,7 @@ func (r *ShippingRepository) CalculatVasOutbound(outboundID int) ([]VasCalculate
 		vb.outbound_id, vb.outbound_no, vb.outbound_date,
 		vb.main_vas_name, vb.is_koli, vb.default_price,
 		sum(vb.qty_item) as qty_item, 
-		vb.qty_koli
+		vb.vas_koli
 		from 
 		vas_ob_item vb
 		where vb.is_koli = 1
@@ -255,11 +255,11 @@ func (r *ShippingRepository) CalculatVasOutbound(outboundID int) ([]VasCalculate
 		vb.is_koli,
 		vb.main_vas_name,
 		vb.default_price,
-		vb.qty_koli
+		vb.vas_koli
 		UNION ALL
 		select
 		vb.outbound_id, vb.outbound_no, vb.outbound_date,
-		vb.main_vas_name, vb.is_koli, vb.default_price,vb.qty_item, vb.qty_koli
+		vb.main_vas_name, vb.is_koli, vb.default_price,vb.qty_item, vb.vas_koli
 		from 
 		vas_ob_item vb
 		where vb.is_koli = 0)
@@ -271,10 +271,9 @@ func (r *ShippingRepository) CalculatVasOutbound(outboundID int) ([]VasCalculate
 	vos.is_koli,
 	vos.default_price,
 	vos.qty_item,
-	vos.qty_koli,
-	CASE WHEN vos.is_koli = 1 THEN vos.default_price * qty_koli ELSE vos.default_price * vos.qty_item END AS total_price
-	FROM vas_ob_sum vos
-	`
+	vos.vas_koli,
+	CASE WHEN vos.is_koli = 1 THEN vos.default_price * vas_koli ELSE vos.default_price * vos.qty_item END AS total_price
+	FROM vas_ob_sum vos`
 
 	if err := r.db.Debug().Raw(sql, outboundID).Scan(&result).Error; err != nil {
 		return result, err

@@ -256,6 +256,7 @@ type OrderItem struct {
 	DelivAddress string            `json:"deliv_address"`
 	DelivCity    string            `json:"deliv_city"`
 	QtyKoli      int               `json:"qty_koli"`
+	VasKoli      int               `json:"vas_koli"`
 	TotalItem    int               `json:"total_item"`
 	TotalQty     int               `json:"total_qty"`
 	TotalCBM     float64           `json:"total_cbm"`
@@ -371,13 +372,14 @@ func (c *ShippingController) CreateOrder(ctx *fiber.Ctx) error {
 		orderItem.DelivAddress = item.DelivAddress
 		orderItem.DelivCity = item.DelivCity
 		orderItem.QtyKoli = item.QtyKoli
+		orderItem.VasKoli = item.VasKoli
 		orderItem.TotalItem = item.TotalItem
 		orderItem.TotalQty = item.TotalQty
 		orderItem.TotalCBM = item.TotalCBM
 		orderItem.CreatedBy = int(ctx.Locals("userID").(float64))
 		orderItem.CreatedAt = time.Now()
 		orderItem.UpdatedAt = time.Now()
-		if err := tx.Create(&orderItem).Error; err != nil {
+		if err := tx.Debug().Create(&orderItem).Error; err != nil {
 			tx.Rollback()
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 				"success": false,
@@ -398,7 +400,7 @@ func (c *ShippingController) CreateOrder(ctx *fiber.Ctx) error {
 					OutboundNo:   vas_item.OutboundNo,
 					OutboundDate: vas_item.OutboundDate,
 					QtyItem:      vas_item.QtyItem,
-					QtyKoli:      vas_item.QtyKoli,
+					QtyKoli:      vas_item.VasKoli,
 					MainVasName:  vas_item.MainVasName,
 					DefaultPrice: vas_item.DefaultPrice,
 					IsKoli:       vas_item.IsKoli,
@@ -554,6 +556,7 @@ func (c *ShippingController) UpdateOrderByID(ctx *fiber.Ctx) error {
 				DelivAddress: item.DelivAddress,
 				DelivCity:    item.DelivCity,
 				QtyKoli:      item.QtyKoli,
+				VasKoli:      item.VasKoli,
 				TotalItem:    item.TotalItem,
 				TotalQty:     item.TotalQty,
 				TotalCBM:     item.TotalCBM,
@@ -575,6 +578,7 @@ func (c *ShippingController) UpdateOrderByID(ctx *fiber.Ctx) error {
 			orderItem.DelivAddress = item.DelivAddress
 			orderItem.DelivCity = item.DelivCity
 			orderItem.QtyKoli = item.QtyKoli
+			orderItem.VasKoli = item.VasKoli
 			orderItem.TotalItem = item.TotalItem
 			orderItem.TotalQty = item.TotalQty
 			orderItem.TotalCBM = item.TotalCBM
@@ -621,7 +625,7 @@ func (c *ShippingController) UpdateOrderByID(ctx *fiber.Ctx) error {
 						OutboundNo:   vas_item.OutboundNo,
 						OutboundDate: vas_item.OutboundDate,
 						QtyItem:      vas_item.QtyItem,
-						QtyKoli:      vas_item.QtyKoli,
+						QtyKoli:      vas_item.VasKoli,
 						MainVasName:  vas_item.MainVasName,
 						DefaultPrice: vas_item.DefaultPrice,
 						IsKoli:       vas_item.IsKoli,
