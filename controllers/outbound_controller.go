@@ -1163,8 +1163,8 @@ func (r *OutboundController) ProccesHandleOpen(ctx *fiber.Ctx) error {
 			}
 
 			// Buat inventory baru (jumlah = picking.Quantity)
-			newInventory := inventory
-			newInventory.ID = 0
+			// newInventory := models.Inventory{}
+			var newInventory models.Inventory
 			newInventory.OwnerCode = inventory.OwnerCode
 			newInventory.WhsCode = inventory.WhsCode
 			newInventory.DivisionCode = inventory.DivisionCode
@@ -1180,7 +1180,7 @@ func (r *OutboundController) ProccesHandleOpen(ctx *fiber.Ctx) error {
 			newInventory.QtyOrigin = picking.Quantity
 			newInventory.QtyOnhand = picking.Quantity
 			newInventory.QtyAvailable = picking.Quantity
-			newInventory.Trans = "unpost " + payload.OutboundNo
+			newInventory.Trans = "UNPOST " + payload.OutboundNo + ", From INV ID : " + fmt.Sprint(inventory.ID)
 			newInventory.CreatedBy = int(userID)
 			newInventory.CreatedAt = time.Now()
 
