@@ -187,6 +187,7 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 		newInventory.OwnerCode = inventory.OwnerCode
 		newInventory.DivisionCode = inventory.DivisionCode
 		newInventory.Uom = inventory.Uom
+		newInventory.InboundID = inventory.InboundID
 		newInventory.InboundDetailId = inventory.InboundDetailId
 		newInventory.RecDate = inventory.RecDate
 		newInventory.ItemId = inventory.ItemId
@@ -196,12 +197,9 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 		newInventory.Pallet = input.ToLocation
 		newInventory.Location = input.ToLocation
 		newInventory.QaStatus = inventory.QaStatus
-		// newInventory.QtyOrigin = inventory.QtyOrigin
+		newInventory.QtyOrigin = inventory.QtyOrigin
 		newInventory.QtyOnhand = inventory.QtyOnhand
 		newInventory.QtyAvailable = inventory.QtyAvailable
-		newInventory.QtyAllocated = 0
-		newInventory.QtySuspend = 0
-		newInventory.QtyShipped = 0
 		newInventory.Trans = "transfer barcode"
 		newInventory.CreatedBy = int(ctx.Locals("userID").(float64))
 		newInventory.UpdatedBy = int(ctx.Locals("userID").(float64))
@@ -217,7 +215,7 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
 
-		// oldInventory.QtyOrigin = oldInventory.QtyOrigin - inventory.QtyAvailable
+		oldInventory.QtyOrigin = oldInventory.QtyOrigin - inventory.QtyAvailable
 		oldInventory.QtyOnhand = oldInventory.QtyOnhand - inventory.QtyAvailable
 		oldInventory.QtyAvailable = oldInventory.QtyAvailable - inventory.QtyAvailable
 		oldInventory.UpdatedAt = time.Now()
@@ -301,6 +299,7 @@ func (c *MobileInventoryController) ConfirmTransferByInventoryID(ctx *fiber.Ctx)
 	newInventory.OwnerCode = inventory.OwnerCode
 	newInventory.DivisionCode = inventory.DivisionCode
 	newInventory.Uom = inventory.Uom
+	newInventory.InboundID = inventory.InboundID
 	newInventory.InboundDetailId = inventory.InboundDetailId
 	newInventory.RecDate = inventory.RecDate
 	newInventory.ItemId = inventory.ItemId
@@ -310,12 +309,9 @@ func (c *MobileInventoryController) ConfirmTransferByInventoryID(ctx *fiber.Ctx)
 	newInventory.Pallet = input.ToLocation
 	newInventory.Location = input.ToLocation
 	newInventory.QaStatus = inventory.QaStatus
-	// newInventory.QtyOrigin = inventory.QtyOrigin
-	newInventory.QtyOnhand = inventory.QtyOnhand
-	newInventory.QtyAvailable = inventory.QtyAvailable
-	newInventory.QtyAllocated = 0
-	newInventory.QtySuspend = 0
-	newInventory.QtyShipped = 0
+	newInventory.QtyOrigin = input.QtyTransfer
+	newInventory.QtyOnhand = input.QtyTransfer
+	newInventory.QtyAvailable = input.QtyTransfer
 	newInventory.Trans = "transfer"
 	newInventory.CreatedBy = inventory.CreatedBy
 	newInventory.UpdatedBy = inventory.UpdatedBy
@@ -332,7 +328,7 @@ func (c *MobileInventoryController) ConfirmTransferByInventoryID(ctx *fiber.Ctx)
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	// oldInventory.QtyOrigin = oldInventory.QtyOrigin - input.QtyTransfer
+	oldInventory.QtyOrigin = oldInventory.QtyOrigin - input.QtyTransfer
 	oldInventory.QtyOnhand = oldInventory.QtyOnhand - input.QtyTransfer
 	oldInventory.QtyAvailable = oldInventory.QtyAvailable - input.QtyTransfer
 	oldInventory.UpdatedAt = time.Now()

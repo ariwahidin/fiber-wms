@@ -1177,11 +1177,9 @@ func (r *OutboundController) ProccesHandleOpen(ctx *fiber.Ctx) error {
 			newInventory.ItemCode = inventory.ItemCode
 			newInventory.QaStatus = inventory.QaStatus
 			newInventory.Uom = inventory.Uom
+			newInventory.QtyOrigin = picking.Quantity
 			newInventory.QtyOnhand = picking.Quantity
 			newInventory.QtyAvailable = picking.Quantity
-			newInventory.QtyAllocated = 0
-			newInventory.QtySuspend = 0
-			newInventory.QtyShipped = 0
 			newInventory.Trans = "unpost " + payload.OutboundNo
 			newInventory.CreatedBy = int(userID)
 			newInventory.CreatedAt = time.Now()
@@ -1194,6 +1192,7 @@ func (r *OutboundController) ProccesHandleOpen(ctx *fiber.Ctx) error {
 			// Kurangi inventory lama
 			if err := tx.Model(&models.Inventory{}).Where("id = ?", picking.InventoryID).
 				Updates(map[string]interface{}{
+					"qty_origin":    gorm.Expr("qty_origin - ?", picking.Quantity),
 					"qty_onhand":    gorm.Expr("qty_onhand - ?", picking.Quantity),
 					"qty_allocated": gorm.Expr("qty_allocated - ?", picking.Quantity),
 					"updated_at":    time.Now(),
@@ -1204,7 +1203,7 @@ func (r *OutboundController) ProccesHandleOpen(ctx *fiber.Ctx) error {
 			}
 		}
 	} else {
-		// Kalau action selain return to origin location
+		// Kalau action return to origin location
 		for _, picking := range outboundPickings {
 			if err := tx.Debug().Model(&models.Inventory{}).Where("id = ?", picking.InventoryID).
 				Updates(map[string]interface{}{

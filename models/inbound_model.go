@@ -1,9 +1,7 @@
 package models
 
 import (
-	"fiber-app/controllers/idgen"
 	"fiber-app/types"
-	"fmt"
 	"time"
 
 	"gorm.io/gorm"
@@ -131,13 +129,13 @@ type InboundBarcode struct {
 	DeletedBy       int
 }
 
-func (i *InboundBarcode) BeforeCreate(tx *gorm.DB) (err error) {
-	fmt.Println("ID Inbound Barcode Before Create : ", i.ID)
-	if i.ID == 0 {
-		i.ID = types.SnowflakeID(idgen.GenerateID())
-	}
-	return nil
-}
+// func (i *InboundBarcode) BeforeCreate(tx *gorm.DB) (err error) {
+// 	fmt.Println("ID Inbound Barcode Before Create : ", i.ID)
+// 	if i.ID == 0 {
+// 		i.ID = types.SnowflakeID(idgen.GenerateID())
+// 	}
+// 	return nil
+// }
 
 type FormItemInbound struct {
 	InboundDetailID int    `json:"inbound_detail_id"`

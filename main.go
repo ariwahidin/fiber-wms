@@ -10,6 +10,8 @@ import (
 	"fiber-app/wms/master/owner"
 	"fmt"
 	"log"
+	"net/http"
+	_ "net/http/pprof"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -123,6 +125,12 @@ func main() {
 
 	port := config.APP_PORT
 	fmt.Println("🚀 Server berjalan di port " + port)
+
+	// jalankan pprof server di goroutine terpisah
+	go func() {
+		fmt.Println("pprof aktif di http://localhost:6060/debug/pprof/")
+		log.Println(http.ListenAndServe("localhost:6060", nil))
+	}()
 
 	if err := app.Listen(":" + port); err != nil {
 		log.Fatal(err)

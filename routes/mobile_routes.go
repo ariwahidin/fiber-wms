@@ -19,10 +19,10 @@ func SetupMobileInboundRoutes(app *fiber.App) {
 	api.Post("/inbound/scan", mobileInboundController.ScanInbound)
 	api.Get("/inbound/scan/:id", mobileInboundController.GetScanInbound)
 	api.Delete("/inbound/scan/:id", mobileInboundController.DeleteScannedInbound)
-	api.Put("/inbound/scan/putaway/:inbound_no", mobileInboundController.ConfirmPutaway)
+	// api.Put("/inbound/scan/putaway/:inbound_no", mobileInboundController.ConfirmPutaway)
 	api.Get("/inbound/detail/:inbound_no", mobileInboundController.GetInboundDetail)
 	api.Post("/inbound/search/location", mobileInboundController.GetInboundBarcodeByLocation)
-	api.Post("/inbound/putaway/location/:inbound_no", mobileInboundController.ConfirmPutawayByLocation)
+	// api.Post("/inbound/putaway/location/:inbound_no", mobileInboundController.ConfirmPutawayByLocation)
 	api.Put("/inbound/barcode/:id", mobileInboundController.EditInboundBarcode)
 	api.Get("/inbound/barcode/getlocation/:inbound_no", mobileInboundController.GetSequenceLocation)
 }

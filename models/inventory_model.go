@@ -1,9 +1,7 @@
 package models
 
 import (
-	"fiber-app/controllers/idgen"
 	"fiber-app/types"
-	"fmt"
 
 	"gorm.io/gorm"
 )
@@ -16,17 +14,16 @@ type Inventory struct {
 	DivisionCode    string            `json:"division_code"`
 	InboundID       types.SnowflakeID `json:"inbound_id" gorm:"default:null"`
 	InboundDetailId int               `json:"inbound_detail_id"`
-	// InboundBarcodeId int               `json:"inbound_barcode_id"`
-	RecDate  string `json:"rec_date"`
-	Pallet   string `json:"pallet"`
-	Location string `json:"location"`
-	ItemId   int    `json:"item_id"`
-	ItemCode string `json:"item_code"`
-	Barcode  string `json:"barcode" gorm:"not null" validate:"required"`
+	RecDate         string            `json:"rec_date"`
+	Pallet          string            `json:"pallet"`
+	Location        string            `json:"location"`
+	ItemId          int               `json:"item_id"`
+	ItemCode        string            `json:"item_code"`
+	Barcode         string            `json:"barcode" gorm:"not null" validate:"required"`
 	// SerialNumber     string            `json:"serial_number"`
-	QaStatus string `json:"qa_status"`
-	Uom      string `json:"uom"`
-	// QtyOrigin    int    `json:"qty_origin" gorm:"default:0"`
+	QaStatus     string `json:"qa_status"`
+	Uom          string `json:"uom"`
+	QtyOrigin    int    `json:"qty_origin" gorm:"default:0"`
 	QtyOnhand    int    `json:"qty_onhand" gorm:"default:0"`
 	QtyAvailable int    `json:"qty_available" gorm:"default:0"`
 	QtyAllocated int    `json:"qty_allocated" gorm:"default:0"`
@@ -38,10 +35,10 @@ type Inventory struct {
 	DeletedBy    int
 }
 
-func (i *Inventory) BeforeCreate(tx *gorm.DB) (err error) {
-	fmt.Println("ID Inventory Before Create:", i.ID)
-	if i.ID == 0 {
-		i.ID = types.SnowflakeID(idgen.GenerateID())
-	}
-	return nil
-}
+// func (i *Inventory) BeforeCreate(tx *gorm.DB) (err error) {
+// 	fmt.Println("ID Inventory Before Create:", i.ID)
+// 	if i.ID == 0 {
+// 		i.ID = types.SnowflakeID(idgen.GenerateID())
+// 	}
+// 	return nil
+// }

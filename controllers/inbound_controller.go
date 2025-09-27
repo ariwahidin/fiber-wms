@@ -530,11 +530,11 @@ func (c *InboundController) GetAllListInbound(ctx *fiber.Ctx) error {
 
 func (c *InboundController) GetInboundByID(ctx *fiber.Ctx) error {
 	inbound_no := ctx.Params("inbound_no")
-	limit := ctx.QueryInt("limit", 1000)
+	limit := ctx.QueryInt("limit", 5000)
 
-	if limit > 5000 {
-		limit = 5000
-	}
+	// if limit > 5000 {
+	// 	limit = 5000
+	// }
 
 	var inbound models.InboundHeader
 	fmt.Println("GetInboundByID inbound_no:", inbound_no)
@@ -692,13 +692,64 @@ func (c *InboundController) PutawayPerItemByInboundNo(ctx *fiber.Ctx) error {
 		}
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
+
+	var inboundBarcodesCheck01 []models.InboundBarcode
+	if err := c.DB.Debug().Where("inbound_id = ?", inboundHeader.ID).Find(&inboundBarcodesCheck01).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	if len(inboundBarcodesCheck01) == 0 {
+		var inboundDetail []models.InboundDetail
+		if err := c.DB.Debug().Where("inbound_id = ?", inboundHeader.ID).Find(&inboundDetail).Error; err != nil {
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+
+		var allRcvLocationIsFilled bool = true
+		for _, detail := range inboundDetail {
+			if detail.RcvLocation == "" {
+				allRcvLocationIsFilled = false
+				break
+			}
+		}
+
+		if !allRcvLocationIsFilled {
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Please fill all receiving location before putaway"})
+		}
+
+		for _, detail := range inboundDetail {
+			newInboundBarcode := models.InboundBarcode{
+				InboundId:       int(inboundHeader.ID),
+				InboundDetailId: int(detail.ID),
+				ItemCode:        detail.ItemCode,
+				ItemID:          int(detail.ItemId),
+				ScanData:        detail.Barcode,
+				Barcode:         detail.Barcode,
+				SerialNumber:    detail.Barcode,
+				Pallet:          detail.RcvLocation,
+				Location:        detail.RcvLocation,
+				Quantity:        detail.Quantity,
+				WhsCode:         detail.WhsCode,
+				OwnerCode:       detail.OwnerCode,
+				DivisionCode:    detail.DivisionCode,
+				QaStatus:        detail.QaStatus,
+				Status:          "pending",
+				CreatedBy:       int(ctx.Locals("userID").(float64)),
+			}
+
+			if err := c.DB.Debug().Create(&newInboundBarcode).Error; err != nil {
+				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+			}
+		}
+
+	}
+
 	var inboundBarcodes []models.InboundBarcode
 	if err := c.DB.Debug().Where("inbound_id = ? AND status = ?", inboundHeader.ID, "pending").Find(&inboundBarcodes).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
 	if len(inboundBarcodes) == 0 {
-		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "No pending barcodes found"})
+		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Scanned pending item not found"})
 	}
 
 	for _, barcode := range inboundBarcodes {
@@ -786,15 +837,6 @@ func (c *InboundController) putawayPerItem(ctx *fiber.Ctx, idStr string) error {
 
 	userID := int(ctx.Locals("userID").(float64))
 
-	// if err := c.DB.Debug().Model(&models.InboundHeader{}).
-	// 	Where("id = ?", inboundHeaderID).
-	// 	Updates(map[string]interface{}{
-	// 		"status":     statusInbound,
-	// 		"putaway_at": time.Now(),
-	// 		"putaway_by": userID}).Error; err != nil {
-	// 	return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-	// }
-
 	now := time.Now()
 	updateData := models.InboundHeader{
 		Status:    statusInbound,
@@ -835,12 +877,10 @@ func (c *InboundController) PutawayBulk(ctx *fiber.Ctx) error {
 		})
 	}
 
-	fmt.Println("Received IDs:", req.ItemIDs)
-
 	for _, id := range req.ItemIDs {
 		if err := c.putawayPerItem(ctx, id); err != nil {
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-				"error": fmt.Sprintf("Gagal putaway ID %s: %v", id, err),
+				"error": fmt.Sprintf("Failed putaway ID %s: %v", id, err),
 			})
 		}
 	}

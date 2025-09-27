@@ -31,12 +31,11 @@ type ListInbound struct {
 	Type            string `json:"type"`
 	InboundDate     string `json:"inbound_date"`
 	Container       string `json:"container"`
-	OriginID        string `json:"origin_id"`
 	Origin          string `json:"origin"`
 	OwnerCode       string `json:"owner_code"`
-	TimeArrival     string `json:"time_arrival"`
+	ArrivalTime     string `json:"arrival_time"`
 	StartUnloading  string `json:"start_unloading"`
-	FinishUnloading string `json:"finish_unloading"`
+	EndUnloading    string `json:"end_unloading"`
 	RemarksHeader   string `json:"remarks_header"`
 	TotalLine       int    `json:"total_line"`
 	TotalQty        int    `json:"total_qty"`
@@ -45,24 +44,24 @@ type ListInbound struct {
 }
 
 type HeaderInbound struct {
-	InboundID       int    `json:"inbound_id"`
-	InboundNo       string `json:"inbound_no"`
-	SupplierID      int    `json:"supplier_id"`
-	SupplierName    string `json:"supplier_name"`
-	Invoice         string `json:"invoice"`
-	TransporterID   int    `json:"transporter_id"`
-	Driver          string `json:"driver"`
-	TruckSize       string `json:"truck_size"`
-	NoTruck         string `json:"no_truck"`
-	InboundDate     string `json:"inbound_date"`
-	Container       string `json:"container"`
-	OriginID        int    `json:"origin_id"`
-	TimeArrival     string `json:"time_arrival"`
-	StartUnloading  string `json:"start_unloading"`
-	FinishUnloading string `json:"finish_unloading"`
-	Remarks         string `json:"remarks_header"`
-	TotalLine       int    `json:"total_line"`
-	TotalQty        int    `json:"total_qty"`
+	InboundID      int    `json:"inbound_id"`
+	InboundNo      string `json:"inbound_no"`
+	SupplierID     int    `json:"supplier_id"`
+	SupplierName   string `json:"supplier_name"`
+	Invoice        string `json:"invoice"`
+	TransporterID  int    `json:"transporter_id"`
+	Driver         string `json:"driver"`
+	TruckSize      string `json:"truck_size"`
+	NoTruck        string `json:"no_truck"`
+	InboundDate    string `json:"inbound_date"`
+	Container      string `json:"container"`
+	Origin         int    `json:"origin"`
+	ArrivalTime    string `json:"arrival_time"`
+	StartUnloading string `json:"start_unloading"`
+	EndUnloading   string `json:"end_unloading"`
+	Remarks        string `json:"remarks_header"`
+	TotalLine      int    `json:"total_line"`
+	TotalQty       int    `json:"total_qty"`
 }
 
 type DetailItem struct {
@@ -229,7 +228,7 @@ func (r *InboundRepository) GetAllInbound() ([]ListInbound, error) {
 			c.supplier_name, a.owner_code,
 			a.driver, a.truck_id, a.no_truck, a.inbound_date,
 			a.container,
-			a.origin_id, a.time_arrival, a.start_unloading, a.finish_unloading,
+			a.origin, a.arrival_time, a.start_unloading, a.end_unloading,
 			a.status, a.inbound_date, a.remarks as remarks_header,
 			b.total_line, b.total_qty, COALESCE(ib.qty_scan, 0) as qty_scan,
 			c.supplier_name, a.status, d.transporter_name, a.type
@@ -276,7 +275,7 @@ func (r *InboundRepository) GetInboundHeaderByInboundID(inbound_id int) (HeaderI
 	a.invoice, a.transporter_id,
 	a.driver, a.truck_id, a.no_truck, a.inbound_date,
 	a.container,
-	a.origin_id, a.time_arrival, a.start_unloading, a.finish_unloading,
+	a.origin, a.arrival_time, a.start_unloading, a.end_unloading,
 	a.status, a.inbound_date, a.remarks,
 	b.total_line, b.total_qty,
 	c.supplier_name, a.status
@@ -507,83 +506,6 @@ func (r *InboundRepository) GenerateInboundNo() (string, error) {
 	return inboundNo, nil
 }
 
-// func (r *InboundRepository) PutawayItem(ctx *fiber.Ctx, inboundBarcodeID int, location string) (bool, error) {
-// 	userID, ok := ctx.Locals("userID").(float64)
-// 	if !ok {
-// 		return false, errors.New("invalid user ID")
-// 	}
-
-// 	err := r.db.Transaction(func(tx *gorm.DB) error {
-// 		var barcode models.InboundBarcode
-// 		if err := tx.Where("id = ?", inboundBarcodeID).Take(&barcode).Error; err != nil {
-// 			return err
-// 		}
-
-// 		if barcode.Status != "pending" {
-// 			return fmt.Errorf("barcode not in pending status")
-// 		}
-
-// 		var detail models.InboundDetail
-// 		if err := tx.Where("id = ?", barcode.InboundDetailId).Take(&detail).Error; err != nil {
-// 			return errors.New("inbound detail not found for item: " + barcode.ItemCode)
-// 		}
-
-// 		if location == "" {
-// 			location = barcode.Location
-// 		}
-
-// 		uomRepo := NewUomRepository(tx)
-// 		uomConversion, err := uomRepo.ConversionQty(barcode.ItemCode, barcode.Quantity, detail.Uom)
-// 		if err != nil {
-// 			return err
-// 		}
-// 		qtyConverted := uomConversion.QtyConverted
-
-// 		inventory := models.Inventory{
-// 			InboundDetailId:  int(detail.ID),
-// 			InboundBarcodeId: int(barcode.ID),
-// 			RecDate:          detail.RecDate,
-// 			ItemId:           int(barcode.ItemID),
-// 			ItemCode:         barcode.ItemCode,
-// 			Barcode:          barcode.Barcode,
-// 			WhsCode:          barcode.WhsCode,
-// 			OwnerCode:        barcode.OwnerCode,
-// 			DivisionCode:     barcode.DivisionCode,
-// 			Pallet:           barcode.Pallet,
-// 			Location:         location,
-// 			QaStatus:         barcode.QaStatus,
-// 			SerialNumber:     barcode.ScanData,
-// 			Uom:              uomConversion.ToUom,
-// 			QtyOrigin:        qtyConverted,
-// 			QtyOnhand:        qtyConverted,
-// 			QtyAvailable:     qtyConverted,
-// 			QtyAllocated:     0,
-// 			Trans:            "putaway",
-// 			CreatedBy:        int(userID),
-// 		}
-
-// 		if err := tx.Create(&inventory).Error; err != nil {
-// 			return err
-// 		}
-
-// 		if err := tx.Model(&barcode).Updates(map[string]interface{}{
-// 			"status":     "in stock",
-// 			"updated_at": time.Now().UTC(),
-// 			"updated_by": int(userID),
-// 		}).Error; err != nil {
-// 			return err
-// 		}
-
-// 		return nil
-// 	})
-
-// 	if err != nil {
-// 		return false, err
-// 	}
-
-// 	return true, nil
-// }
-
 func (r *InboundRepository) PutawayItem(ctx *fiber.Ctx, inboundBarcodeID int, location string) (bool, error) {
 	userID, ok := ctx.Locals("userID").(float64)
 	if !ok {
@@ -597,7 +519,7 @@ func (r *InboundRepository) PutawayItem(ctx *fiber.Ctx, inboundBarcodeID int, lo
 		}
 
 		if barcode.Status != "pending" {
-			return fmt.Errorf("barcode not in pending status")
+			return fmt.Errorf("item not in pending status")
 		}
 
 		var detail models.InboundDetail
@@ -649,12 +571,11 @@ func (r *InboundRepository) PutawayItem(ctx *fiber.Ctx, inboundBarcodeID int, lo
 				Location:        location,
 				QaStatus:        barcode.QaStatus,
 				Uom:             uomConversion.ToUom,
-				// QtyOrigin:       qtyConverted,
-				QtyOnhand:    qtyConverted,
-				QtyAvailable: qtyConverted,
-				QtyAllocated: 0,
-				Trans:        "putaway",
-				CreatedBy:    int(userID),
+				QtyOrigin:       qtyConverted,
+				QtyOnhand:       qtyConverted,
+				QtyAvailable:    qtyConverted,
+				Trans:           "putaway",
+				CreatedBy:       int(userID),
 			}
 
 			if err := tx.Create(&newInv).Error; err != nil {
@@ -663,7 +584,7 @@ func (r *InboundRepository) PutawayItem(ctx *fiber.Ctx, inboundBarcodeID int, lo
 		} else if invQuery.Error == nil {
 			// Sudah ada → Update qty
 			if err := tx.Model(&existingInv).Updates(map[string]interface{}{
-				// "qty_origin":    existingInv.QtyOrigin + qtyConverted,
+				"qty_origin":    existingInv.QtyOrigin + qtyConverted,
 				"qty_onhand":    existingInv.QtyOnhand + qtyConverted,
 				"qty_available": existingInv.QtyAvailable + qtyConverted,
 				"updated_at":    time.Now().UTC(),
