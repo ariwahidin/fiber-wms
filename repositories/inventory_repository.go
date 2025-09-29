@@ -38,7 +38,7 @@ func (r *InventoryRepository) GetInventory() ([]listInventory, error) {
 	inner join products b on a.item_id = b.id
 	where a.qty_available > 0 or a.qty_allocated > 0
 	group by a.whs_code, a.location, b.item_code, b.item_name, a.qa_status,
-	a.barcode, a.owner_code, a.rec_date, b.category
+	a.barcode, a.owner_code, a.rec_date, b.category, a.inbound_detail_id
 	`
 	// sqlInventory := `select a.whs_code, a.location,
 	// b.item_code, b.item_name, a.qa_status,

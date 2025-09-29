@@ -15,7 +15,7 @@ import (
 func RunSeeders(db *gorm.DB) {
 	SeedMenus(db)
 	SeedUoms(db)
-	SeedWarehouse(db)
+	// SeedWarehouse(db)
 	SeedUserMaster(db)
 	SeedCategory(db)
 	SeedDivision(db)
@@ -64,10 +64,7 @@ func SeedCategory(db *gorm.DB) {
 
 func SeedUoms(db *gorm.DB) {
 	uoms := []models.Uom{
-		{Code: "PCS", Name: "Piece"},
-		{Code: "BOX", Name: "Box"},
-		{Code: "CTN", Name: "Carton"},
-		{Code: "DOZ", Name: "Dozen"},
+		{Code: "PCS", Name: "PCS"},
 	}
 
 	for _, u := range uoms {
@@ -81,27 +78,26 @@ func SeedUoms(db *gorm.DB) {
 	}
 }
 
-func SeedWarehouse(db *gorm.DB) {
-	warehouses := []models.Warehouse{
-		{Code: "CKY", Name: "Warehouse 1", Description: "Warehouse Cakung"},
-		{Code: "NGK", Name: "Warehouse 2", Description: "Warehouse Nagrak"},
-	}
+// func SeedWarehouse(db *gorm.DB) {
+// 	warehouses := []models.Warehouse{
+// 		{Code: "CKY", Name: "Warehouse 1", Description: "Warehouse Cakung"},
+// 		{Code: "NGK", Name: "Warehouse 2", Description: "Warehouse Nagrak"},
+// 	}
 
-	for _, w := range warehouses {
-		var existing models.Warehouse
-		if err := db.Where("code = ?", w.Code).First(&existing).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
-				w.ID = types.SnowflakeID(idgen.GenerateID())
-				db.Create(&w)
-			}
-		}
-	}
-}
+// 	for _, w := range warehouses {
+// 		var existing models.Warehouse
+// 		if err := db.Where("code = ?", w.Code).First(&existing).Error; err != nil {
+// 			if err == gorm.ErrRecordNotFound {
+// 				w.ID = types.SnowflakeID(idgen.GenerateID())
+// 				db.Create(&w)
+// 			}
+// 		}
+// 	}
+// }
 
 func SeedDivision(db *gorm.DB) {
 	divisions := []models.Division{
-		{Code: "DIV1", Name: "Division 1", Description: "Division 1 description"},
-		{Code: "DIV2", Name: "Division 2", Description: "Division 2 description"},
+		{Code: "REGULAR", Name: "REGULAR", Description: "REGULAR"},
 	}
 
 	for _, d := range divisions {
