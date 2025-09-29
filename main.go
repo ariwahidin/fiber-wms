@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fiber-app/config"
 	"fiber-app/controllers/idgen"
 	"fiber-app/database"
@@ -10,18 +11,84 @@ import (
 	"fiber-app/wms/master/owner"
 	"fmt"
 	"log"
-	"net/http"
 	_ "net/http/pprof"
+	"os"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 )
 
-// Model untuk Receiving
-// Struktur untuk menyimpan file yang telah diproses
+// struct log
+type AccessLog struct {
+	Time      string        `json:"time"`
+	IP        string        `json:"ip"`
+	Method    string        `json:"method"`
+	Path      string        `json:"path"`
+	Status    int           `json:"status"`
+	UserAgent string        `json:"user_agent"`
+	Referer   string        `json:"referer"`
+	Latency   time.Duration `json:"latency_ms"`
+	UserID    int           `json:"user_id,omitempty"`
+}
+
+// channel buat log
+var logChan = make(chan AccessLog, 100)
 
 func main() {
 
+	// buka file log
+	file, err := os.OpenFile("access.jsonl", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Fatal("Gagal buka file log:", err)
+	}
+	defer file.Close()
+
+	// worker untuk nulis log ke file dalam format JSON
+	go func() {
+		encoder := json.NewEncoder(file)
+		for entry := range logChan {
+			if err := encoder.Encode(entry); err != nil {
+				log.Println("Gagal encode log:", err)
+			}
+		}
+	}()
+
 	app := fiber.New()
+
+	// middleware logger custom
+	app.Use(func(c *fiber.Ctx) error {
+		start := time.Now()
+		err := c.Next()
+
+		// Ambil userID dari Locals (float64 → int)
+		var userID int
+		if uidVal := c.Locals("userID"); uidVal != nil {
+			if uidFloat, ok := uidVal.(float64); ok {
+				userID = int(uidFloat)
+			}
+		}
+
+		entry := AccessLog{
+			Time:      start.Format(time.RFC3339),
+			IP:        c.IP(),
+			Method:    c.Method(),
+			Path:      c.Path(),
+			Status:    c.Response().StatusCode(),
+			UserAgent: c.Get("User-Agent"),
+			Referer:   c.Get("Referer"),
+			Latency:   time.Since(start) / time.Millisecond, // simpan dalam ms
+			UserID:    userID,
+		}
+
+		// kirim ke channel
+		select {
+		case logChan <- entry:
+		default:
+			// kalau channel penuh, buang (biar request tetap jalan)
+		}
+
+		return err
+	})
 
 	// Pastikan database ada
 	database.EnsureDatabaseExists(config.DBName)
@@ -127,10 +194,10 @@ func main() {
 	fmt.Println("🚀 Server berjalan di port " + port)
 
 	// jalankan pprof server di goroutine terpisah
-	go func() {
-		fmt.Println("pprof aktif di http://localhost:6060/debug/pprof/")
-		log.Println(http.ListenAndServe("localhost:6060", nil))
-	}()
+	// go func() {
+	// 	fmt.Println("pprof aktif di http://localhost:6060/debug/pprof/")
+	// 	log.Println(http.ListenAndServe("localhost:6060", nil))
+	// }()
 
 	if err := app.Listen(":" + port); err != nil {
 		log.Fatal(err)

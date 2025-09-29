@@ -924,6 +924,7 @@ func (r *OutboundRepository) GetOutboundSummary(outboundNo string) (OutboundSumm
 }
 
 type SerialNumberList struct {
+	ID           int    `json:"id"`
 	ItemCode     string `json:"item_code"`
 	ItemName     string `json:"item_name"`
 	Barcode      string `json:"barcode"`
@@ -935,6 +936,7 @@ func (r *OutboundRepository) GetOutboundSerialNumber(outboundID int) ([]SerialNu
 	var result []SerialNumberList
 
 	sql := `select 
+	ob.id,
 	ob.item_code,
 	p.item_name,
 	p.barcode,

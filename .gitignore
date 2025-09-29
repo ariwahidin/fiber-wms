@@ -36,3 +36,8 @@ Thumbs.db
 
 # (optional) kalau kamu gak pakai vendor
 /vendor/
+
+# ignore logs
+*.log
+*.jsonl
+logs/
