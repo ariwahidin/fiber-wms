@@ -222,8 +222,8 @@ func (c *InboundController) CreateInbound(ctx *fiber.Ctx) error {
 			tx.Rollback()
 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 				"success": false,
-				"message": "Reference no cannot be empty",
-				"error":   "Reference no cannot be empty",
+				"message": "Invoice no cannot be empty",
+				"error":   "Invoice no cannot be empty",
 			})
 		}
 

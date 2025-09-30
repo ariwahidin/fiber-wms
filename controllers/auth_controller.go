@@ -203,13 +203,13 @@ func Login(ctx *fiber.Ctx) error {
 
 	var mUser models.User
 	// Cari user berdasarkan email
-	result := db.Debug().Where("email = ?", input.Email).First(&mUser)
+	result := db.Debug().Where("email = ? OR username = ?", input.Email, input.Email).First(&mUser)
 
 	// Periksa jika user tidak ditemukan
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-				"message": "Invalid email or password",
+				"message": "Invalid username or password",
 			})
 		}
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{

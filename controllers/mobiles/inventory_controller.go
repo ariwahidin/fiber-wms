@@ -248,6 +248,14 @@ func (c *MobileInventoryController) ConfirmTransferByInventoryID(ctx *fiber.Ctx)
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	if input.FromLocation == "" || input.ToLocation == "" || input.InventoryID == "" || input.QtyTransfer == 0 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "From Location, To Location, Inventory ID and Qty Transfer are required"})
+	}
+
+	if input.FromLocation == input.ToLocation {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "From Location and To Location cannot be the same"})
+	}
+
 	// convert InventoryID to int
 	inventoryID, err := strconv.Atoi(input.InventoryID)
 	if err != nil {
