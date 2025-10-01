@@ -521,8 +521,9 @@ func (r *OutboundRepository) GetPickingSheet(outbound_id int) ([]PaperPickingShe
 	e.plan_pickup_date,
 	e.plan_pickup_time,
 	g.customer_name,
-	h.transporter_code
-	Order By a.[location] ASC`
+	h.transporter_code,
+	a.outbound_detail_id
+	Order By a.outbound_detail_id ASC`
 
 	if err := r.db.Debug().Raw(sql, outbound_id).Scan(&outboundList).Error; err != nil {
 		return nil, err

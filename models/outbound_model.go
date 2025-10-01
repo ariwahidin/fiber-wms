@@ -156,44 +156,12 @@ type OutboundPicking struct {
 	DeletedBy        int
 }
 
-// type OutboundBarcode struct {
-// 	gorm.Model
-// 	ID               int    `json:"id"`
-// 	PackingNo        string `json:"packing_no" gorm:"foreignKey:PackingNo"`
-// 	InventoryID      int    `json:"inventory_id"`
-// 	OutboundId       int    `json:"outbound_id"`
-// 	OutboundNo       string `json:"outbound_no"`
-// 	OutboundDetailId int    `gorm:"foreignKey:OutboundDetailId" json:"outbound_detail_id"`
-// 	PickingSheetId   int    `json:"picking_sheet_id" gorm:"default:0"`
-// 	ItemID           int    `json:"item_id"`
-// 	ItemCode         string `json:"item_code"`
-// 	Barcode          string `json:"barcode"`
-// 	SerialNumber     string `json:"serial_number"`
-// 	Quantity         int    `json:"quantity"`
-// 	Status           string `json:"status" gorm:"default:'pending'"`
-// 	CreatedBy        int
-// 	UpdatedBy        int
-// 	DeletedBy        int
-// }
-
-// type OutboundPacking struct {
-// 	PackingNo string `gorm:"primaryKey" json:"packing_no"`
-// 	CreatedAt time.Time
-// 	UpdatedAt time.Time
-// 	DeletedAt time.Time
-// 	CreatedBy int
-// 	UpdatedBy int
-// 	DeletedBy int
-// 	Orders    []OutboundBarcode `json:"orders" gorm:"foreignKey:PackingNo"`
-// }
-
 type OutboundBarcode struct {
 	gorm.Model
-	ID          int `json:"ID"`
-	PackingId   uint
-	PackingNo   string `json:"packing_no" gorm:"size:50"` // sama persis dengan parent
-	InventoryID int    `json:"inventory_id"`
-	// OutboundId       int    `json:"outbound_id"`
+	ID               int `json:"ID"`
+	PackingId        uint
+	PackingNo        string            `json:"packing_no" gorm:"size:50"` // sama persis dengan parent
+	InventoryID      int               `json:"inventory_id"`
 	OutboundId       types.SnowflakeID `json:"outbound_id"`
 	OutboundNo       string            `json:"outbound_no"`
 	OutboundDetailId int               `json:"outbound_detail_id"`

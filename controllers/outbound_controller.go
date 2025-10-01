@@ -840,12 +840,14 @@ func (c *OutboundController) PickingComplete(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	// Commit transaction
+
 	if err := tx.Commit().Error; err != nil {
 		tx.Rollback()
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Picking Complete Success"})
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Picking complete successfully"})
 }
 
 func (c *OutboundController) GetKoliDetails(ctx *fiber.Ctx) error {

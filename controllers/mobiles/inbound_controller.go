@@ -35,9 +35,6 @@ func (c *MobileInboundController) GetListInbound(ctx *fiber.Ctx) error {
 		UpdatedAt    time.Time `json:"updated_at"`
 	}
 
-	// sql := `SELECT a.id, a.inbound_no, b.supplier_name, a.status, a.updated_at FROM inbound_headers a
-	// 		INNER JOIN suppliers b ON a.supplier_id = b.id`
-
 	sql := `WITH id AS
 	(SELECT inbound_id, SUM(quantity) AS req_qty
 	-- , SUM(scan_qty) as scan_qty 
@@ -143,23 +140,6 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 		tx.Rollback()
 		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Product not found", "message": "Product not found"})
 	}
-
-	// if product.HasSerial == "Y" && scanInbound.ScanType != "SERIAL" {
-	// 	tx.Rollback()
-	// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Scan type must be serial", "message": "Scan type must be serial"})
-	// }
-
-	// if product.HasSerial == "N" && scanInbound.ScanType != "BARCODE" {
-	// 	tx.Rollback()
-	// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Scan type must be barcode", "message": "Scan type must be barcode"})
-	// }
-
-	// if product.HasSerial == "Y" && scanInbound.ScanType == "SERIAL" {
-	// 	if scanInbound.Barcode == scanInbound.Serial {
-	// 		tx.Rollback()
-	// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Serial must not be same with barcode", "message": "Serial must not be same with barcode"})
-	// 	}
-	// }
 
 	var inboundDetail models.InboundDetail
 	if err := tx.Debug().Where("inbound_no = ? AND item_code = ?", scanInbound.InboundNo, product.ItemCode).First(&inboundDetail).Error; err != nil {
