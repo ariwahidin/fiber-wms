@@ -33,7 +33,7 @@ func (c *DashboardController) GetDashboard(ctx *fiber.Ctx) error {
 
 		SELECT *, 'inbound' AS trans_type FROM ib
 		UNION ALL
-		SELECT *, 'outbound' AS trans_type FROM ob`
+		SELECT *, 'outbound' AS trans_type FROM ob ORDER BY trans_type, no_ref DESC`
 
 	var transactions []struct {
 		ID        uint   `json:"id"`
