@@ -210,9 +210,8 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 		newInventory.QtyOrigin = inventory.QtyOrigin
 		newInventory.QtyOnhand = inventory.QtyOnhand
 		newInventory.QtyAvailable = inventory.QtyAvailable
-		newInventory.Trans = "transfer barcode"
+		newInventory.Trans = fmt.Sprintf("transfer from inventory_id : %d", inventory.ID)
 		newInventory.CreatedBy = int(ctx.Locals("userID").(float64))
-		newInventory.UpdatedBy = int(ctx.Locals("userID").(float64))
 
 		if err := tx.Create(&newInventory).Error; err != nil {
 			tx.Rollback()
@@ -330,10 +329,8 @@ func (c *MobileInventoryController) ConfirmTransferByInventoryID(ctx *fiber.Ctx)
 	newInventory.QtyOrigin = input.QtyTransfer
 	newInventory.QtyOnhand = input.QtyTransfer
 	newInventory.QtyAvailable = input.QtyTransfer
-	newInventory.Trans = "transfer"
-	newInventory.CreatedBy = inventory.CreatedBy
-	newInventory.UpdatedBy = inventory.UpdatedBy
-	newInventory.DeletedBy = inventory.DeletedBy
+	newInventory.Trans = fmt.Sprintf("transfer from inventory_id : %d", inventory.ID)
+	newInventory.CreatedBy = int(ctx.Locals("userID").(float64))
 
 	if err := tx.Create(&newInventory).Error; err != nil {
 		tx.Rollback()
