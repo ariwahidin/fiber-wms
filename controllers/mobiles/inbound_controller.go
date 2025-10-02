@@ -59,7 +59,7 @@ func (c *MobileInboundController) GetListInbound(ctx *fiber.Ctx) error {
 	LEFT JOIN id ON a.id = id.inbound_id
 	LEFT JOIN ib ON a.id = ib.inbound_id
 	LEFT JOIN ibp ON a.id = ibp.inbound_id
-	WHERE a.status = 'checking'
+	WHERE a.status IN ('checking', 'partially received', 'fully received')
 	ORDER by a.id DESC`
 
 	var listInbound []listInboundResponse
