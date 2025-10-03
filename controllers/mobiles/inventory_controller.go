@@ -366,3 +366,67 @@ func (c *MobileInventoryController) ConfirmTransferByInventoryID(ctx *fiber.Ctx)
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Transfer successful"})
 }
+
+type LocationRequest struct {
+	NewLocation string `json:"new_location" validate:"required"`
+}
+
+// CREATE
+func (lc *MobileInventoryController) CreateLocation(ctx *fiber.Ctx) error {
+	userID := int(ctx.Locals("userID").(float64))
+
+	var newLocation LocationRequest
+	if err := ctx.BodyParser(&newLocation); err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid input"})
+	}
+
+	// validate location length must 9
+	if len(newLocation.NewLocation) != 9 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid location length, must be 9 characters"})
+	}
+
+	// check lokasi sudah ada
+	var existingLocation models.Location
+	if err := lc.DB.Where("location_code = ?", newLocation.NewLocation).First(&existingLocation).Error; err == nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Location already exists"})
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	// Example YMK49B102
+
+	row := newLocation.NewLocation[0:3]   // "YMK"
+	bay := newLocation.NewLocation[3:5]   // "49"
+	level := newLocation.NewLocation[5:7] // "B1"
+	bin := newLocation.NewLocation[7:]    // "02"
+
+	var location models.Location
+	location.Row = row
+	location.Bay = bay
+	location.Level = level
+	location.Bin = bin
+	location.LocationCode = newLocation.NewLocation
+
+	bayInt, err := strconv.Atoi(location.Bay)
+	if err != nil {
+		location.Area = "Unknown"
+	} else {
+		if bayInt%2 != 0 {
+			location.Area = "ganjil"
+		} else {
+			location.Area = "genap"
+		}
+	}
+
+	location.CreatedBy = userID
+	location.UpdatedBy = userID
+
+	if err := lc.DB.Create(&location).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	return ctx.Status(fiber.StatusCreated).JSON(fiber.Map{
+		"success": true,
+		"message": "New location created successfully",
+		"data":    location,
+	})
+}
