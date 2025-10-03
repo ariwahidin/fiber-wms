@@ -13,18 +13,20 @@ func NewInventoryRepository(db *gorm.DB) *InventoryRepository {
 }
 
 type listInventory struct {
-	ItemCode     string `json:"item_code"`
-	ItemName     string `json:"item_name"`
-	Location     string `json:"location"`
-	Barcode      string `json:"barcode"`
-	OwnerCode    string `json:"owner_code"`
-	RecDate      string `json:"rec_date"`
-	Category     string `json:"category"`
-	WhsCode      string `json:"whs_code"`
-	QaStatus     string `json:"qa_status"`
-	QtyOnhand    int    `json:"qty_onhand"`
-	QtyAvailable int    `json:"qty_available"`
-	QtyAllocated int    `json:"qty_allocated"`
+	ItemCode     string  `json:"item_code"`
+	ItemName     string  `json:"item_name"`
+	Location     string  `json:"location"`
+	Barcode      string  `json:"barcode"`
+	OwnerCode    string  `json:"owner_code"`
+	RecDate      string  `json:"rec_date"`
+	Category     string  `json:"category"`
+	WhsCode      string  `json:"whs_code"`
+	QaStatus     string  `json:"qa_status"`
+	QtyOnhand    int     `json:"qty_onhand"`
+	QtyAvailable int     `json:"qty_available"`
+	QtyAllocated int     `json:"qty_allocated"`
+	CbmPcs       float64 `json:"cbm_pcs"`
+	CbmTotal     float64 `json:"cbm_total"`
 }
 
 func (r *InventoryRepository) GetInventory() ([]listInventory, error) {
@@ -33,13 +35,14 @@ func (r *InventoryRepository) GetInventory() ([]listInventory, error) {
 	b.item_code, b.item_name, a.qa_status, 
 	sum(a.qty_onhand) as qty_onhand,
 	sum(a.qty_available) as qty_available,
-	sum(a.qty_allocated) as qty_allocated
+	sum(a.qty_allocated) as qty_allocated,
+	b.cbm as cbm_pcs,
+	b.cbm * sum(a.qty_available) as cbm_total
 	from inventories a
 	inner join products b on a.item_id = b.id
 	where a.qty_available > 0 or a.qty_allocated > 0
 	group by a.whs_code, a.location, b.item_code, b.item_name, a.qa_status,
-	a.barcode, a.owner_code, a.rec_date, b.category, a.inbound_detail_id
-	`
+	a.barcode, a.owner_code, a.rec_date, b.category, a.inbound_detail_id, b.cbm`
 	// sqlInventory := `select a.whs_code, a.location,
 	// b.item_code, b.item_name, a.qa_status,
 	// sum(a.qty_onhand) as qty_onhand,

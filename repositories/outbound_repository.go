@@ -929,6 +929,7 @@ type SerialNumberList struct {
 	ItemCode     string `json:"item_code"`
 	ItemName     string `json:"item_name"`
 	Barcode      string `json:"barcode"`
+	Category     string `json:"category"`
 	SerialNumber string `json:"serial_number"`
 	HasSerial    string `json:"has_serial"`
 }
@@ -940,6 +941,7 @@ func (r *OutboundRepository) GetOutboundSerialNumber(outboundID int) ([]SerialNu
 	ob.id,
 	ob.item_code,
 	p.item_name,
+	p.category,
 	p.barcode,
 	ob.serial_number,
 	p.has_serial
