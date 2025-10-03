@@ -211,6 +211,9 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 		newInventory.QtyOnhand = inventory.QtyOnhand
 		newInventory.QtyAvailable = inventory.QtyAvailable
 		newInventory.Trans = fmt.Sprintf("transfer from inventory_id : %d", inventory.ID)
+		newInventory.IsTransfer = true
+		newInventory.TransferFrom = inventory.ID
+		newInventory.CreatedAt = time.Now()
 		newInventory.CreatedBy = int(ctx.Locals("userID").(float64))
 
 		if err := tx.Create(&newInventory).Error; err != nil {
@@ -330,6 +333,9 @@ func (c *MobileInventoryController) ConfirmTransferByInventoryID(ctx *fiber.Ctx)
 	newInventory.QtyOnhand = input.QtyTransfer
 	newInventory.QtyAvailable = input.QtyTransfer
 	newInventory.Trans = fmt.Sprintf("transfer from inventory_id : %d", inventory.ID)
+	newInventory.IsTransfer = true
+	newInventory.TransferFrom = inventory.ID
+	newInventory.CreatedAt = time.Now()
 	newInventory.CreatedBy = int(ctx.Locals("userID").(float64))
 
 	if err := tx.Create(&newInventory).Error; err != nil {
