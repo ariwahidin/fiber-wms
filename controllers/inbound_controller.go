@@ -1200,3 +1200,28 @@ func (c *InboundController) HandleComplete(ctx *fiber.Ctx) error {
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Inbound " + inboundHeader.InboundNo + " completed successfully"})
 }
+
+func (c *InboundController) GetInventoryByInbound(ctx *fiber.Ctx) error {
+
+	inboundNo := ctx.Params("inbound_no")
+	if inboundNo == "" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid Inbound No"})
+	}
+
+	var inboundHeader models.InboundHeader
+
+	if err := c.DB.Debug().First(&inboundHeader, "inbound_no = ?", inboundNo).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Inbound not found"})
+		}
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	inboundID := int(inboundHeader.ID)
+	repositories := repositories.NewInventoryRepository(c.DB)
+	inventories, err := repositories.GetInventoryByInbound(inboundID)
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "data": inventories})
+}

@@ -19,6 +19,7 @@ func SetupInboundRoutes(app *fiber.App) {
 
 	api.Post("/", inboundController.CreateInbound)
 	api.Get("/", inboundController.GetAllListInbound)
+	api.Get("/inventory/:inbound_no", inboundController.GetInventoryByInbound)
 	api.Put("/:inbound_no", inboundController.UpdateInboundByID)
 	api.Get("/:inbound_no", inboundController.GetInboundByID)
 	api.Get("/item/:id", inboundController.GetItem)
@@ -27,5 +28,4 @@ func SetupInboundRoutes(app *fiber.App) {
 	api.Post("/complete/:inbound_no", inboundController.HandleComplete)
 	api.Post("/open", inboundController.HandleOpen)
 	api.Post("/checking", inboundController.HandleChecking)
-	// api.Post("/checked", inboundController.HandleChecked)
 }

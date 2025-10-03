@@ -22,9 +22,11 @@ type listInventory struct {
 	Category     string  `json:"category"`
 	WhsCode      string  `json:"whs_code"`
 	QaStatus     string  `json:"qa_status"`
+	QtyIn        int     `json:"qty_in"`
 	QtyOnhand    int     `json:"qty_onhand"`
 	QtyAvailable int     `json:"qty_available"`
 	QtyAllocated int     `json:"qty_allocated"`
+	QtyOut       int     `json:"qty_out"`
 	CbmPcs       float64 `json:"cbm_pcs"`
 	CbmTotal     float64 `json:"cbm_total"`
 }
@@ -43,19 +45,42 @@ func (r *InventoryRepository) GetInventory() ([]listInventory, error) {
 	where a.qty_available > 0 or a.qty_allocated > 0
 	group by a.whs_code, a.location, b.item_code, b.item_name, a.qa_status,
 	a.barcode, a.owner_code, a.rec_date, b.category, a.inbound_detail_id, b.cbm`
-	// sqlInventory := `select a.whs_code, a.location,
-	// b.item_code, b.item_name, a.qa_status,
-	// sum(a.qty_onhand) as qty_onhand,
-	// sum(a.qty_available) as qty_available,
-	// sum(a.qty_allocated) as qty_allocated
-	// from inventories a
-	// inner join products b on a.item_id = b.id
-	// group by a.whs_code, a.location, b.item_code, b.item_name, a.qa_status
-	// `
 
 	var inventories []listInventory
 
 	if err := r.db.Raw(sqlInventory).Scan(&inventories).Error; err != nil {
+		return nil, err
+	}
+
+	if len(inventories) == 0 {
+		inventories = []listInventory{}
+	}
+
+	return inventories, nil
+}
+
+func (r *InventoryRepository) GetInventoryByInbound(inbound_id int) ([]listInventory, error) {
+
+	sqlInventory := `select a.whs_code, a.location, a.barcode, a.owner_code, a.rec_date, b.category,
+	b.item_code, b.item_name, a.qa_status,
+	sum(a.qty_origin) as qty_in,
+	sum(a.qty_onhand) as qty_onhand,
+	sum(a.qty_available) as qty_available,
+	sum(a.qty_allocated) as qty_allocated,
+	sum(a.qty_shipped) as qty_out,
+	b.cbm as cbm_pcs,
+	b.cbm * sum(a.qty_available) as cbm_total
+	from inventories a
+	inner join products b on a.item_id = b.id
+	WHERE 
+	a.inbound_id = ?
+	AND a.qty_origin > 0
+	group by a.whs_code, a.location, b.item_code, b.item_name, a.qa_status,
+	a.barcode, a.owner_code, a.rec_date, b.category, a.inbound_detail_id, b.cbm`
+
+	var inventories []listInventory
+
+	if err := r.db.Raw(sqlInventory, inbound_id).Scan(&inventories).Error; err != nil {
 		return nil, err
 	}
 
