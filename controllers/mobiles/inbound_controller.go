@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fiber-app/models"
 	"fiber-app/repositories"
-	"fiber-app/types"
 	"fmt"
 	"strconv"
 	"strings"
@@ -224,7 +223,7 @@ func (c *MobileInboundController) GetInboundDetail(ctx *fiber.Ctx) error {
 	}
 
 	var inboundDetail []models.InboundDetail
-	if err := c.DB.Where("inbound_id = ?", inboundHeader.ID).Find(&inboundDetail).Error; err != nil {
+	if err := c.DB.Debug().Where("inbound_id = ?", inboundHeader.ID).Find(&inboundDetail).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
@@ -256,7 +255,7 @@ func (c *MobileInboundController) GetInboundDetail(ctx *fiber.Ctx) error {
 		var scanQty int
 
 		for _, item := range inboundBarcode {
-			if v.ID == types.SnowflakeID(int64(item.InboundDetailId)) {
+			if int(v.ID) == int(item.InboundDetailId) {
 				scanQty += item.Quantity
 			}
 		}

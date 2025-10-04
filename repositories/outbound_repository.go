@@ -35,35 +35,6 @@ func NewOutboundRepository(db *gorm.DB) *OutboundRepository {
 	return &OutboundRepository{db: db}
 }
 
-// func (r *OutboundRepository) GenerateOutboundNumber() (string, error) {
-// 	var lastOutbound models.OutboundHeader
-
-// 	// Ambil outbound terakhir
-// 	if err := r.db.Last(&lastOutbound).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-// 		return "", err
-// 	}
-
-// 	// Ambil bulan dan tahun saat ini
-// 	currentYear := time.Now().Format("2006")
-// 	currentMonth := time.Now().Format("01")
-
-// 	// Generate nomor inbound baru
-// 	var outboundNo string
-// 	if lastOutbound.OutboundNo != "" {
-// 		lastOutboundNo := lastOutbound.OutboundNo[len(lastOutbound.OutboundNo)-4:] // Ambil 4 digit terakhir
-// 		if currentMonth != lastOutbound.OutboundNo[6:8] {                          // Jika bulan berbeda
-// 			outboundNo = fmt.Sprintf("OB%s%s%04d", currentYear, currentMonth, 1)
-// 		} else {
-// 			lastOutboundNoInt, _ := strconv.Atoi(lastOutboundNo)
-// 			outboundNo = fmt.Sprintf("OB%s%s%04d", currentYear, currentMonth, lastOutboundNoInt+1)
-// 		}
-// 	} else {
-// 		outboundNo = fmt.Sprintf("OB%s%s%04d", currentYear, currentMonth, 1)
-// 	}
-
-// 	return outboundNo, nil
-// }
-
 func (r *OutboundRepository) GenerateOutboundNumber() (string, error) {
 	var lastOutbound models.OutboundHeader
 
@@ -159,12 +130,6 @@ func (r *OutboundRepository) CreateItemOutbound(header *models.OutboundHeader, d
 		}
 	}
 
-	// Insert ke Outbound Detail
-	// if err := tx.Create(data).Error; err != nil {
-	// 	tx.Rollback()
-	// 	return 0, err
-	// }
-
 	sqlDelete := `DELETE FROM outbound_detail_handlings WHERE outbound_detail_id = ?`
 	if err := tx.Exec(sqlDelete, data.ID).Error; err != nil {
 		tx.Rollback()
@@ -179,14 +144,9 @@ func (r *OutboundRepository) CreateItemOutbound(header *models.OutboundHeader, d
 	for _, handling := range handlingUsed {
 		inboundDetailHandling := models.OutboundDetailHandling{
 			OutboundDetailId: int(outboundDetailID),
-			// HandlingId:        handling.HandlingID,
-			HandlingUsed: handling.HandlingUsed,
-			// HandlingCombineId: handling.HandlingCombineID,
-			// OriginHandlingId:  handling.OriginHandlingID,
-			// OriginHandling:    handling.OriginHandling,
-			// RateId:            handling.RateID,
-			RateIdr:   handling.RateIDR,
-			CreatedBy: int(data.CreatedBy),
+			HandlingUsed:     handling.HandlingUsed,
+			RateIdr:          handling.RateIDR,
+			CreatedBy:        int(data.CreatedBy),
 		}
 
 		total_idr += handling.RateIDR
@@ -217,6 +177,7 @@ type OutboundList struct {
 	ShipmentID   string  `json:"shipment_id"`
 	OwnerCode    string  `json:"owner_code"`
 	OutboundDate string  `json:"outbound_date"`
+	OrderNo      string  `json:"order_no"`
 	CustomerCode string  `json:"customer_code"`
 	CustomerName string  `json:"customer_name"`
 	TotalItem    int     `json:"total_item"`
@@ -253,12 +214,20 @@ func (r *OutboundRepository) GetAllOutboundList() ([]OutboundList, error) {
 		SELECT outbound_id, SUM(quantity) AS qty_pack
 		FROM outbound_barcodes
 		GROUP BY outbound_id
+	),
+	ord AS (
+		SELECT 
+		order_no, outbound_id, outbound_no
+		FROM
+		order_details
 	)
    select a.id, a.outbound_no, 
 			a.shipment_id, 
 			a.status, a.owner_code, 
 			a.shipment_id,
-            a.outbound_date, a.customer_code,
+            a.outbound_date,
+			ord.order_no,
+			a.customer_code,
             od.total_item, od.qty_req, COALESCE(ps.qty_plan, 0) AS qty_plan,
             COALESCE(kd.qty_pack, 0) AS qty_pack,
             cs.customer_name,
@@ -275,6 +244,7 @@ func (r *OutboundRepository) GetAllOutboundList() ([]OutboundList, error) {
             LEFT JOIN kd ON a.id = kd.outbound_id
             LEFT JOIN customers cs ON a.customer_code = cs.customer_code
 			LEFT JOIN customers cd ON a.deliv_to = cd.customer_code
+			LEFT JOIN ord ON a.id = ord.outbound_id
 			order by a.id desc`
 
 	if err := r.db.Raw(sql).Scan(&outboundList).Error; err != nil {
@@ -415,25 +385,6 @@ func (r *OutboundRepository) GetOutboundPicking() ([]OutboundList, error) {
 
 	return outboundList, nil
 }
-
-// type PaperPickingSheet struct {
-// 	OutboundNo   string  `json:"outbound_no"`
-// 	InventoryID  int     `json:"inventory_id"`
-// 	ItemID       int     `json:"item_id"`
-// 	ItemCode     string  `json:"item_code"`
-// 	Quantity     int     `json:"quantity"`
-// 	Barcode      string  `json:"barcode"`
-// 	ItemName     string  `json:"item_name"`
-// 	Pallet       string  `json:"pallet"`
-// 	Location     string  `json:"location"`
-// 	Cbm          float64 `json:"cbm"`
-// 	WhsCode      string  `json:"whs_code"`
-// 	RecDate      string  `json:"rec_date"`
-// 	OutboundDate string  `json:"outbound_date"`
-// 	ShipmentID   string  `json:"shipment_id"`
-// 	CustomerCode string  `json:"customer_code"`
-// 	CustomerName string  `json:"customer_name"`
-// }
 
 type PaperPickingSheet struct {
 	OutboundNo      string  `json:"outbound_no"`
@@ -972,88 +923,6 @@ type VasCalculate struct {
 	VasKoli      int     `json:"vas_koli"`
 	TotalPrice   float64 `json:"total_price"`
 }
-
-// func (r *OutboundRepository) CalculatVasOutbound(outboundID int) ([]VasCalculate, error) {
-// 	var result []VasCalculate
-
-// 	sql := `WITH vas_sum AS
-// 	(SELECT v.id as vas_id, v.name as vas_name,
-// 	vd.main_vas_id, mv.name as main_vas_name, mv.default_price, mv.is_koli
-// 	FROM vas v
-// 	INNER JOIN vas_detail vd ON v.id = vd.vas_id
-// 	INNER JOIN main_vas mv ON mv.id = vd.main_vas_id),
-// 	vas_ob_item AS (
-// 		SELECT
-// 		od.id as outbound_detail_id,
-// 		od.outbound_id,
-// 		od.outbound_no,
-// 		oh.outbound_date,
-// 		od.item_id,
-// 		od.item_code,
-// 		od.barcode,
-// 		od.quantity as qty_item,
-// 		ordt.qty_koli,
-// 		od.vas_id ob_vas_id,
-// 		od.vas_name ob_vas_name,
-// 		vs.main_vas_id,
-// 		vs.main_vas_name,
-// 		vs.default_price,
-// 		vs.is_koli,
-// 		CASE WHEN vs.is_koli = 0 THEN od.quantity * vs.default_price ELSE oh.qty_koli * vs.default_price END AS total_price
-// 		FROM
-// 		outbound_details od
-// 		inner join outbound_headers oh ON od.outbound_id = oh.id
-// 		inner join vas_sum vs ON od.vas_id = vs.vas_id
-// 		inner join order_details ordt ON oh.id = ordt.outbound_id
-// 		WHERE od.outbound_id = ?
-// 		),
-// 	vas_ob_sum AS(
-// 		select
-// 		vb.outbound_id, vb.outbound_no, vb.outbound_date,
-// 		vb.main_vas_name, vb.is_koli, vb.default_price,
-// 		sum(vb.qty_item) as qty_item,
-// 		vb.qty_koli
-// 		from
-// 		vas_ob_item vb
-// 		where vb.is_koli = 1
-// 		GROUP BY
-// 		vb.outbound_id,
-// 		vb.outbound_no,
-// 		vb.outbound_date,
-// 		vb.is_koli,
-// 		vb.main_vas_name,
-// 		vb.default_price,
-// 		vb.qty_koli
-// 		UNION ALL
-// 		select
-// 		vb.outbound_id, vb.outbound_no, vb.outbound_date,
-// 		vb.main_vas_name, vb.is_koli, vb.default_price,vb.qty_item, vb.qty_koli
-// 		from
-// 		vas_ob_item vb
-// 		where vb.is_koli = 0)
-// 	SELECT
-// 	vos.outbound_id,
-// 	vos.outbound_no,
-// 	vos.outbound_date,
-// 	vos.main_vas_name,
-// 	vos.is_koli,
-// 	vos.default_price,
-// 	vos.qty_item,
-// 	vos.qty_koli,
-// 	CASE WHEN vos.is_koli = 1 THEN vos.default_price * qty_koli ELSE vos.default_price * vos.qty_item END AS total_price
-// 	FROM vas_ob_sum vos
-// 	`
-
-// 	if err := r.db.Debug().Raw(sql, outboundID).Scan(&result).Error; err != nil {
-// 		return result, err
-// 	}
-
-// 	if len(result) == 0 {
-// 		result = []VasCalculate{}
-// 	}
-
-// 	return result, nil
-// }
 
 type OutboundVasSum struct {
 	OutboundID   int     `json:"outbound_id"`

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fiber-app/models"
 	"fmt"
+	"time"
 
 	"github.com/go-playground/validator"
 	"github.com/gofiber/fiber/v2"
@@ -24,6 +25,9 @@ var productInput struct {
 	ItemName   string  `json:"item_name" validate:"required,min=3"`
 	CBM        float64 `json:"cbm" validate:"required"`
 	GMC        string  `json:"gmc" validate:"required,min=6"`
+	Width      float64 `json:"width"`
+	Length     float64 `json:"length"`
+	Height     float64 `json:"height"`
 	Group      string  `json:"group" validate:"required,min=3"`
 	Category   string  `json:"category" validate:"required,min=3"`
 	Serial     string  `json:"serial" validate:"required,min=1"`
@@ -31,6 +35,7 @@ var productInput struct {
 	Adaptor    string  `json:"adaptor" validate:"required,min=1"`
 	ManualBook string  `json:"manual_book" validate:"required,min=1"`
 	Uom        string  `json:"uom" validate:"required,min=3"`
+	OwnerCode  string  `json:"owner_code" validate:"required,min=3"`
 }
 
 func (c *ProductController) CreateProduct(ctx *fiber.Ctx) error {
@@ -59,6 +64,9 @@ func (c *ProductController) CreateProduct(ctx *fiber.Ctx) error {
 		CBM:        productInput.CBM,
 		Barcode:    productInput.GMC,
 		GMC:        productInput.GMC,
+		Width:      productInput.Width,
+		Length:     productInput.Length,
+		Height:     productInput.Height,
 		Group:      productInput.Group,
 		Category:   productInput.Category,
 		HasSerial:  productInput.Serial,
@@ -66,6 +74,7 @@ func (c *ProductController) CreateProduct(ctx *fiber.Ctx) error {
 		HasAdaptor: productInput.Adaptor,
 		ManualBook: productInput.ManualBook,
 		Uom:        productInput.Uom,
+		OwnerCode:  productInput.OwnerCode,
 		CreatedBy:  int(ctx.Locals("userID").(float64)),
 	}
 
@@ -174,11 +183,16 @@ func (c *ProductController) UpdateProduct(ctx *fiber.Ctx) error {
 			"barcode":     productInput.GMC,
 			"group":       productInput.Group,
 			"category":    productInput.Category,
+			"width":       productInput.Width,
+			"length":      productInput.Length,
+			"height":      productInput.Height,
 			"has_serial":  productInput.Serial,
 			"has_waranty": productInput.Waranty,
 			"has_adaptor": productInput.Adaptor,
 			"manual_book": productInput.ManualBook,
 			"uom":         productInput.Uom,
+			"owner_code":  productInput.OwnerCode,
+			"updated_at":  time.Now(),
 			"updated_by":  int(ctx.Locals("userID").(float64)),
 		}).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
