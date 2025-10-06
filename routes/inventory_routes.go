@@ -18,4 +18,5 @@ func SetupInventoryRoutes(app *fiber.App) {
 	api.Get("/excel", inventoryController.ExportExcel)
 	api.Post("/rf/pallet", inventoryController.GetInventoryByPalletAndLocation)
 	api.Post("/rf/move", inventoryController.MoveItem)
+	api.Post("/change", inventoryController.ChangeStatusInventory)
 }
