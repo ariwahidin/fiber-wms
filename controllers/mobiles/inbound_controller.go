@@ -167,14 +167,21 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 	inboundDetail.UpdatedAt = time.Now()
 
 	var checkInboundBarcode models.InboundBarcode
-	if err := tx.Where("inbound_id = ? AND item_code = ? AND serial_number = ?", inboundHeader.ID, product.ItemCode, scanInbound.Serial).First(&checkInboundBarcode).Error; err != nil {
+	if err := tx.Debug().Where("inbound_id = ? AND item_code = ? AND serial_number = ?", inboundHeader.ID, product.ItemCode, scanInbound.Serial).First(&checkInboundBarcode).Error; err != nil {
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			tx.Rollback()
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
 	}
 
-	if checkInboundBarcode.ID > 0 && scanInbound.ScanType == "SERIAL" {
+	var scanType = "SERIAL"
+
+	if product.HasSerial == "N" {
+		scanType = "BARCODE"
+		scanInbound.Serial = scanInbound.Barcode
+	}
+
+	if checkInboundBarcode.ID > 0 && scanType == "SERIAL" {
 		tx.Rollback()
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Serial number already scanned", "message": "Serial number already scanned"})
 	}
@@ -187,7 +194,7 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 		ItemID:          int(product.ID),
 		ItemCode:        product.ItemCode,
 		Barcode:         scanInbound.Barcode,
-		ScanType:        scanInbound.ScanType,
+		ScanType:        scanType,
 		WhsCode:         inboundDetail.WhsCode,
 		OwnerCode:       inboundDetail.OwnerCode,
 		DivisionCode:    inboundDetail.DivisionCode,
@@ -204,7 +211,7 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	fmt.Println("ID yang dihasilkan:", inboundBarcode.ID)
+	// fmt.Println("ID yang dihasilkan:", inboundBarcode.ID)
 
 	if err := tx.Commit().Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
