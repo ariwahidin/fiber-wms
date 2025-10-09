@@ -676,7 +676,7 @@ func (c *InboundController) GetPutawaySheet(ctx *fiber.Ctx) error {
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Putaway Sheet Found", "data": putawaySheet})
 }
 
-func (c *InboundController) PutawayPerItemByInboundNo(ctx *fiber.Ctx) error {
+func (c *InboundController) PutawayByInboundNo(ctx *fiber.Ctx) error {
 	var payload struct {
 		InboundNo string `json:"inbound_no"`
 	}
@@ -1224,4 +1224,8 @@ func (c *InboundController) GetInventoryByInbound(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "data": inventories})
+}
+
+func (c *InboundController) GetSummaryInboundActivity(ctx *fiber.Ctx) error {
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true})
 }

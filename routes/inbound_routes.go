@@ -14,7 +14,7 @@ func SetupInboundRoutes(app *fiber.App) {
 	api := app.Group("/api/v1/inbound", middleware.AuthMiddleware)
 	api.Use(database.InjectDBMiddleware(inboundController))
 
-	api.Post("/handle-putaway", inboundController.PutawayPerItemByInboundNo)
+	api.Post("/handle-putaway", inboundController.PutawayByInboundNo)
 	api.Post("/putaway-bulk", inboundController.PutawayBulk)
 
 	api.Post("/", inboundController.CreateInbound)
