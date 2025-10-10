@@ -430,3 +430,76 @@ func (lc *MobileInventoryController) CreateLocation(ctx *fiber.Ctx) error {
 		"data":    location,
 	})
 }
+
+type Payload struct {
+	Barcode string `json:"barcode"`
+}
+
+type Response struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+	Data    any    `json:"data"`
+}
+
+func (c *MobileInventoryController) GetItemsByBarcode(ctx *fiber.Ctx) error {
+	barcode := ctx.Params("barcode")
+
+	if barcode == "" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"error":   "Invalid barcode",
+		})
+	}
+
+	type InventoryResult struct {
+		ItemName     string  `json:"item_name"`
+		ItemCode     string  `json:"item_code"`
+		Barcode      string  `json:"barcode"`
+		Location     string  `json:"location"`
+		WhsCode      string  `json:"whs_code"`
+		RecDate      string  `json:"rec_date"`
+		QtyAvailable float64 `json:"qty_available"`
+	}
+
+	var results []InventoryResult
+
+	query := `
+		SELECT 
+			p.item_name,
+			inv.item_code,
+			inv.barcode,
+			inv.location,
+			inv.whs_code,
+			inv.rec_date,
+			SUM(inv.qty_available) AS qty_available
+		FROM inventories inv
+		INNER JOIN products p ON inv.item_id = p.id
+		WHERE (inv.barcode = ? OR inv.item_code = ?) AND inv.qty_available > 0
+		GROUP BY
+			p.item_name,
+			inv.item_code,
+			inv.barcode,
+			inv.location,
+			inv.whs_code,
+			inv.rec_date
+	`
+
+	if err := c.DB.Raw(query, barcode, barcode).Scan(&results).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"error":   err.Error(),
+		})
+	}
+
+	if len(results) == 0 {
+		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"success": false,
+			"message": "Item not found",
+		})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"data":    results,
+	})
+}
