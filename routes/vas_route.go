@@ -16,8 +16,10 @@ func SetupVasRoutes(app *fiber.App) {
 	api.Post("/main-vas", vasController.CreateMainVas)
 	api.Get("/main-vas", vasController.GetAllMainVas)
 	api.Put("/main-vas/:id", vasController.UpdateMainVas)
+	api.Delete("/main-vas/:id", vasController.DeleteMainVas)
 
 	api.Post("/page", vasController.CreateVas)
 	api.Get("/page", vasController.GetAllVas)
 	api.Put("/page/:id", vasController.UpdateVas)
+	api.Delete("/page/:id", vasController.DeleteVas)
 }

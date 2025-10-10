@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"fiber-app/models"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -95,7 +96,15 @@ func (c *VasController) UpdateMainVas(ctx *fiber.Ctx) error {
 
 	body.UpdatedBy = int(ctx.Locals("userID").(float64))
 
-	if err := c.DB.Model(&models.MainVas{}).Where("id = ?", id).Updates(body).Error; err != nil {
+	updateData := map[string]interface{}{
+		"name":          body.Name,
+		"is_koli":       body.IsKoli,
+		"is_active":     body.IsActive,
+		"default_price": body.DefaultPrice,
+		"updated_by":    body.UpdatedBy,
+	}
+
+	if err := c.DB.Debug().Model(&models.MainVas{}).Where("id = ?", id).Updates(updateData).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"success": false, "message": "Failed to update", "error": err.Error(),
 		})
@@ -123,6 +132,45 @@ func (c *VasController) UpdateMainVas(ctx *fiber.Ctx) error {
 	}
 
 	return ctx.JSON(fiber.Map{"success": true, "message": "Vas updated"})
+}
+
+func (c *VasController) DeleteMainVas(ctx *fiber.Ctx) error {
+	id := ctx.Params("id")
+
+	userID, ok := ctx.Locals("userID").(int)
+	if !ok {
+		if f, ok := ctx.Locals("userID").(float64); ok {
+			userID = int(f)
+		} else {
+			return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				"success": false, "message": "Invalid user session",
+			})
+		}
+	}
+
+	// 1️⃣ Update dulu siapa yang menghapus
+	if err := c.DB.Model(&models.MainVas{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"deleted_by": userID,
+			"deleted_at": time.Now(),
+		}).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false, "message": "Failed to mark deleted", "error": err.Error(),
+		})
+	}
+
+	// 2️⃣ Soft delete record-nya (jika pakai gorm.DeletedAt)
+	if err := c.DB.Where("id = ?", id).Delete(&models.MainVas{}).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false, "message": "Failed to delete", "error": err.Error(),
+		})
+	}
+
+	return ctx.JSON(fiber.Map{
+		"success": true,
+		"message": "Main vas deleted successfully",
+	})
 }
 
 // DTO untuk input
@@ -288,5 +336,44 @@ func (c *VasController) UpdateVas(ctx *fiber.Ctx) error {
 		"success": true,
 		"message": "VAS updated successfully",
 		"data":    vas,
+	})
+}
+
+func (c *VasController) DeleteVas(ctx *fiber.Ctx) error {
+	id := ctx.Params("id")
+
+	userID, ok := ctx.Locals("userID").(int)
+	if !ok {
+		if f, ok := ctx.Locals("userID").(float64); ok {
+			userID = int(f)
+		} else {
+			return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				"success": false, "message": "Invalid user session",
+			})
+		}
+	}
+
+	// 1️⃣ Update dulu siapa yang menghapus
+	if err := c.DB.Model(&models.Vas{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"deleted_by": userID,
+			"deleted_at": time.Now(),
+		}).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false, "message": "Failed to mark deleted", "error": err.Error(),
+		})
+	}
+
+	// 2️⃣ Soft delete record-nya (jika pakai gorm.DeletedAt)
+	if err := c.DB.Where("id = ?", id).Delete(&models.Vas{}).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false, "message": "Failed to delete", "error": err.Error(),
+		})
+	}
+
+	return ctx.JSON(fiber.Map{
+		"success": true,
+		"message": "Vas deleted successfully",
 	})
 }
