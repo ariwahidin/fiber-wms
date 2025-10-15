@@ -1086,6 +1086,7 @@ func (r *OutboundController) ProccesHandleOpen(ctx *fiber.Ctx) error {
 		Action           string `json:"action"`
 		OutboundNo       string `json:"outbound_no"`
 		TempLocationName string `json:"temp_location_name"`
+		Status           string `json:"status"`
 	}
 
 	if err := ctx.BodyParser(&payload); err != nil {
@@ -1221,7 +1222,7 @@ func (r *OutboundController) ProccesHandleOpen(ctx *fiber.Ctx) error {
 
 	// Update status
 	if err := tx.Model(&models.OutboundHeader{}).Where("id = ?", outboundHeader.ID).
-		Update("status", "open").Error; err != nil {
+		Update("status", payload.Status).Error; err != nil {
 		tx.Rollback()
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -1230,7 +1231,7 @@ func (r *OutboundController) ProccesHandleOpen(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Changed to Open successfully"})
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Change to " + payload.Status + " successfully"})
 }
 
 func (c *OutboundController) CreatePacking(ctx *fiber.Ctx) error {
