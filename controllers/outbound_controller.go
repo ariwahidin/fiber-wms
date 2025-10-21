@@ -1145,9 +1145,6 @@ func (r *OutboundController) ProccesHandleOpen(ctx *fiber.Ctx) error {
 				tx.Rollback()
 				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Inventory not found"})
 			}
-
-			// Buat inventory baru (jumlah = picking.Quantity)
-			// newInventory := models.Inventory{}
 			var newInventory models.Inventory
 			newInventory.OwnerCode = inventory.OwnerCode
 			newInventory.WhsCode = inventory.WhsCode
@@ -1159,12 +1156,15 @@ func (r *OutboundController) ProccesHandleOpen(ctx *fiber.Ctx) error {
 			newInventory.Location = payload.TempLocationName
 			newInventory.ItemId = inventory.ItemId
 			newInventory.ItemCode = inventory.ItemCode
+			newInventory.Barcode = inventory.Barcode
 			newInventory.QaStatus = inventory.QaStatus
 			newInventory.Uom = inventory.Uom
 			newInventory.QtyOrigin = picking.Quantity
 			newInventory.QtyOnhand = picking.Quantity
 			newInventory.QtyAvailable = picking.Quantity
 			newInventory.Trans = "UNPOST " + payload.OutboundNo + ", From INV ID : " + fmt.Sprint(inventory.ID)
+			newInventory.IsTransfer = true
+			newInventory.TransferFrom = inventory.ID
 			newInventory.CreatedBy = int(userID)
 			newInventory.CreatedAt = time.Now()
 

@@ -112,11 +112,7 @@ func (c *UomController) GetUomByItemCode(ctx *fiber.Ctx) error {
 	item_code := payload.ItemCode
 
 	var uoms []models.UomConversion
-	// if err := c.DB.Where("item_code = ? AND is_base = ?", item_code, true).Find(&uoms).Error; err != nil {
-	// 	return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-	// }
-
-	if err := c.DB.Where("item_code = ?", item_code).Find(&uoms).Error; err != nil {
+	if err := c.DB.Where("item_code = ? AND is_base = ?", item_code, true).Find(&uoms).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
