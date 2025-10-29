@@ -34,7 +34,7 @@ func SetupMobileInventoryRoutes(app *fiber.App) {
 
 	api.Get("/inventory/by-item/:barcode", mobileInventoryController.GetItemsByBarcode)
 	api.Get("/inventory/location/:location", mobileInventoryController.GetItemsByLocation)
-	api.Post("/inventory/dummy", mobileInventoryController.CreateDummyInventory)
+	// api.Post("/inventory/dummy", mobileInventoryController.CreateDummyInventory)
 	api.Post("/inventory/location/barcode", mobileInventoryController.GetItemsByLocationAndBarcode)
 	api.Post("/inventory/transfer/location/barcode", mobileInventoryController.ConfirmTransferByLocationAndBarcode)
 	api.Post("/inventory/transfer-by-inventory-id", mobileInventoryController.ConfirmTransferByInventoryID)

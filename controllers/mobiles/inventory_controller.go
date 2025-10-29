@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
-	"golang.org/x/exp/rand"
 	"gorm.io/gorm"
 )
 
@@ -37,52 +36,52 @@ func (c *MobileInventoryController) GetItemsByLocation(ctx *fiber.Ctx) error {
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "data": inventories})
 }
 
-func (c *MobileInventoryController) CreateDummyInventory(ctx *fiber.Ctx) error {
-	// Ambil jumlah dari query param (default 100)
-	count := ctx.QueryInt("count", 100)
+// func (c *MobileInventoryController) CreateDummyInventory(ctx *fiber.Ctx) error {
+// 	// Ambil jumlah dari query param (default 100)
+// 	count := ctx.QueryInt("count", 100)
 
-	var inventories []models.Inventory
+// 	var inventories []models.Inventory
 
-	for i := 0; i < count; i++ {
-		fmt.Println("Loop ke-", i, "Data : ", inventories)
-		now := time.Now()
-		inventory := models.Inventory{
-			InboundDetailId: rand.Intn(1000),
-			// InboundBarcodeId: rand.Intn(1000),
-			RecDate:   now.Format("2006-01-02"),
-			OwnerCode: fmt.Sprintf("Owner%d", rand.Intn(100)),
-			WhsCode:   fmt.Sprintf("WHS%d", rand.Intn(10)),
-			Pallet:    fmt.Sprintf("Pallet%d", rand.Intn(100)),
-			Location:  fmt.Sprintf("Loc%d", rand.Intn(50)),
-			ItemId:    rand.Intn(1000),
-			ItemCode:  fmt.Sprintf("ITEMCODE%d", rand.Intn(10000)),
-			Barcode:   fmt.Sprintf("BARCODE%d", rand.Intn(99999)),
-			// SerialNumber:     fmt.Sprintf("SN%d", rand.Intn(99999)),
-			QaStatus: "A",
-			// QtyOrigin:    rand.Intn(100),
-			QtyOnhand:    rand.Intn(100),
-			QtyAvailable: rand.Intn(100),
-			QtyAllocated: rand.Intn(100),
-			QtySuspend:   rand.Intn(100),
-			QtyShipped:   rand.Intn(100),
-			Trans:        "dummy",
-			CreatedBy:    1,
-			UpdatedBy:    1,
-		}
-		inventories = append(inventories, inventory)
-	}
+// 	for i := 0; i < count; i++ {
+// 		fmt.Println("Loop ke-", i, "Data : ", inventories)
+// 		now := time.Now()
+// 		inventory := models.Inventory{
+// 			InboundDetailId: rand.Intn(1000),
+// 			// InboundBarcodeId: rand.Intn(1000),
+// 			RecDate:   now.Format("2006-01-02"),
+// 			OwnerCode: fmt.Sprintf("Owner%d", rand.Intn(100)),
+// 			WhsCode:   fmt.Sprintf("WHS%d", rand.Intn(10)),
+// 			Pallet:    fmt.Sprintf("Pallet%d", rand.Intn(100)),
+// 			Location:  fmt.Sprintf("Loc%d", rand.Intn(50)),
+// 			ItemId:    rand.Intn(1000),
+// 			ItemCode:  fmt.Sprintf("ITEMCODE%d", rand.Intn(10000)),
+// 			Barcode:   fmt.Sprintf("BARCODE%d", rand.Intn(99999)),
+// 			// SerialNumber:     fmt.Sprintf("SN%d", rand.Intn(99999)),
+// 			QaStatus: "A",
+// 			// QtyOrigin:    rand.Intn(100),
+// 			QtyOnhand:    rand.Intn(100),
+// 			QtyAvailable: rand.Intn(100),
+// 			QtyAllocated: rand.Intn(100),
+// 			QtySuspend:   rand.Intn(100),
+// 			QtyShipped:   rand.Intn(100),
+// 			Trans:        "dummy",
+// 			CreatedBy:    1,
+// 			UpdatedBy:    1,
+// 		}
+// 		inventories = append(inventories, inventory)
+// 	}
 
-	// Batch Insert
-	if err := c.DB.Create(&inventories).Error; err != nil {
-		return ctx.Status(500).JSON(fiber.Map{
-			"error": "Failed to insert dummy data to database, error: " + err.Error(),
-		})
-	}
+// 	// Batch Insert
+// 	if err := c.DB.Create(&inventories).Error; err != nil {
+// 		return ctx.Status(500).JSON(fiber.Map{
+// 			"error": "Failed to insert dummy data to database, error: " + err.Error(),
+// 		})
+// 	}
 
-	return ctx.Status(200).JSON(fiber.Map{
-		"success": true,
-		"data":    inventories})
-}
+// 	return ctx.Status(200).JSON(fiber.Map{
+// 		"success": true,
+// 		"data":    inventories})
+// }
 
 func (c *MobileInventoryController) GetItemsByLocationAndBarcode(ctx *fiber.Ctx) error {
 
@@ -115,7 +114,7 @@ func (c *MobileInventoryController) GetItemsByLocationAndBarcode(ctx *fiber.Ctx)
 		}
 	}
 
-	totalAllocated := 0
+	var totalAllocated float64 = 0
 	for _, inv := range inventories {
 		totalAllocated += inv.QtyAllocated
 	}
@@ -213,6 +212,8 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 		newInventory.Trans = fmt.Sprintf("transfer from inventory_id : %d", inventory.ID)
 		newInventory.IsTransfer = true
 		newInventory.TransferFrom = inventory.ID
+		newInventory.LotNumber = inventory.LotNumber
+		newInventory.ExpDate = inventory.ExpDate
 		newInventory.CreatedAt = time.Now()
 		newInventory.CreatedBy = int(ctx.Locals("userID").(float64))
 
@@ -329,12 +330,14 @@ func (c *MobileInventoryController) ConfirmTransferByInventoryID(ctx *fiber.Ctx)
 	newInventory.Pallet = input.ToLocation
 	newInventory.Location = input.ToLocation
 	newInventory.QaStatus = inventory.QaStatus
-	newInventory.QtyOrigin = input.QtyTransfer
-	newInventory.QtyOnhand = input.QtyTransfer
-	newInventory.QtyAvailable = input.QtyTransfer
+	newInventory.QtyOrigin = float64(input.QtyTransfer)
+	newInventory.QtyOnhand = float64(input.QtyTransfer)
+	newInventory.QtyAvailable = float64(input.QtyTransfer)
 	newInventory.Trans = fmt.Sprintf("transfer from inventory_id : %d", inventory.ID)
 	newInventory.IsTransfer = true
 	newInventory.TransferFrom = inventory.ID
+	newInventory.LotNumber = inventory.LotNumber
+	newInventory.ExpDate = inventory.ExpDate
 	newInventory.CreatedAt = time.Now()
 	newInventory.CreatedBy = int(ctx.Locals("userID").(float64))
 
@@ -349,9 +352,9 @@ func (c *MobileInventoryController) ConfirmTransferByInventoryID(ctx *fiber.Ctx)
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	oldInventory.QtyOrigin = oldInventory.QtyOrigin - input.QtyTransfer
-	oldInventory.QtyOnhand = oldInventory.QtyOnhand - input.QtyTransfer
-	oldInventory.QtyAvailable = oldInventory.QtyAvailable - input.QtyTransfer
+	oldInventory.QtyOrigin = oldInventory.QtyOrigin - float64(input.QtyTransfer)
+	oldInventory.QtyOnhand = oldInventory.QtyOnhand - float64(input.QtyTransfer)
+	oldInventory.QtyAvailable = oldInventory.QtyAvailable - float64(input.QtyTransfer)
 	oldInventory.UpdatedAt = time.Now()
 	oldInventory.UpdatedBy = int(ctx.Locals("userID").(float64))
 

@@ -250,9 +250,9 @@ func (c *MobilePackingController) AddToKoli(ctx *fiber.Ctx) error {
 			})
 		}
 
-		qtyReq := requestBody.Qty
+		qtyReq := float64(requestBody.Qty)
 		for _, sheet := range pickingSheets {
-			qtyPicking := sheet.Quantity
+			qtyPicking := float64(sheet.Quantity)
 			if qtyReq < qtyPicking {
 				qtyPicking = qtyReq
 			}
@@ -265,7 +265,7 @@ func (c *MobilePackingController) AddToKoli(ctx *fiber.Ctx) error {
 			koliDetail.ItemCode = sheet.ItemCode
 			koliDetail.Barcode = requestBody.Barcode
 			koliDetail.SerialNumber = requestBody.SerialNumber
-			koliDetail.Qty = qtyPicking
+			koliDetail.Qty = int(qtyPicking)
 			koliDetail.ItemID = int(product.ID)
 			koliDetail.InventoryID = sheet.InventoryID
 			koliDetail.OutboundID = int(outboundHeader.ID)

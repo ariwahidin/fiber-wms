@@ -345,7 +345,7 @@ func (c *MobileOutboundController) OverridePicking(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error(), "message": "Inventory not found"})
 	}
 
-	if findInventory.QtyAvailable < newPicking.NewQty {
+	if findInventory.QtyAvailable < float64(newPicking.NewQty) {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Inventory not enough"})
 	}
 
@@ -393,7 +393,7 @@ func (c *MobileOutboundController) OverridePicking(ctx *fiber.Ctx) error {
 		Model(&models.OutboundPicking{}).
 		Where("id = ?", oldPickingList.ID).
 		Updates(map[string]interface{}{
-			"quantity":   oldPickingList.Quantity - newPicking.NewQty,
+			"quantity":   oldPickingList.Quantity - float64(newPicking.NewQty),
 			"reason":     newPicking.Reason + " [old]",
 			"updated_by": int(ctx.Locals("userID").(float64)),
 			"updated_at": time.Now(),
@@ -416,7 +416,7 @@ func (c *MobileOutboundController) OverridePicking(ctx *fiber.Ctx) error {
 		ItemCode:         findInventory.ItemCode,
 		Pallet:           findInventory.Pallet,
 		Location:         findInventory.Location,
-		Quantity:         newPicking.NewQty,
+		Quantity:         float64(newPicking.NewQty),
 		WhsCode:          findInventory.WhsCode,
 		QaStatus:         findInventory.QaStatus,
 		Reason:           newPicking.Reason + " [new]",

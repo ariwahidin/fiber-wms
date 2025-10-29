@@ -80,6 +80,11 @@ func (c *MobileInboundController) CheckItem(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	var inboundHeader models.InboundHeader
+	if err := c.DB.Where("inbound_no = ?", scanInbound.InboundNo).First(&inboundHeader).Error; err != nil {
+		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Inbound not found", "message": "Inbound not found"})
+	}
+
 	var product models.Product
 	if err := c.DB.Where("barcode = ?", scanInbound.Barcode).First(&product).Error; err != nil {
 		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Product not found", "message": "Product not found"})
@@ -89,7 +94,37 @@ func (c *MobileInboundController) CheckItem(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Item checked successfully", "data": product, "is_serial": true})
 	}
 
-	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Item checked successfully", "data": product, "is_serial": false})
+	var inventoryPolicy models.InventoryPolicy
+	if err := c.DB.Where("owner_code = ?", inboundHeader.OwnerCode).First(&inventoryPolicy).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	var inboundDetail []models.InboundDetail
+	if err := c.DB.Where("inbound_id = ? AND item_id = ?", inboundHeader.ID, product.ID).
+		Find(&inboundDetail).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	if len(inboundDetail) < 1 {
+		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Item not found in inbound details", "message": "Item not found in inbound details"})
+	}
+
+	if inventoryPolicy.UseFEFO {
+		return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+			"success":   true,
+			"message":   "Item checked successfully",
+			"is_serial": false,
+			"is_fefo":   true,
+			"data":      inboundDetail,
+		})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success":   true,
+		"message":   "Item checked successfully",
+		"data":      inboundDetail,
+		"is_serial": false,
+	})
 }
 
 func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
@@ -104,6 +139,8 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 		QaStatus  string `json:"qaStatus"`
 		Serial    string `json:"serial"`
 		QtyScan   int    `json:"qtyScan"`
+		ExpDate   string `json:"expDate"`
+		LotNo     string `json:"lotNo"`
 		Uploaded  bool   `json:"uploaded"`
 	}
 
@@ -134,16 +171,50 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Inbound already complete"})
 	}
 
+	var inventoryPolicy models.InventoryPolicy
+	if err := tx.Where("owner_code = ?", inboundHeader.OwnerCode).First(&inventoryPolicy).Error; err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
 	var product models.Product
 	if err := tx.Where("barcode = ?", scanInbound.Barcode).First(&product).Error; err != nil {
 		tx.Rollback()
 		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Product not found", "message": "Product not found"})
 	}
 
-	var inboundDetail models.InboundDetail
-	if err := tx.Debug().Where("inbound_no = ? AND item_code = ?", scanInbound.InboundNo, product.ItemCode).First(&inboundDetail).Error; err != nil {
+	if inventoryPolicy.UseFEFO && scanInbound.ExpDate == "" {
 		tx.Rollback()
-		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Inbound detail not found", "message": "Inbound detail not found", "detail": err.Error()})
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Expiration date is required for FEFO items", "message": "Expiration date is required for FEFO items"})
+	}
+
+	if inventoryPolicy.UseFEFO && scanInbound.LotNo == "" {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Lot number is required for FEFO items", "message": "Lot number is required for FEFO items"})
+	}
+
+	queryInboundDetail := tx.Debug().Model(&models.InboundDetail{}).
+		Where("inbound_no = ? AND item_code = ?", scanInbound.InboundNo, product.ItemCode)
+
+	// kalau pakai FEFO, berarti exp_date dan lot_no wajib ikut
+	if inventoryPolicy.UseFEFO && inventoryPolicy.UseLotNo {
+		queryInboundDetail = queryInboundDetail.Where("exp_date = ? AND lot_number = ? AND quantity = ? ", scanInbound.ExpDate, scanInbound.LotNo, scanInbound.QtyScan)
+	} else if inventoryPolicy.UseFIFO {
+		// kalau FIFO biasanya hanya butuh lot_no (tergantung kebijakan)
+		queryInboundDetail = queryInboundDetail.Where("lot_number = ?", scanInbound.LotNo)
+	} else if inventoryPolicy.UseLotNo {
+		// kalau hanya LOT-based
+		queryInboundDetail = queryInboundDetail.Where("lot_number = ? AND quantity = ?", scanInbound.LotNo, scanInbound.QtyScan)
+	}
+
+	var inboundDetail models.InboundDetail
+	if err := queryInboundDetail.First(&inboundDetail).Error; err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error":   "Item not found in inbound details",
+			"message": "Item not found in inbound details",
+			"detail":  err.Error(),
+		})
 	}
 
 	inboundBarcodes := []models.InboundBarcode{}
@@ -201,7 +272,11 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 		QaStatus:        scanInbound.QaStatus,
 		ScanData:        scanInbound.Serial,
 		SerialNumber:    scanInbound.Serial,
+		RecDate:         inboundDetail.RecDate,
+		ExpDate:         scanInbound.ExpDate,
+		LotNumber:       scanInbound.LotNo,
 		Quantity:        scanInbound.QtyScan,
+		Uom:             inboundDetail.Uom,
 		Status:          "pending",
 		CreatedBy:       int(ctx.Locals("userID").(float64)),
 	}
@@ -210,8 +285,6 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 		tx.Rollback()
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
-
-	// fmt.Println("ID yang dihasilkan:", inboundBarcode.ID)
 
 	if err := tx.Commit().Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})

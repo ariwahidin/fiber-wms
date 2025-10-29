@@ -63,6 +63,8 @@ type OutboundItem struct {
 	Remarks    string            `json:"remarks"`
 	Mode       string            `json:"mode"`
 	VasID      int               `json:"vas_id"`
+	ExpDate    string            `json:"exp_date"`
+	LotNumber  string            `json:"lot_number"`
 }
 
 func (c *OutboundController) CreateOutbound(ctx *fiber.Ctx) error {
@@ -90,6 +92,35 @@ func (c *OutboundController) CreateOutbound(ctx *fiber.Ctx) error {
 	}()
 
 	fmt.Println("Start DB Transaction:", payload)
+
+	var invetoryPolicy models.InventoryPolicy
+	if err := tx.Debug().First(&invetoryPolicy, "owner_code = ?", payload.OwnerCode).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"success": false,
+				"message": "Inventory Policy not found",
+				"error":   err.Error(),
+			})
+		}
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to get inventory policy",
+			"error":   err.Error(),
+		})
+	}
+
+	if invetoryPolicy.RequireLotNumber {
+		for _, item := range payload.Items {
+			if item.LotNumber == "" {
+				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+					"success": false,
+					"message": "Lot number is required",
+					"error":   "Lot number is required",
+				})
+			}
+		}
+	}
 
 	repositories := repositories.NewOutboundRepository(tx)
 
@@ -219,6 +250,8 @@ func (c *OutboundController) CreateOutbound(ctx *fiber.Ctx) error {
 		OutboundDetail.CustomerCode = OutboundHeader.CustomerCode
 		OutboundDetail.Uom = item.UOM
 		OutboundDetail.Quantity = item.Quantity
+		OutboundDetail.ExpDate = item.ExpDate
+		OutboundDetail.LotNumber = item.LotNumber
 		OutboundDetail.WhsCode = OutboundHeader.WhsCode
 		OutboundDetail.DivisionCode = "REGULAR"
 		OutboundDetail.Location = item.Location
@@ -226,6 +259,7 @@ func (c *OutboundController) CreateOutbound(ctx *fiber.Ctx) error {
 		OutboundDetail.SN = item.SN
 		OutboundDetail.SNCheck = "N"
 		OutboundDetail.OwnerCode = OutboundHeader.OwnerCode
+		OutboundDetail.LotNumber = item.LotNumber
 		OutboundDetail.Remarks = item.Remarks
 		OutboundDetail.VasID = item.VasID
 		OutboundDetail.VasName = vas.Name
@@ -340,6 +374,35 @@ func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
 		}
 	}()
 
+	var invetoryPolicy models.InventoryPolicy
+	if err := tx.Debug().First(&invetoryPolicy, "owner_code = ?", payload.OwnerCode).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"success": false,
+				"message": "Inventory Policy not found",
+				"error":   err.Error(),
+			})
+		}
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to get inventory policy",
+			"error":   err.Error(),
+		})
+	}
+
+	if invetoryPolicy.RequireLotNumber {
+		for _, item := range payload.Items {
+			if item.LotNumber == "" {
+				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+					"success": false,
+					"message": "Lot number is required",
+					"error":   "Lot number is required",
+				})
+			}
+		}
+	}
+
 	userID := int(ctx.Locals("userID").(float64))
 	var OutboundHeader models.OutboundHeader
 	if err := tx.Debug().First(&OutboundHeader, "outbound_no = ?", outbound_no).Error; err != nil {
@@ -441,6 +504,8 @@ func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
 					ItemCode:     item.ItemCode,
 					Barcode:      product.Barcode,
 					Quantity:     item.Quantity,
+					ExpDate:      item.ExpDate,
+					LotNumber:    item.LotNumber,
 					Location:     item.Location,
 					WhsCode:      OutboundHeader.WhsCode,
 					OwnerCode:    OutboundHeader.OwnerCode,
@@ -476,6 +541,8 @@ func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
 				outboundDetail.DivisionCode = "REGULAR"
 				outboundDetail.CustomerCode = customer.CustomerCode
 				outboundDetail.QaStatus = "A"
+				outboundDetail.ExpDate = item.ExpDate
+				outboundDetail.LotNumber = item.LotNumber
 				outboundDetail.Quantity = item.Quantity
 				outboundDetail.Location = item.Location
 				outboundDetail.Remarks = item.Remarks
@@ -583,30 +650,118 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to start transaction"})
 	}
 
+	var outboundHeader models.OutboundHeader
+	if err := tx.Where("id = ?", id).First(&outboundHeader).Error; err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to get outbound header: " + err.Error()})
+	}
+
 	var outboundDetails []models.OutboundDetail
 	if err := tx.Debug().Where("outbound_id = ?", id).Find(&outboundDetails).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	var invetoryPolicy models.InventoryPolicy
+	if err := tx.Debug().First(&invetoryPolicy, "owner_code = ?", outboundHeader.OwnerCode).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"success": false,
+				"message": "Inventory Policy not found",
+				"error":   err.Error(),
+			})
+		}
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to get inventory policy",
+			"error":   err.Error(),
+		})
+	}
+
+	if invetoryPolicy.RequireLotNumber {
+		for _, item := range outboundDetails {
+			if item.LotNumber == "" {
+				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+					"success": false,
+					"message": "Lot number is required",
+					"error":   "Lot number is required",
+				})
+			}
+		}
+	}
+
+	uomRepo := repositories.NewUomRepository(tx)
+
+	// Proses picking by FIFO
 	for _, outboundDetail := range outboundDetails {
 
-		qtyReq := outboundDetail.Quantity
+		// Convert to base UOM
+		uomConversion, err := uomRepo.ConversionQty(outboundDetail.ItemCode, outboundDetail.Quantity, outboundDetail.Uom)
+		if err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "UOM Conversion Error: " + err.Error()})
+		}
+
+		// qtyReq := outboundDetail.Quantity
+		qtyReq := uomConversion.QtyConverted
+
+		fmt.Println("Picking Query")
+
+		queryInventory := tx.Debug().
+			Where("item_id = ? AND whs_code = ? AND qty_available > 0 AND uom = ? AND owner_code = ?",
+				outboundDetail.ItemID, outboundDetail.WhsCode, uomConversion.ToUom, outboundHeader.OwnerCode)
+
+		if invetoryPolicy.UseFEFO && invetoryPolicy.UseLotNo && invetoryPolicy.RequireLotNumber {
+			queryInventory = queryInventory.Where("lot_number = ?", outboundDetail.LotNumber).
+				Order("rec_date, pallet, location ASC")
+		} else if invetoryPolicy.UseFEFO {
+			queryInventory = queryInventory.Order("exp_date, rec_date, pallet, location ASC")
+		} else {
+			queryInventory = queryInventory.Order("rec_date, pallet, location ASC")
+		}
 
 		var inventories []models.Inventory
 
-		fmt.Println("Picking Query")
-		if err := tx.Debug().
-			Where("item_id = ? AND whs_code = ? AND qty_available > 0", outboundDetail.ItemID, outboundDetail.WhsCode).
-			Order("rec_date, pallet, location ASC").
-			Find(&inventories).Error; err != nil {
+		if err := queryInventory.Find(&inventories).Error; err != nil {
 			tx.Rollback()
-			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+			// return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error": fmt.Sprintf(
+					"Failed to fetch inventory for ItemCode: %s (ItemID: %d, Whs: %s, UOM: %s, Owner: %s). Detail: %s",
+					outboundDetail.ItemCode,
+					outboundDetail.ItemID,
+					outboundDetail.WhsCode,
+					uomConversion.ToUom,
+					outboundHeader.OwnerCode,
+					err.Error(),
+				),
+			})
 		}
+
+		// if err := tx.Debug().
+		// 	Where("item_id = ? AND whs_code = ? AND qty_available > 0 AND uom = ? AND owner_code = ?",
+		// 		outboundDetail.ItemID, outboundDetail.WhsCode, uomConversion.ToUom, outboundHeader.OwnerCode).
+		// 	Order("rec_date, pallet, location ASC").
+		// 	Find(&inventories).Error; err != nil {
+		// 	tx.Rollback()
+		// 	return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		// }
 
 		if len(inventories) == 0 {
 			tx.Rollback()
-			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"error": "Item " + outboundDetail.ItemCode + " not found",
+			// return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			// 	"error": "Item " + outboundDetail.ItemCode + " not found",
+			// })
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error": fmt.Sprintf(
+					"Failed to fetch inventory for ItemCode: %s (ItemID: %d, Whs: %s, UOM: %s, Owner: %s). Detail: %s",
+					outboundDetail.ItemCode,
+					outboundDetail.ItemID,
+					outboundDetail.WhsCode,
+					uomConversion.ToUom,
+					outboundHeader.OwnerCode,
+					"Insufficient stock available",
+				),
 			})
 		}
 
@@ -615,8 +770,7 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 			if qtyReq < 1 {
 				break
 			}
-
-			qtyPick := 0
+			var qtyPick float64 = 0
 
 			if inventory.QtyAvailable >= qtyReq {
 				qtyPick = qtyReq
@@ -638,13 +792,17 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 				OutboundId:       outboundDetail.OutboundID,
 				OutboundNo:       outboundDetail.OutboundNo,
 				OutboundDetailId: int(outboundDetail.ID),
-				OwnerCode:        outboundDetail.OwnerCode,
-				ItemID:           outboundDetail.ItemID,
+				OwnerCode:        inventory.OwnerCode,
+				ItemID:           inventory.ItemId,
 				Barcode:          product.Barcode,
 				ItemCode:         product.ItemCode,
 				Pallet:           inventory.Pallet,
 				Location:         inventory.Location,
 				Quantity:         qtyPick,
+				Uom:              inventory.Uom,
+				RecDate:          inventory.RecDate,
+				ExpDate:          inventory.ExpDate,
+				LotNumber:        inventory.LotNumber,
 				WhsCode:          inventory.WhsCode,
 				QaStatus:         inventory.QaStatus,
 				CreatedBy:        int(ctx.Locals("userID").(float64)),
@@ -683,13 +841,6 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 				"error": "Insufficient stock for item " + outboundDetail.ItemCode,
 			})
 		}
-	}
-
-	// update outbound status
-	var outboundHeader models.OutboundHeader
-	if err := tx.Where("id = ?", id).First(&outboundHeader).Error; err != nil {
-		tx.Rollback()
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to get outbound header: " + err.Error()})
 	}
 
 	outboundHeader.Status = "picking"
@@ -1165,6 +1316,8 @@ func (r *OutboundController) ProccesHandleOpen(ctx *fiber.Ctx) error {
 			newInventory.Trans = "UNPOST " + payload.OutboundNo + ", From INV ID : " + fmt.Sprint(inventory.ID)
 			newInventory.IsTransfer = true
 			newInventory.TransferFrom = inventory.ID
+			newInventory.LotNumber = inventory.LotNumber
+			newInventory.ExpDate = inventory.ExpDate
 			newInventory.CreatedBy = int(userID)
 			newInventory.CreatedAt = time.Now()
 

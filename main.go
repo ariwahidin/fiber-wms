@@ -172,6 +172,7 @@ func main() {
 	routes.SetupStockTakeRoutes(app)
 	routes.SetupLocationRoutes(app)
 	routes.SetupVasRoutes(app)
+	routes.SetupIntegrationRoutes(app)
 
 	// routes.SetupRfInboundRoutes(app, RfInboundController)
 	// routes.SetupOutboundRoutes(app, db)

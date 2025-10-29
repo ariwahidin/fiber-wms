@@ -40,6 +40,7 @@ type OutboundHeader struct {
 	TruckSize       string            `json:"truck_size"`
 	TruckNo         string            `json:"truck_no"`
 	TransporterCode string            `json:"transporter_code"`
+	Integration     bool              `json:"integration" gorm:"default:false"`
 	CreatedBy       int
 	UpdatedBy       int
 	DeletedBy       int
@@ -58,6 +59,10 @@ type OutboundDetail struct {
 	ItemCode     string            `json:"item_code" required:"required"`
 	Barcode      string            `json:"barcode"`
 	Quantity     int               `json:"quantity" required:"required"`
+	Pallet       string            `json:"pallet"`
+	RecDate      string            `json:"rec_date" gorm:"default:null"`
+	ExpDate      string            `json:"exp_date" gorm:"default:null"`
+	LotNumber    string            `json:"lot_number" gorm:"default:null"`
 	ScanQty      int               `json:"scan_qty" gorm:"default:0"`
 	Location     string            `json:"location" required:"required"`
 	Status       string            `json:"status" gorm:"default:'draft'"`
@@ -148,8 +153,12 @@ type OutboundPicking struct {
 	Barcode          string            `json:"barcode"`
 	Pallet           string            `json:"pallet"`
 	Location         string            `json:"location"`
-	Quantity         int               `json:"quantity"`
+	Quantity         float64           `json:"quantity"`
 	QaStatus         string            `json:"qa_status"`
+	RecDate          string            `json:"rec_date"`
+	ExpDate          string            `json:"exp_date"`
+	LotNumber        string            `json:"lot_number"`
+	Uom              string            `json:"uom"`
 	Reason           string            `json:"reason"`
 	CreatedBy        int
 	UpdatedBy        int

@@ -77,8 +77,8 @@ type MovePayload struct {
 
 // 🔹 Helper untuk update inventory existing
 func (c *InventoryController) updateInventoryQuantity(ctx *fiber.Ctx, inv *models.Inventory, qty int) error {
-	inv.QtyAvailable -= qty
-	inv.QtyOnhand -= qty
+	inv.QtyAvailable -= float64(qty)
+	inv.QtyOnhand -= float64(qty)
 	// inv.QtyOrigin -= qty
 	inv.UpdatedBy = int(ctx.Locals("userID").(float64))
 	inv.UpdatedAt = time.Now()
@@ -107,8 +107,8 @@ func (c *InventoryController) createNewInventory(ctx *fiber.Ctx, oldInv *models.
 		Location:        targetLocation,
 		QaStatus:        oldInv.QaStatus,
 		// QtyOrigin:       qty,
-		QtyOnhand:    qty,
-		QtyAvailable: qty,
+		QtyOnhand:    float64(qty),
+		QtyAvailable: float64(qty),
 		QtyAllocated: 0,
 		Trans:        "move item",
 		CreatedBy:    int(ctx.Locals("userID").(float64)),
@@ -147,7 +147,7 @@ func (c *InventoryController) MoveItem(ctx *fiber.Ctx) error {
 		}
 
 		// validasi stock cukup
-		if oldInventory.QtyAvailable < item.Quantity {
+		if oldInventory.QtyAvailable < float64(item.Quantity) {
 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Insufficient quantity in source pallet"})
 		}
 

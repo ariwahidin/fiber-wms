@@ -16,11 +16,11 @@ func NewUomRepository(DB *gorm.DB) *UomRepository {
 }
 
 type UomConversionResult struct {
-	ItemCode     string `json:"item_code"`
-	FromUom      string `json:"from_uom"`
-	FromQty      int    `json:"from_qty"`
-	ToUom        string `json:"to_uom"`
-	QtyConverted int    `json:"qty_converted"`
+	ItemCode     string  `json:"item_code"`
+	FromUom      string  `json:"from_uom"`
+	FromQty      int     `json:"from_qty"`
+	ToUom        string  `json:"to_uom"`
+	QtyConverted float64 `json:"qty_converted"`
 }
 
 func (r *UomRepository) ConversionQty(item_code string, from_qty int, from_uom string) (UomConversionResult, error) {
@@ -32,19 +32,19 @@ func (r *UomRepository) ConversionQty(item_code string, from_qty int, from_uom s
 	}
 
 	var UomConversion models.UomConversion
-	err = r.DB.Table("uom_conversions").
+	errUom := r.DB.Table("uom_conversions").
 		Where("item_code = ? AND from_uom = ? AND to_uom = ?", item_code, from_uom, product.Uom).
 		First(&UomConversion).Error
 
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+	if errUom != nil {
+		if errors.Is(errUom, gorm.ErrRecordNotFound) {
 			return UomConversionResult{}, errors.New("Failed to convert UOM for item: " + item_code +
 				". Conversion from " + from_uom + " to " + product.Uom + " not found")
 		}
-		return UomConversionResult{}, err
+		return UomConversionResult{}, errUom
 	}
 
-	conversionQty := from_qty * UomConversion.ConversionRate
+	conversionQty := float64(from_qty) * UomConversion.ConversionRate
 	return UomConversionResult{
 		ItemCode:     item_code,
 		FromUom:      from_uom,
@@ -52,4 +52,16 @@ func (r *UomRepository) ConversionQty(item_code string, from_qty int, from_uom s
 		FromQty:      from_qty,
 		QtyConverted: conversionQty,
 	}, nil
+}
+
+func (r *UomRepository) CheckUomConversionExists(item_code string, from_uom string) (bool, error) {
+	var uomConversion models.UomConversion
+	if err := r.DB.Where("item_code = ? AND from_uom = ?", item_code, from_uom).First(&uomConversion).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return false, errors.New("UOM conversion not found for item: " + item_code +
+				" from UoM: " + from_uom)
+		}
+		return false, err
+	}
+	return true, nil
 }

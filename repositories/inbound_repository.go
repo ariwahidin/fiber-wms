@@ -532,31 +532,39 @@ func (r *InboundRepository) PutawayItem(ctx *fiber.Ctx, inboundBarcodeID int, lo
 		}
 
 		uomRepo := NewUomRepository(tx)
-		uomConversion, err := uomRepo.ConversionQty(barcode.ItemCode, barcode.Quantity, detail.Uom)
-		if err != nil {
-			return err
+		uomConversion, errUom := uomRepo.ConversionQty(barcode.ItemCode, barcode.Quantity, detail.Uom)
+		if errUom != nil {
+			return errUom
 		}
 		qtyConverted := uomConversion.QtyConverted
 
 		// Cek apakah data inventory dengan kombinasi yang sama sudah ada
 		var existingInv models.Inventory
 		invQuery := tx.Debug().Where(`
+			inbound_id = ? AND
 			inbound_detail_id = ? AND
 			item_code = ? AND
 			location = ? AND
 			barcode = ? AND
 			whs_code = ? AND
-			qa_status = ?`,
-			int(detail.ID),
+			qa_status = ? AND
+			rec_date = ? AND
+			exp_date = ? AND
+			lot_number = ?`,
+			barcode.InboundId,
+			barcode.InboundDetailId,
 			barcode.ItemCode,
 			location,
 			barcode.Barcode,
 			barcode.WhsCode,
 			barcode.QaStatus,
+			detail.RecDate,
+			barcode.ExpDate,
+			barcode.LotNumber,
 		).First(&existingInv)
 
 		if errors.Is(invQuery.Error, gorm.ErrRecordNotFound) {
-			// Tidak ada → Insert baru
+			// Tidak ada data → Insert baru
 			newInv := models.Inventory{
 				InboundID:       detail.InboundId,
 				InboundDetailId: int(detail.ID),
@@ -574,6 +582,8 @@ func (r *InboundRepository) PutawayItem(ctx *fiber.Ctx, inboundBarcodeID int, lo
 				QtyOrigin:       qtyConverted,
 				QtyOnhand:       qtyConverted,
 				QtyAvailable:    qtyConverted,
+				ExpDate:         barcode.ExpDate,
+				LotNumber:       barcode.LotNumber,
 				Trans:           "putaway",
 				CreatedBy:       int(userID),
 			}

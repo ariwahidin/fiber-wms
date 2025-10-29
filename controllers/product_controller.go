@@ -205,6 +205,14 @@ func (c *ProductController) UpdateProduct(ctx *fiber.Ctx) error {
 
 func (c *ProductController) GetAllProducts(ctx *fiber.Ctx) error {
 
+	if ctx.Query("owner") != "" {
+		var products []models.Product
+		if err := c.DB.Where("owner_code = ?", ctx.Query("owner")).Order("item_code ASC").Find(&products).Error; err != nil {
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+		return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Products found", "data": products})
+	}
+
 	var products []models.Product
 	if err := c.DB.Order("item_code ASC").Find(&products).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})

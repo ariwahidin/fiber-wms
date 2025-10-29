@@ -161,7 +161,7 @@ func (c *StockTakeController) GenerateDataStockTake(ctx *fiber.Ctx) error {
 			Pallet:      inv.Pallet,
 			Barcode:     inv.Barcode,
 			// SerialNumber: inv.SerialNumber,
-			SystemQty:  inv.QtyAvailable,
+			SystemQty:  int(inv.QtyAvailable),
 			CountedQty: 0,
 			Difference: 0,
 			CreatedBy:  int(ctx.Locals("userID").(float64)),

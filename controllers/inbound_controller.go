@@ -5,7 +5,6 @@ import (
 	"fiber-app/controllers/helpers"
 	"fiber-app/models"
 	"fiber-app/repositories"
-	"fiber-app/types"
 	"fmt"
 	"log"
 	"strconv"
@@ -25,8 +24,8 @@ func NewInboundController(DB *gorm.DB) *InboundController {
 }
 
 type Inbound struct {
-	ID types.SnowflakeID `json:"ID"`
-	// ID             int                       `json:"ID"`
+	// ID types.SnowflakeID `json:"ID"`
+	ID             int                       `json:"ID"`
 	InboundNo      string                    `json:"inbound_no"`
 	InboundDate    string                    `json:"inbound_date"`
 	Supplier       string                    `json:"supplier"`
@@ -58,20 +57,23 @@ type Inbound struct {
 
 type InboundItem struct {
 	// ID int `json:"ID"`
-	ID          types.SnowflakeID `json:"ID"`
-	InboundID   types.SnowflakeID `json:"inbound_id"`
-	ItemCode    string            `json:"item_code"`
-	Quantity    int               `json:"quantity"`
-	RcvLocation string            `json:"rcv_location"`
-	WhsCode     string            `json:"whs_code"`
-	UOM         string            `json:"uom"`
-	RecDate     string            `json:"rec_date"`
-	Remarks     string            `json:"remarks"`
-	IsSerial    string            `json:"is_serial"`
-	Mode        string            `json:"mode"`
-	RefId       int               `json:"ref_id"`
-	RefNo       string            `json:"ref_no"`
-	Division    string            `json:"division"`
+	// ID          types.SnowflakeID `json:"ID"`
+	ID          int    `json:"ID"`
+	InboundID   int    `json:"inbound_id"`
+	ItemCode    string `json:"item_code"`
+	Quantity    int    `json:"quantity"`
+	RcvLocation string `json:"rcv_location"`
+	WhsCode     string `json:"whs_code"`
+	UOM         string `json:"uom"`
+	RecDate     string `json:"rec_date"`
+	ExpDate     string `json:"exp_date"`
+	LotNumber   string `json:"lot_number"`
+	Remarks     string `json:"remarks"`
+	IsSerial    string `json:"is_serial"`
+	Mode        string `json:"mode"`
+	RefId       int    `json:"ref_id"`
+	RefNo       string `json:"ref_no"`
+	Division    string `json:"division"`
 }
 
 type ItemInboundBarcode struct {
@@ -108,9 +110,55 @@ func (c *InboundController) CreateInbound(ctx *fiber.Ctx) error {
 
 	fmt.Println("PAYLOAD", payload)
 
+	var InventoryPolicy models.InventoryPolicy
+	if err := c.DB.Where("owner_code = ?", payload.OwnerCode).First(&InventoryPolicy).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to get inventory policy",
+			"error":   err.Error(),
+		})
+	}
+
 	// Check duplicate item code
 	itemCodes := make(map[string]bool) // gunakan map untuk cek duplikat
 	for _, item := range payload.Items {
+
+		if item.Quantity == 0 {
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"success": false,
+				"message": "Quantity cannot be zero",
+				"error":   "Quantity cannot be zero",
+			})
+		}
+
+		if item.UOM == "" {
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"success": false,
+				"message": "UOM cannot be empty",
+				"error":   "UOM cannot be empty",
+			})
+		}
+
+		if InventoryPolicy.UseLotNo {
+			if item.LotNumber == "" {
+				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+					"success": false,
+					"message": "Lot number cannot be empty",
+					"error":   "Lot number cannot be empty",
+				})
+			}
+		}
+
+		if InventoryPolicy.UseFEFO {
+			if item.ExpDate == "" {
+				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+					"success": false,
+					"message": "Expiration date cannot be empty",
+					"error":   "Expiration date cannot be empty",
+				})
+			}
+		}
+
 		if item.ItemCode == "" {
 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 				"success": false,
@@ -119,15 +167,29 @@ func (c *InboundController) CreateInbound(ctx *fiber.Ctx) error {
 			})
 		}
 
-		if itemCodes[item.ItemCode] {
+		// if itemCodes[item.ItemCode] {
+		// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+		// 		"success": false,
+		// 		"message": "Duplicate item code found: " + item.ItemCode,
+		// 		"error":   "Duplicate item code for item code " + item.ItemCode,
+		// 	})
+		// }
+
+		// itemCodes[item.ItemCode] = true // tandai sebagai sudah ditemukan
+
+		key := fmt.Sprintf("%s|%s|%s|%s", item.ItemCode, item.RecDate, item.ExpDate, item.LotNumber)
+
+		if itemCodes[key] {
 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 				"success": false,
-				"message": "Duplicate item code found: " + item.ItemCode,
-				"error":   "Duplicate item code",
+				"message": "Duplicate item found: " + item.ItemCode,
+				"error": fmt.Sprintf("Duplicate item with code %s, rec_date %s, exp_date %s, lot_number %s",
+					item.ItemCode, item.RecDate, item.ExpDate, item.LotNumber),
 			})
 		}
 
-		itemCodes[item.ItemCode] = true // tandai sebagai sudah ditemukan
+		itemCodes[key] = true
+
 	}
 
 	// return nil
@@ -269,9 +331,10 @@ func (c *InboundController) CreateInbound(ctx *fiber.Ctx) error {
 		}
 
 		InboundDetail.InboundNo = payload.InboundNo
-		InboundDetail.InboundId = types.SnowflakeID(int64(inboundID))
+		InboundDetail.InboundId = int(inboundID)
 		InboundDetail.ItemCode = item.ItemCode
-		InboundDetail.ItemId = types.SnowflakeID(int64(product.ID))
+		InboundDetail.ItemId = product.ID
+		InboundDetail.ProductNumber = product.ProductNumber
 		InboundDetail.Barcode = product.Barcode
 		InboundDetail.Uom = item.UOM
 		InboundDetail.Quantity = item.Quantity
@@ -279,7 +342,9 @@ func (c *InboundController) CreateInbound(ctx *fiber.Ctx) error {
 		InboundDetail.QaStatus = "A"
 		InboundDetail.WhsCode = item.WhsCode
 		InboundDetail.RecDate = item.RecDate
-		InboundDetail.Remarks = item.Remarks
+		InboundDetail.ExpDate = item.ExpDate
+		InboundDetail.LotNumber = item.LotNumber
+		// InboundDetail.Remarks = item.Remarks
 		InboundDetail.IsSerial = product.HasSerial
 		InboundDetail.RefId = int(InboundReference.ID)
 		InboundDetail.RefNo = item.RefNo
@@ -343,8 +408,76 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 	}
 
 	// Check duplicate item code
+	// itemCodes := make(map[string]bool) // gunakan map untuk cek duplikat
+	// for _, item := range payload.Items {
+	// 	if item.ItemCode == "" {
+	// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+	// 			"success": false,
+	// 			"message": "Item code cannot be empty",
+	// 			"error":   "Item code cannot be empty",
+	// 		})
+	// 	}
+
+	// 	if itemCodes[item.ItemCode] {
+	// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+	// 			"success": false,
+	// 			"message": "Duplicate item code found: " + item.ItemCode,
+	// 			"error":   "Duplicate item code",
+	// 		})
+	// 	}
+
+	// 	itemCodes[item.ItemCode] = true
+	// }
+
+	var InventoryPolicy models.InventoryPolicy
+	if err := c.DB.Where("owner_code = ?", payload.OwnerCode).First(&InventoryPolicy).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to get inventory policy",
+			"error":   err.Error(),
+		})
+	}
+
+	// Check duplicate item code
 	itemCodes := make(map[string]bool) // gunakan map untuk cek duplikat
 	for _, item := range payload.Items {
+
+		if item.Quantity == 0 {
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"success": false,
+				"message": "Quantity cannot be zero",
+				"error":   "Quantity cannot be zero",
+			})
+		}
+
+		if item.UOM == "" {
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"success": false,
+				"message": "UOM cannot be empty",
+				"error":   "UOM cannot be empty",
+			})
+		}
+
+		if InventoryPolicy.UseLotNo {
+			if item.LotNumber == "" {
+				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+					"success": false,
+					"message": "Lot number cannot be empty",
+					"error":   "Lot number cannot be empty",
+				})
+			}
+		}
+
+		if InventoryPolicy.UseFEFO {
+			if item.ExpDate == "" {
+				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+					"success": false,
+					"message": "Expiration date cannot be empty",
+					"error":   "Expiration date cannot be empty",
+				})
+			}
+		}
+
 		if item.ItemCode == "" {
 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 				"success": false,
@@ -353,15 +486,19 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 			})
 		}
 
-		if itemCodes[item.ItemCode] {
+		key := fmt.Sprintf("%s|%s|%s|%s", item.ItemCode, item.RecDate, item.ExpDate, item.LotNumber)
+
+		if itemCodes[key] {
 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 				"success": false,
-				"message": "Duplicate item code found: " + item.ItemCode,
-				"error":   "Duplicate item code",
+				"message": "Duplicate item found: " + item.ItemCode,
+				"error": fmt.Sprintf("Duplicate item with code %s, rec_date %s, exp_date %s, lot_number %s",
+					item.ItemCode, item.RecDate, item.ExpDate, item.LotNumber),
 			})
 		}
 
-		itemCodes[item.ItemCode] = true
+		itemCodes[key] = true
+
 	}
 
 	payloadItem := payload.Items
@@ -454,23 +591,26 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				// ❌ Tidak ditemukan → insert baru
 				newDetail := models.InboundDetail{
-					InboundId:    types.SnowflakeID(int64(InboundHeader.ID)),
-					InboundNo:    InboundHeader.InboundNo,
-					ItemId:       product.ID,
-					ItemCode:     item.ItemCode,
-					Barcode:      product.Barcode,
-					Quantity:     item.Quantity,
-					RcvLocation:  item.RcvLocation,
-					WhsCode:      InboundHeader.WhsCode,
-					RecDate:      item.RecDate,
-					Uom:          item.UOM,
-					IsSerial:     product.HasSerial,
-					RefNo:        item.RefNo,
-					RefId:        item.RefId,
-					OwnerCode:    InboundHeader.OwnerCode,
-					DivisionCode: item.Division,
-					QaStatus:     "A",
-					CreatedBy:    int(ctx.Locals("userID").(float64)),
+					InboundId:     int(InboundHeader.ID),
+					InboundNo:     InboundHeader.InboundNo,
+					ItemId:        product.ID,
+					ProductNumber: product.ProductNumber,
+					ItemCode:      item.ItemCode,
+					Barcode:       product.Barcode,
+					Quantity:      item.Quantity,
+					RcvLocation:   item.RcvLocation,
+					WhsCode:       InboundHeader.WhsCode,
+					RecDate:       item.RecDate,
+					ExpDate:       item.ExpDate,
+					LotNumber:     item.LotNumber,
+					Uom:           item.UOM,
+					IsSerial:      product.HasSerial,
+					RefNo:         item.RefNo,
+					RefId:         item.RefId,
+					OwnerCode:     InboundHeader.OwnerCode,
+					DivisionCode:  item.Division,
+					QaStatus:      "A",
+					CreatedBy:     int(ctx.Locals("userID").(float64)),
 				}
 				if err := c.DB.Create(&newDetail).Error; err != nil {
 					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
@@ -484,6 +624,8 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 				inboundDetail.RcvLocation = item.RcvLocation
 				inboundDetail.WhsCode = InboundHeader.WhsCode
 				inboundDetail.RecDate = item.RecDate
+				inboundDetail.ExpDate = item.ExpDate
+				inboundDetail.LotNumber = item.LotNumber
 				inboundDetail.Uom = item.UOM
 				inboundDetail.IsSerial = product.HasSerial
 				inboundDetail.RefNo = item.RefNo
@@ -581,9 +723,10 @@ func (c *InboundController) GetItem(ctx *fiber.Ctx) error {
 	}
 
 	resultItem := InboundItem{
-		ID: types.SnowflakeID(inboundDetail.ID),
-		// ID:        int(inboundDetail.ID),
-		InboundID: types.SnowflakeID(inboundDetail.InboundId),
+		// ID: types.SnowflakeID(inboundDetail.ID),
+		ID: int(inboundDetail.ID),
+		// InboundID: types.SnowflakeID(inboundDetail.InboundId),
+		InboundID: int(inboundDetail.InboundId),
 		ItemCode:  inboundDetail.ItemCode,
 		Quantity:  inboundDetail.Quantity,
 		UOM:       inboundDetail.Uom,
@@ -756,11 +899,16 @@ func (c *InboundController) PutawayByInboundNo(ctx *fiber.Ctx) error {
 		barcodeIDStr := strconv.Itoa(int(barcode.ID))
 
 		if err := c.putawayPerItem(ctx, barcodeIDStr); err != nil {
-			return err
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error":   err.Error(),
+				"message": err.Error(),
+			})
 		}
 	}
 
-	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Putaway inbound " + inboundHeader.InboundNo + " successfully"})
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": "Putaway inbound " + inboundHeader.InboundNo + " successfully"})
 }
 
 func (c *InboundController) putawayPerItem(ctx *fiber.Ctx, idStr string) error {
@@ -795,7 +943,9 @@ func (c *InboundController) putawayPerItem(ctx *fiber.Ctx, idStr string) error {
 
 	_, errs := inboundRepo.PutawayItem(ctx, id, "")
 	if errs != nil {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": errs.Error(), "message": errs.Error()})
+		fmt.Println("ADA NIH", errs.Error())
+		return errs
+		// return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": errs.Error(), "message": errs.Error()})
 	}
 
 	type CheckResult struct {
@@ -878,9 +1028,13 @@ func (c *InboundController) PutawayBulk(ctx *fiber.Ctx) error {
 	}
 
 	for _, id := range req.ItemIDs {
-		if err := c.putawayPerItem(ctx, id); err != nil {
+		if errPutaway := c.putawayPerItem(ctx, id); errPutaway != nil {
+
+			fmt.Println("Putaway Error", errPutaway)
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-				"error": fmt.Sprintf("Failed putaway ID %s: %v", id, err),
+
+				"error":   fmt.Sprintf("Failed putaway ID %s: %v", id, errPutaway),
+				"message": fmt.Sprintf("Failed putaway ID %s: %v", id, errPutaway),
 			})
 		}
 	}
@@ -914,6 +1068,26 @@ func (r *InboundController) HandleChecking(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	inboundDetail := []models.InboundDetail{}
+	if err := r.DB.Debug().Where("inbound_id = ?", InboundHeader.ID).Find(&inboundDetail).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	if len(inboundDetail) == 0 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Inbound " + payload.InboundNo + " has no details", "message": "Inbound has no details"})
+	}
+
+	uomRepo := repositories.NewUomRepository(r.DB)
+
+	for _, detail := range inboundDetail {
+		_, errUom := uomRepo.CheckUomConversionExists(detail.ItemCode, detail.Uom)
+		if errUom != nil {
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error":   errUom.Error(),
+				"message": errUom.Error(),
+			})
+		}
+	}
+
 	if InboundHeader.Status == "checking" {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Inbound " + payload.InboundNo + " is already checking", "message": "Inbound already checking"})
 	}
@@ -923,7 +1097,6 @@ func (r *InboundController) HandleChecking(ctx *fiber.Ctx) error {
 	}
 
 	userID := int(ctx.Locals("userID").(float64))
-	// update inbound status inbound header with interface
 	sqlUpdate := `UPDATE inbound_headers SET status = 'checking', updated_at = ?, updated_by = ?, checking_at = ?, checking_by = ? WHERE inbound_no = ?`
 	if err := r.DB.Exec(sqlUpdate, time.Now(), userID, time.Now(), userID, payload.InboundNo).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})

@@ -11,12 +11,12 @@ import (
 )
 
 type UomConversion struct {
-	ID             int64  `json:"ID" gorm:"primaryKey"`
-	ItemCode       string `json:"item_code"`
-	FromUom        string `json:"from_uom"`
-	ToUom          string `json:"to_uom"`
-	ConversionRate int    `json:"conversion_rate"`
-	IsBase         bool   `json:"is_base"`
+	ID             int64   `json:"ID" gorm:"primaryKey"`
+	ItemCode       string  `json:"item_code"`
+	FromUom        string  `json:"from_uom"`
+	ToUom          string  `json:"to_uom"`
+	ConversionRate float64 `json:"conversion_rate"`
+	IsBase         bool    `json:"is_base"`
 	CreatedAt      time.Time
 	CreatedBy      int
 	UpdatedAt      time.Time
