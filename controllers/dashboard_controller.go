@@ -21,14 +21,14 @@ func (c *DashboardController) GetDashboard(ctx *fiber.Ctx) error {
 			INNER JOIN (
 				SELECT inbound_id, COUNT(item_code) AS tot_item, SUM(quantity) AS tot_qty FROM inbound_details GROUP BY inbound_id
 			) id ON ih.id = id.inbound_id
-			WHERE ih.status <> 'complete'
+			WHERE ih.status NOT IN ('complete', 'cancel')
 		), ob AS (
 			SELECT oh.id, oh.outbound_no AS no_ref, oh.shipment_id AS reference_no, oh.status, oh.outbound_date AS trans_date, od.tot_item, od.tot_qty
 			FROM outbound_headers oh
 			INNER JOIN (
 				SELECT outbound_id, COUNT(item_code) AS tot_item, SUM(quantity) AS tot_qty FROM outbound_details GROUP BY outbound_id
 			) od ON oh.id = od.outbound_id
-			WHERE oh.status <> 'complete'
+			WHERE oh.status NOT IN ('complete', 'cancel')
 		)
 
 		SELECT *, 'inbound' AS trans_type FROM ib

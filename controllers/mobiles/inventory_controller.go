@@ -106,11 +106,11 @@ func (c *MobileInventoryController) GetItemsByLocationAndBarcode(ctx *fiber.Ctx)
 	// }
 
 	if req.Barcode != "" {
-		if err := c.DB.Where("location = ? AND barcode = ? AND qty_available > 0", req.Location, req.Barcode).Find(&inventories).Error; err != nil {
+		if err := c.DB.Where("location = ? AND barcode = ? AND qty_available > 0 AND qty_allocated = 0", req.Location, req.Barcode).Find(&inventories).Error; err != nil {
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
 	} else {
-		if err := c.DB.Where("location = ? AND qty_available > 0", req.Location).Find(&inventories).Error; err != nil {
+		if err := c.DB.Where("location = ? AND qty_available > 0 AND qty_allocated = 0", req.Location).Find(&inventories).Error; err != nil {
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
 	}
