@@ -597,7 +597,7 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 		fmt.Println("Picking Query")
 		if err := tx.Debug().
 			Where("item_id = ? AND whs_code = ? AND qty_available > 0", outboundDetail.ItemID, outboundDetail.WhsCode).
-			Order("rec_date, pallet, location ASC").
+			Order("rec_date, qty_available, pallet, location ASC").
 			Find(&inventories).Error; err != nil {
 			tx.Rollback()
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
