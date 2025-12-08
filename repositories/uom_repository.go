@@ -3,6 +3,7 @@ package repositories
 import (
 	"errors"
 	"fiber-app/models"
+	"fmt"
 
 	"gorm.io/gorm"
 )
@@ -38,6 +39,7 @@ func (r *UomRepository) ConversionQty(item_code string, from_qty int, from_uom s
 
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
+			fmt.Println("ERROR TIDAK KETEMU")
 			return UomConversionResult{}, errors.New("Failed to convert UOM for item: " + item_code +
 				". Conversion from " + from_uom + " to " + product.Uom + " not found")
 		}

@@ -755,8 +755,9 @@ func (c *InboundController) PutawayByInboundNo(ctx *fiber.Ctx) error {
 	for _, barcode := range inboundBarcodes {
 		barcodeIDStr := strconv.Itoa(int(barcode.ID))
 
-		if err := c.putawayPerItem(ctx, barcodeIDStr); err != nil {
-			return err
+		if errx := c.putawayPerItem(ctx, barcodeIDStr); errx != nil {
+			fmt.Println("ERROR PUTAWAY ITEM ID", barcodeIDStr, ":", errx.Error())
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed putaway item ID " + barcodeIDStr + ": " + errx.Error()})
 		}
 	}
 
@@ -795,7 +796,9 @@ func (c *InboundController) putawayPerItem(ctx *fiber.Ctx, idStr string) error {
 
 	_, errs := inboundRepo.PutawayItem(ctx, id, "")
 	if errs != nil {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": errs.Error(), "message": errs.Error()})
+		fmt.Println("ERRORS PUTAWAY:", errs.Error())
+		// return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": errs.Error()})
+		return errs // ✅ INI YANG WAJIB
 	}
 
 	type CheckResult struct {

@@ -532,9 +532,10 @@ func (r *InboundRepository) PutawayItem(ctx *fiber.Ctx, inboundBarcodeID int, lo
 		}
 
 		uomRepo := NewUomRepository(tx)
-		uomConversion, err := uomRepo.ConversionQty(barcode.ItemCode, barcode.Quantity, detail.Uom)
-		if err != nil {
-			return err
+		uomConversion, errUom := uomRepo.ConversionQty(barcode.ItemCode, barcode.Quantity, detail.Uom)
+		if errUom != nil {
+			fmt.Println("ERROR UOM CONVERSION:", errUom.Error())
+			return errUom
 		}
 		qtyConverted := uomConversion.QtyConverted
 
