@@ -15,6 +15,7 @@ func Migrate(db *gorm.DB) error {
 func MigrateBusinessUnit(db *gorm.DB) error {
 	return db.AutoMigrate(
 		&models.User{},
+		&models.UserDashboard{},
 		&models.Role{},
 		&models.Permission{},
 		&models.Product{},

@@ -17,6 +17,17 @@ type User struct {
 	DeletedBy   int
 }
 
+type UserDashboard struct {
+	gorm.Model
+	Username  string `json:"username" gorm:"unique"`
+	Password  string `json:"password"`
+	Name      string `json:"name"`
+	Email     string `json:"email" gorm:"unique"`
+	CreatedBy int
+	UpdatedBy int
+	DeletedBy int
+}
+
 // Role Model
 type Role struct {
 	gorm.Model
