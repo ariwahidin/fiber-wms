@@ -280,7 +280,7 @@ func insertInboundToDB(db *gorm.DB, data []SOItem) error {
 			ProductNumber: product.ProductNumber,
 			Barcode:       product.Barcode,
 			Uom:           item.UNIT,
-			Quantity:      int(item.QTY),
+			Quantity:      float64(item.QTY),
 			QaStatus:      "A",
 			WhsCode:       whsCode,
 			RecDate:       time.Now().Local().Format("2006-01-02"),

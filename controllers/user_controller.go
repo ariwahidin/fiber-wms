@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-playground/validator"
 	"github.com/gofiber/fiber/v2"
+	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
 
@@ -39,21 +40,25 @@ func (c *UserController) CreateUser(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	// Hash password
-	// hashedPassword, err := HashPassword(userInput.Password) // pastikan kamu punya fungsi ini
-	// if err != nil {
-	// 	return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to hash password"})
-	// }
+	// hashedPassword := userInput.Password
 
-	hashedPassword := userInput.Password
+	hashedPassword, err := bcrypt.GenerateFromPassword(
+		[]byte(userInput.Password),
+		bcrypt.DefaultCost,
+	)
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "failed to hash password",
+		})
+	}
 
 	user := models.User{
 		Username:  userInput.Username,
 		Name:      userInput.Name,
 		Email:     userInput.Email,
-		Password:  hashedPassword,
+		Password:  string(hashedPassword),
 		BaseRoute: userInput.BaseRoute,
-		CreatedBy: int(ctx.Locals("userID").(float64)), // pastikan userID diset lewat JWT middleware misalnya
+		CreatedBy: int(ctx.Locals("userID").(float64)),
 	}
 
 	// Simpan user dulu
@@ -158,11 +163,18 @@ func (c *UserController) UpdateUser(ctx *fiber.Ctx) error {
 
 	// Jika password tidak kosong, update
 	if userInput.Password != "" {
-		// hashedPassword, err := HashPassword(userInput.Password)
-		// if err != nil {
-		//     return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to hash password"})
-		// }
-		user.Password = userInput.Password
+
+		hashedPassword, err := bcrypt.GenerateFromPassword(
+			[]byte(userInput.Password),
+			bcrypt.DefaultCost,
+		)
+		if err != nil {
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error": "failed to hash password",
+			})
+		}
+
+		user.Password = string(hashedPassword)
 	}
 
 	// Simpan perubahan user

@@ -85,6 +85,7 @@ func (c *ProductController) CreateProduct(ctx *fiber.Ctx) error {
 
 	uomConversion := models.UomConversion{
 		ItemCode:       product.ItemCode,
+		Ean:            productInput.GMC,
 		FromUom:        product.Uom,
 		ToUom:          product.Uom,
 		IsBase:         true,
@@ -157,21 +158,6 @@ func (c *ProductController) UpdateProduct(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Uom not found"})
 	}
 
-	// product.ItemCode = productInput.ItemCode
-	// product.ItemName = productInput.ItemName
-	// product.CBM = productInput.CBM
-	// product.Barcode = productInput.GMC
-	// product.GMC = productInput.GMC
-	// product.Group = productInput.Group
-	// product.Category = productInput.Category
-	// product.HasSerial = productInput.Serial
-	// product.Uom = productInput.Uom
-	// product.UpdatedBy = int(ctx.Locals("userID").(float64))
-
-	// if err := c.DB.Save(&product).Error; err != nil {
-	// 	return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-	// }
-
 	if err := c.DB.Debug().
 		Model(&models.Product{}).
 		Where("id = ?", id).
@@ -196,6 +182,44 @@ func (c *ProductController) UpdateProduct(ctx *fiber.Ctx) error {
 			"updated_by":  int(ctx.Locals("userID").(float64)),
 		}).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	uomConversion := models.UomConversion{}
+	c.DB.Where("item_code = ? AND from_uom = ?", product.ItemCode, productInput.Uom).First(&uomConversion)
+	if uomConversion.ID != 0 {
+		// Update existing UomConversion
+		if err := c.DB.Debug().
+			Model(&models.UomConversion{}).
+			Where("item_code = ? AND from_uom = ?", product.ItemCode, productInput.Uom).
+			Updates(map[string]interface{}{
+				"ean":             productInput.GMC,
+				"from_uom":        productInput.Uom,
+				"to_uom":          productInput.Uom,
+				"updated_at":      time.Now(),
+				"updated_by":      int(ctx.Locals("userID").(float64)),
+				"is_base":         false,
+				"conversion_rate": 1,
+			}).Error; err != nil {
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+
+	} else {
+		// Create new UomConversion
+		newUomConversion := models.UomConversion{
+			ItemCode:       product.ItemCode,
+			Ean:            product.Barcode,
+			FromUom:        productInput.Uom,
+			ToUom:          productInput.Uom,
+			ConversionRate: 1,
+			IsBase:         false,
+			CreatedAt:      time.Now(),
+			CreatedBy:      int(ctx.Locals("userID").(float64)),
+			UpdatedAt:      time.Now(),
+			UpdatedBy:      int(ctx.Locals("userID").(float64)),
+		}
+		if err := c.DB.Create(&newUomConversion).Error; err != nil {
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
 	}
 
 	// Respons sukses

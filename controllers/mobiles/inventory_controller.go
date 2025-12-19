@@ -3,6 +3,7 @@ package mobiles
 import (
 	"errors"
 	"fiber-app/models"
+	"fiber-app/repositories"
 	"fmt"
 	"strconv"
 	"time"
@@ -90,6 +91,29 @@ func (c *MobileInventoryController) GetItemsByLocationAndBarcode(ctx *fiber.Ctx)
 		Barcode  string `json:"barcode"`
 	}
 
+	type resultInventory struct {
+		ID              int64   `json:"ID"`
+		InboundID       int64   `json:"inbound_id"`
+		InboundDetailID int64   `json:"inbound_detail_id"`
+		Barcode         string  `json:"barcode"`
+		SerialNumber    string  `json:"serial_number"`
+		Pallet          string  `json:"pallet"`
+		Location        string  `json:"location"`
+		QaStatus        string  `json:"qa_status"`
+		WhsCode         string  `json:"whs_code"`
+		QtyAvailable    float64 `json:"qty_available"`
+		QtyAllocated    float64 `json:"qty_allocated"`
+		RecDate         string  `json:"rec_date"`
+		LotNumber       string  `json:"lot_number"`
+		ProdDate        string  `json:"prod_date"`
+		ExpDate         string  `json:"exp_date"`
+		Uom             string  `json:"uom"`
+		QtyDisplay      float64 `json:"qty_display"`
+		UomDisplay      string  `json:"uom_display"`
+		EanDisplay      string  `json:"ean_display"`
+		OwnerCode       string  `json:"owner_code"`
+	}
+
 	var req request
 	if err := ctx.BodyParser(&req); err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request body"})
@@ -99,17 +123,26 @@ func (c *MobileInventoryController) GetItemsByLocationAndBarcode(ctx *fiber.Ctx)
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Location is required"})
 	}
 
-	var inventories []models.Inventory
-	// if err := c.DB.Where("location = ? AND qty_available > 0", req.Barcode, req.Location).Find(&inventories).Error; err != nil {
-	// 	return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-	// }
-
+	var inventories []resultInventory
+	uomRepo := repositories.NewUomRepository(c.DB)
 	if req.Barcode != "" {
-		if err := c.DB.Where("location = ? AND barcode = ? AND qty_available > 0", req.Location, req.Barcode).Find(&inventories).Error; err != nil {
+
+		uomConvByBarcode, err := uomRepo.GetUomConversionByEan(req.Barcode)
+		if err != nil {
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+
+		if err := c.DB.
+			Table("inventories").
+			Select("inventories.*, qty_available / ? AS qty_display, ? AS uom_display, ? AS ean_display", uomConvByBarcode.Rate, uomConvByBarcode.Uom, req.Barcode).
+			Where("location = ? AND barcode = ? AND qty_available > 0", req.Location, uomConvByBarcode.BaseEan).Find(&inventories).Error; err != nil {
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
 	} else {
-		if err := c.DB.Where("location = ? AND qty_available > 0", req.Location).Find(&inventories).Error; err != nil {
+		if err := c.DB.
+			Table("inventories").
+			Select("inventories.*, qty_available AS qty_display, uom AS uom_display, barcode AS ean_display").
+			Where("location = ? AND qty_available > 0", req.Location).Find(&inventories).Error; err != nil {
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
 	}
@@ -134,7 +167,7 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 		FromLocation  string `json:"from_location"`
 		ToLocation    string `json:"to_location"`
 		ListInventory []struct {
-			ID string `json:"id"`
+			ID int `json:"id"`
 		} `json:"list_inventory"`
 	}
 
@@ -198,7 +231,6 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 		newInventory.Uom = inventory.Uom
 		newInventory.InboundID = inventory.InboundID
 		newInventory.InboundDetailId = inventory.InboundDetailId
-		newInventory.RecDate = inventory.RecDate
 		newInventory.ItemId = inventory.ItemId
 		newInventory.ItemCode = inventory.ItemCode
 		newInventory.Barcode = inventory.Barcode
@@ -212,8 +244,11 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 		newInventory.Trans = fmt.Sprintf("transfer from inventory_id : %d", inventory.ID)
 		newInventory.IsTransfer = true
 		newInventory.TransferFrom = inventory.ID
-		newInventory.LotNumber = inventory.LotNumber
+		newInventory.RecDate = inventory.RecDate
 		newInventory.ExpDate = inventory.ExpDate
+		newInventory.ProdDate = inventory.ProdDate
+		newInventory.LotNumber = inventory.LotNumber
+		newInventory.InventoryNumber = inventory.InventoryNumber
 		newInventory.CreatedAt = time.Now()
 		newInventory.CreatedBy = int(ctx.Locals("userID").(float64))
 
@@ -251,17 +286,22 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 func (c *MobileInventoryController) ConfirmTransferByInventoryID(ctx *fiber.Ctx) error {
 
 	var input struct {
-		FromLocation string `json:"from_location"`
-		ToLocation   string `json:"to_location"`
-		InventoryID  string `json:"inventory_id"`
-		QtyTransfer  int    `json:"qty_transfer"`
+		FromLocation string  `json:"from_location"`
+		ToLocation   string  `json:"to_location"`
+		InventoryID  int     `json:"inventory_id"`
+		QtyTransfer  float64 `json:"qty_transfer"`
+		EanTransfer  string  `json:"ean_transfer"`
+		UomTransfer  string  `json:"uom_transfer"`
 	}
 
 	if err := ctx.BodyParser(&input); err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	if input.FromLocation == "" || input.ToLocation == "" || input.InventoryID == "" || input.QtyTransfer == 0 {
+	fmt.Println("Input : ", input)
+	// return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Confirm transfer successfully"})
+
+	if input.FromLocation == "" || input.ToLocation == "" || input.InventoryID == 0 || input.QtyTransfer == 0 {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "From Location, To Location, Inventory ID and Qty Transfer are required"})
 	}
 
@@ -269,11 +309,12 @@ func (c *MobileInventoryController) ConfirmTransferByInventoryID(ctx *fiber.Ctx)
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "From Location and To Location cannot be the same"})
 	}
 
+	inventoryID := input.InventoryID
 	// convert InventoryID to int
-	inventoryID, err := strconv.Atoi(input.InventoryID)
-	if err != nil {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid Inventory ID"})
-	}
+	// inventoryID, err := strconv.Atoi(input.InventoryID)
+	// if err != nil {
+	// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid Inventory ID"})
+	// }
 
 	if input.FromLocation == "" || input.ToLocation == "" || inventoryID == 0 || input.QtyTransfer == 0 {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "From Location, To Location, Inventory ID and Qty Transfer are required"})
@@ -290,6 +331,21 @@ func (c *MobileInventoryController) ConfirmTransferByInventoryID(ctx *fiber.Ctx)
 			tx.Rollback()
 		}
 	}()
+
+	var uomConversion models.UomConversion
+	if err := tx.Where("ean = ?", input.EanTransfer).First(&uomConversion).Error; err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	uomRepo := repositories.NewUomRepository(tx)
+	qtyTransferConverted, errqtc := uomRepo.ConversionQty(uomConversion.ItemCode, input.QtyTransfer, input.UomTransfer)
+	if errqtc != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": errqtc.Error()})
+	}
+
+	input.QtyTransfer = qtyTransferConverted.QtyConverted
 
 	// validate to location already exists on master locations
 	var toLocation models.Location
@@ -322,7 +378,6 @@ func (c *MobileInventoryController) ConfirmTransferByInventoryID(ctx *fiber.Ctx)
 	newInventory.Uom = inventory.Uom
 	newInventory.InboundID = inventory.InboundID
 	newInventory.InboundDetailId = inventory.InboundDetailId
-	newInventory.RecDate = inventory.RecDate
 	newInventory.ItemId = inventory.ItemId
 	newInventory.ItemCode = inventory.ItemCode
 	newInventory.Barcode = inventory.Barcode
@@ -336,8 +391,11 @@ func (c *MobileInventoryController) ConfirmTransferByInventoryID(ctx *fiber.Ctx)
 	newInventory.Trans = fmt.Sprintf("transfer from inventory_id : %d", inventory.ID)
 	newInventory.IsTransfer = true
 	newInventory.TransferFrom = inventory.ID
-	newInventory.LotNumber = inventory.LotNumber
+	newInventory.RecDate = inventory.RecDate
 	newInventory.ExpDate = inventory.ExpDate
+	newInventory.ProdDate = inventory.ProdDate
+	newInventory.LotNumber = inventory.LotNumber
+	newInventory.InventoryNumber = inventory.InventoryNumber
 	newInventory.CreatedAt = time.Now()
 	newInventory.CreatedBy = int(ctx.Locals("userID").(float64))
 

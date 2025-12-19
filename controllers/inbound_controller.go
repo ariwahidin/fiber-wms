@@ -58,22 +58,23 @@ type Inbound struct {
 type InboundItem struct {
 	// ID int `json:"ID"`
 	// ID          types.SnowflakeID `json:"ID"`
-	ID          int    `json:"ID"`
-	InboundID   int    `json:"inbound_id"`
-	ItemCode    string `json:"item_code"`
-	Quantity    int    `json:"quantity"`
-	RcvLocation string `json:"rcv_location"`
-	WhsCode     string `json:"whs_code"`
-	UOM         string `json:"uom"`
-	RecDate     string `json:"rec_date"`
-	ExpDate     string `json:"exp_date"`
-	LotNumber   string `json:"lot_number"`
-	Remarks     string `json:"remarks"`
-	IsSerial    string `json:"is_serial"`
-	Mode        string `json:"mode"`
-	RefId       int    `json:"ref_id"`
-	RefNo       string `json:"ref_no"`
-	Division    string `json:"division"`
+	ID        int     `json:"ID"`
+	InboundID int     `json:"inbound_id"`
+	ItemCode  string  `json:"item_code"`
+	Quantity  float64 `json:"quantity"`
+	Location  string  `json:"location"`
+	WhsCode   string  `json:"whs_code"`
+	UOM       string  `json:"uom"`
+	RecDate   string  `json:"rec_date"`
+	ProdDate  string  `json:"prod_date"`
+	ExpDate   string  `json:"exp_date"`
+	LotNumber string  `json:"lot_number"`
+	Remarks   string  `json:"remarks"`
+	IsSerial  string  `json:"is_serial"`
+	Mode      string  `json:"mode"`
+	RefId     int     `json:"ref_id"`
+	RefNo     string  `json:"ref_no"`
+	Division  string  `json:"division"`
 }
 
 type ItemInboundBarcode struct {
@@ -119,7 +120,7 @@ func (c *InboundController) CreateInbound(ctx *fiber.Ctx) error {
 		})
 	}
 
-	// Check duplicate item code
+	// Check duplicate item code / line
 	itemCodes := make(map[string]bool) // gunakan map untuk cek duplikat
 	for _, item := range payload.Items {
 
@@ -145,6 +146,26 @@ func (c *InboundController) CreateInbound(ctx *fiber.Ctx) error {
 					"success": false,
 					"message": "Lot number cannot be empty",
 					"error":   "Lot number cannot be empty",
+				})
+			}
+		}
+
+		if InventoryPolicy.UseProductionDate {
+			if item.ProdDate == "" {
+				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+					"success": false,
+					"message": "Production date cannot be empty",
+					"error":   "Production date cannot be empty",
+				})
+			}
+		}
+
+		if InventoryPolicy.UseReceiveLocation {
+			if item.Location == "" {
+				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+					"success": false,
+					"message": "Receive location cannot be empty",
+					"error":   "Receive location cannot be empty",
 				})
 			}
 		}
@@ -177,14 +198,14 @@ func (c *InboundController) CreateInbound(ctx *fiber.Ctx) error {
 
 		// itemCodes[item.ItemCode] = true // tandai sebagai sudah ditemukan
 
-		key := fmt.Sprintf("%s|%s|%s|%s", item.ItemCode, item.RecDate, item.ExpDate, item.LotNumber)
+		key := fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s", item.ItemCode, item.RecDate, item.ExpDate, item.LotNumber, item.ProdDate, item.Location, item.UOM)
 
 		if itemCodes[key] {
 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 				"success": false,
 				"message": "Duplicate item found: " + item.ItemCode,
-				"error": fmt.Sprintf("Duplicate item with code %s, rec_date %s, exp_date %s, lot_number %s",
-					item.ItemCode, item.RecDate, item.ExpDate, item.LotNumber),
+				"error": fmt.Sprintf("Duplicate item with code %s, rec_date %s, exp_date %s, lot_number %s, prod_date %s, location %s, uom %s",
+					item.ItemCode, item.RecDate, item.ExpDate, item.LotNumber, item.ProdDate, item.Location, item.UOM),
 			})
 		}
 
@@ -318,6 +339,16 @@ func (c *InboundController) CreateInbound(ctx *fiber.Ctx) error {
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
 
+		var uomConversion models.UomConversion
+		if err := tx.Debug().First(&uomConversion, "item_code = ? AND from_uom = ?", product.ItemCode, item.UOM).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				tx.Rollback()
+				return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "UOM conversion not found"})
+			}
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+
 		var InboundDetail models.InboundDetail
 
 		var InboundReference models.InboundReference
@@ -335,13 +366,14 @@ func (c *InboundController) CreateInbound(ctx *fiber.Ctx) error {
 		InboundDetail.ItemCode = item.ItemCode
 		InboundDetail.ItemId = product.ID
 		InboundDetail.ProductNumber = product.ProductNumber
-		InboundDetail.Barcode = product.Barcode
+		InboundDetail.Barcode = uomConversion.Ean
 		InboundDetail.Uom = item.UOM
 		InboundDetail.Quantity = item.Quantity
-		InboundDetail.RcvLocation = item.RcvLocation
+		InboundDetail.Location = item.Location
 		InboundDetail.QaStatus = "A"
 		InboundDetail.WhsCode = item.WhsCode
 		InboundDetail.RecDate = item.RecDate
+		InboundDetail.ProdDate = item.ProdDate
 		InboundDetail.ExpDate = item.ExpDate
 		InboundDetail.LotNumber = item.LotNumber
 		// InboundDetail.Remarks = item.Remarks
@@ -478,6 +510,26 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 			}
 		}
 
+		if InventoryPolicy.UseProductionDate {
+			if item.ProdDate == "" {
+				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+					"success": false,
+					"message": "Production date cannot be empty",
+					"error":   "Production date cannot be empty",
+				})
+			}
+		}
+
+		if InventoryPolicy.UseReceiveLocation {
+			if item.Location == "" {
+				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+					"success": false,
+					"message": "Receive location cannot be empty",
+					"error":   "Receive location cannot be empty",
+				})
+			}
+		}
+
 		if item.ItemCode == "" {
 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 				"success": false,
@@ -486,14 +538,14 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 			})
 		}
 
-		key := fmt.Sprintf("%s|%s|%s|%s", item.ItemCode, item.RecDate, item.ExpDate, item.LotNumber)
+		key := fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s", item.ItemCode, item.RecDate, item.ExpDate, item.LotNumber, item.ProdDate, item.Location, item.UOM)
 
 		if itemCodes[key] {
 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 				"success": false,
 				"message": "Duplicate item found: " + item.ItemCode,
-				"error": fmt.Sprintf("Duplicate item with code %s, rec_date %s, exp_date %s, lot_number %s",
-					item.ItemCode, item.RecDate, item.ExpDate, item.LotNumber),
+				"error": fmt.Sprintf("Duplicate item with code %s, rec_date %s, exp_date %s, lot_number %s, prod_date %s, location %s, uom %s",
+					item.ItemCode, item.RecDate, item.ExpDate, item.LotNumber, item.ProdDate, item.Location, item.UOM),
 			})
 		}
 
@@ -586,6 +638,15 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 			}
 
+			var uomConversion models.UomConversion
+			if err := c.DB.Debug().First(&uomConversion, "item_code = ? AND from_uom = ?", product.ItemCode, item.UOM).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "UOM conversion not found"})
+				}
+				// c.DB.Rollback()
+				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+			}
+
 			// Coba cari berdasarkan ID
 			err := c.DB.Debug().First(&inboundDetail, "id = ?", item.ID).Error
 			if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -596,11 +657,12 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 					ItemId:        product.ID,
 					ProductNumber: product.ProductNumber,
 					ItemCode:      item.ItemCode,
-					Barcode:       product.Barcode,
+					Barcode:       uomConversion.Ean,
 					Quantity:      item.Quantity,
-					RcvLocation:   item.RcvLocation,
+					Location:      item.Location,
 					WhsCode:       InboundHeader.WhsCode,
 					RecDate:       item.RecDate,
+					ProdDate:      item.ProdDate,
 					ExpDate:       item.ExpDate,
 					LotNumber:     item.LotNumber,
 					Uom:           item.UOM,
@@ -619,11 +681,12 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 				// ✅ Ditemukan → update
 				inboundDetail.ItemId = product.ID
 				inboundDetail.ItemCode = item.ItemCode
-				inboundDetail.Barcode = product.Barcode
+				inboundDetail.Barcode = uomConversion.Ean
 				inboundDetail.Quantity = item.Quantity
-				inboundDetail.RcvLocation = item.RcvLocation
+				inboundDetail.Location = item.Location
 				inboundDetail.WhsCode = InboundHeader.WhsCode
 				inboundDetail.RecDate = item.RecDate
+				inboundDetail.ProdDate = item.ProdDate
 				inboundDetail.ExpDate = item.ExpDate
 				inboundDetail.LotNumber = item.LotNumber
 				inboundDetail.Uom = item.UOM
@@ -849,7 +912,7 @@ func (c *InboundController) PutawayByInboundNo(ctx *fiber.Ctx) error {
 
 		var allRcvLocationIsFilled bool = true
 		for _, detail := range inboundDetail {
-			if detail.RcvLocation == "" {
+			if detail.Location == "" {
 				allRcvLocationIsFilled = false
 				break
 			}
@@ -868,15 +931,21 @@ func (c *InboundController) PutawayByInboundNo(ctx *fiber.Ctx) error {
 				ScanData:        detail.Barcode,
 				Barcode:         detail.Barcode,
 				SerialNumber:    detail.Barcode,
-				Pallet:          detail.RcvLocation,
-				Location:        detail.RcvLocation,
+				Pallet:          detail.Location,
+				Location:        detail.Location,
 				Quantity:        detail.Quantity,
 				WhsCode:         detail.WhsCode,
 				OwnerCode:       detail.OwnerCode,
 				DivisionCode:    detail.DivisionCode,
 				QaStatus:        detail.QaStatus,
 				Status:          "pending",
-				CreatedBy:       int(ctx.Locals("userID").(float64)),
+				Uom:             detail.Uom,
+				RecDate:         detail.RecDate,
+				ProdDate:        detail.ProdDate,
+				ExpDate:         detail.ExpDate,
+				LotNumber:       detail.LotNumber,
+				// Remarks:        detail.Remarks,
+				CreatedBy: int(ctx.Locals("userID").(float64)),
 			}
 
 			if err := c.DB.Debug().Create(&newInboundBarcode).Error; err != nil {
@@ -1158,7 +1227,7 @@ func (r *InboundController) HandleChecked(ctx *fiber.Ctx) error {
 	}
 
 	for _, detail := range InboundDetails {
-		if detail.RcvLocation == "" {
+		if detail.Location == "" {
 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Inbound " + payload.InboundNo + " has no rcv_location for item " + detail.ItemCode, "message": "Inbound has no rcv_location"})
 		}
 	}
@@ -1182,8 +1251,8 @@ func (r *InboundController) HandleChecked(ctx *fiber.Ctx) error {
 			ScanData:        product.Barcode,
 			Barcode:         product.Barcode,
 			SerialNumber:    product.Barcode,
-			Pallet:          detail.RcvLocation,
-			Location:        detail.RcvLocation,
+			Pallet:          detail.Location,
+			Location:        detail.Location,
 			Quantity:        detail.Quantity,
 			WhsCode:         InboundHeader.WhsCode,
 			OwnerCode:       InboundHeader.OwnerCode,

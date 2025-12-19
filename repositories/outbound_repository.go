@@ -198,21 +198,80 @@ type OutboundList struct {
 func (r *OutboundRepository) GetAllOutboundList() ([]OutboundList, error) {
 	var outboundList []OutboundList
 
-	sql := ` WITH od AS 
-	 (select outbound_id, count(outbound_id) as total_item, sum(p.cbm) as total_cbm,
+	// 	sql := ` WITH od AS
+	// 	 (select outbound_id, count(outbound_id) as total_item, sum(p.cbm) as total_cbm,
+	//     sum(quantity) as qty_req
+	//     from outbound_details od
+	// 	inner join products as p on od.item_id = p.id
+	//     group by outbound_id),
+	//    ps AS(
+	// 		SELECT outbound_id, COUNT(item_id) AS total_item,
+	// 		SUM(quantity) AS qty_plan
+	// 		FROM outbound_pickings
+	// 		GROUP BY outbound_id
+	// 	),
+	// 	kd AS(
+	// 		SELECT outbound_id, SUM(quantity) AS qty_pack
+	// 		FROM outbound_barcodes
+	// 		GROUP BY outbound_id
+	// 	),
+	// 	ord AS (
+	// 		SELECT
+	// 		order_no, outbound_id, outbound_no
+	// 		FROM
+	// 		order_details
+	// 	)
+	//    select a.id, a.outbound_no,
+	// 			a.shipment_id,
+	// 			a.status, a.owner_code,
+	// 			a.shipment_id,
+	//             a.outbound_date,
+	// 			ord.order_no,
+	// 			a.customer_code,
+	//             od.total_item, od.qty_req, COALESCE(ps.qty_plan, 0) AS qty_plan,
+	//             COALESCE(kd.qty_pack, 0) AS qty_pack,
+	//             cs.customer_name,
+	// 			a.deliv_to,
+	// 			cd.customer_name as deliv_to_name,
+	// 			cd.cust_addr1 as deliv_address,
+	// 			cd.cust_city as deliv_city,
+	// 			a.qty_koli,
+	// 			od.total_cbm,
+	// 			od.total_item
+	//             from outbound_headers a
+	//             left join od on a.id = od.outbound_id
+	//             LEFT JOIN ps ON a.id = ps.outbound_id
+	//             LEFT JOIN kd ON a.id = kd.outbound_id
+	//             LEFT JOIN customers cs ON a.customer_code = cs.customer_code
+	// 			LEFT JOIN customers cd ON a.deliv_to = cd.customer_code
+	// 			LEFT JOIN ord ON a.id = ord.outbound_id
+	// 			order by a.id desc`
+
+	sql := `WITH od AS (
+	-- select * from outbound_details
+	select outbound_id, count(outbound_id) as total_item, sum(p.cbm) as total_cbm,
     sum(quantity) as qty_req
     from outbound_details od
 	inner join products as p on od.item_id = p.id
     group by outbound_id),
    ps AS(
+		-- select * from outbound_pickings
 		SELECT outbound_id, COUNT(item_id) AS total_item,  
-		SUM(quantity) AS qty_plan
+		SUM(qty_display) AS qty_plan
 		FROM outbound_pickings
 		GROUP BY outbound_id
 	),
+	obc AS(
+		SELECT  a.outbound_id, a.quantity, a.item_code, b.uom as uom_req, c.from_uom, c.to_uom, c.conversion_rate, a.quantity / c.conversion_rate as qty_display
+		FROM outbound_barcodes a
+		INNER JOIN outbound_details b on a.outbound_detail_id = b.id 
+		INNER JOIN uom_conversions c on a.item_code = c.item_code and b.uom = c.from_uom
+	),
 	kd AS(
-		SELECT outbound_id, SUM(quantity) AS qty_pack
-		FROM outbound_barcodes
+		-- SELECT * FROM outbound_barcodes 
+		-- SELECT * FROM uom_conversions
+		SELECT outbound_id, SUM(qty_display) AS qty_pack
+		FROM obc
 		GROUP BY outbound_id
 	),
 	ord AS (
@@ -245,7 +304,8 @@ func (r *OutboundRepository) GetAllOutboundList() ([]OutboundList, error) {
             LEFT JOIN customers cs ON a.customer_code = cs.customer_code
 			LEFT JOIN customers cd ON a.deliv_to = cd.customer_code
 			LEFT JOIN ord ON a.id = ord.outbound_id
-			order by a.id desc`
+			order by a.id desc
+		`
 
 	if err := r.db.Raw(sql).Scan(&outboundList).Error; err != nil {
 		return nil, err
@@ -392,6 +452,7 @@ type PaperPickingSheet struct {
 	ItemID          int     `json:"item_id"`
 	ItemCode        string  `json:"item_code"`
 	Quantity        int     `json:"quantity"`
+	Uom             string  `json:"uom"`
 	Barcode         string  `json:"barcode"`
 	ItemName        string  `json:"item_name"`
 	Pallet          string  `json:"pallet"`
@@ -435,7 +496,10 @@ func (r *OutboundRepository) GetPickingSheet(outbound_id int) ([]PaperPickingShe
 	e.plan_pickup_time,
 	a.item_id, 
 	a.item_code, 
-	sum(a.quantity) as quantity, 
+	sum(a.quantity) as sum_quantity,
+	uc.conversion_rate as rate,
+	sum(a.quantity) / uc.conversion_rate as quantity,
+	od.uom,
 	a.pallet, a.location,
 	b.barcode, b.item_name, b.cbm, 
 	c.rec_date, 
@@ -451,6 +515,8 @@ func (r *OutboundRepository) GetPickingSheet(outbound_id int) ([]PaperPickingShe
 	h.transporter_code
 	from outbound_pickings a
 	inner join products b on a.item_id = b.id
+	inner join outbound_details od on od.id = a.outbound_detail_id
+	inner join uom_conversions uc on uc.item_code = b.item_code and uc.from_uom = od.uom AND uc.to_uom = b.uom
 	inner join inventories c on a.inventory_id = c.id
 	inner join outbound_headers e on a.outbound_id = e.id
 	inner join customers f on e.customer_code = f.customer_code
@@ -473,8 +539,65 @@ func (r *OutboundRepository) GetPickingSheet(outbound_id int) ([]PaperPickingShe
 	e.plan_pickup_time,
 	g.customer_name,
 	h.transporter_code,
-	a.outbound_detail_id
+	a.outbound_detail_id,
+	uc.conversion_rate,
+	od.uom
 	Order By a.outbound_detail_id ASC`
+
+	// sql := `select
+	// e.cust_address,
+	// e.cust_city,
+	// e.deliv_to,
+	// e.deliv_address,
+	// e.deliv_city,
+	// e.qty_koli,
+	// e.qty_koli_seal,
+	// e.remarks,
+	// e.picker_name,
+	// e.plan_pickup_date,
+	// e.plan_pickup_time,
+	// a.item_id,
+	// a.item_code,
+	// sum(a.quantity) as quantity,
+	// a.pallet, a.location,
+	// b.barcode, b.item_name, b.cbm,
+	// c.rec_date,
+	// c.whs_code,
+	// ROUND(b.cbm * sum(a.quantity), 4) as cbm,
+	// b.item_name,
+	// e.outbound_no,
+	// e.customer_code,
+	// e.outbound_date,
+	// e.shipment_id,
+	// f.customer_name,
+	// g.customer_name as deliv_to_name,
+	// h.transporter_code
+	// from outbound_pickings a
+	// inner join products b on a.item_id = b.id
+	// inner join inventories c on a.inventory_id = c.id
+	// inner join outbound_headers e on a.outbound_id = e.id
+	// inner join customers f on e.customer_code = f.customer_code
+	// inner join customers g on e.deliv_to = g.customer_code
+	// left join transporters h on e.transporter_code = h.transporter_code
+	// where a.outbound_id = ?
+	// group by a.location, a.pallet, a.item_id, a.item_code,
+	// b.barcode, b.item_name, b.cbm, c.rec_date, c.whs_code,
+	// e.outbound_no, e.customer_code, f.customer_name, e.outbound_date, e.shipment_id,
+	// e.cust_address,
+	// e.cust_city,
+	// e.deliv_to,
+	// e.deliv_address,
+	// e.deliv_city,
+	// e.qty_koli,
+	// e.qty_koli_seal,
+	// e.remarks,
+	// e.picker_name,
+	// e.plan_pickup_date,
+	// e.plan_pickup_time,
+	// g.customer_name,
+	// h.transporter_code,
+	// a.outbound_detail_id
+	// Order By a.outbound_detail_id ASC`
 
 	if err := r.db.Debug().Raw(sql, outbound_id).Scan(&outboundList).Error; err != nil {
 		return nil, err
@@ -553,43 +676,102 @@ func (r *OutboundRepository) GetOutboundItemByID(outbound_id int) ([]OutboundIte
 	var outboundItems []OutboundItem
 
 	sql := `WITH od AS (
-    SELECT
-            id AS outbound_detail_id,
-            outbound_id,
-            item_id,
-            SUM(quantity) AS qty_req,
-            -- SUM(scan_qty) AS scan_qty,
-            status,
-            outbound_no
-    FROM outbound_details
-    GROUP BY outbound_id, item_id, id, status, outbound_no
-),
-kd AS (
-    SELECT
-            outbound_id,
-            item_id,
-            SUM(quantity) AS qty_scan,
-            outbound_detail_id
-    FROM outbound_barcodes
-    GROUP BY outbound_id, item_id, outbound_detail_id
-)
-SELECT
-    od.outbound_detail_id,
-    od.outbound_id,
-    od.item_id,
-    od.qty_req,
-    kd.qty_scan,
-    od.status,
-    od.outbound_no
-    -- kd.qty_pack
-FROM od
-LEFT JOIN kd
-    ON od.outbound_id = kd.outbound_id
-    AND od.item_id = kd.item_id
-    AND od.outbound_detail_id = kd.outbound_detail_id
-WHERE od.outbound_id = ?`
+				SELECT
+						a.id AS outbound_detail_id,
+						a.outbound_id,
+						a.item_code,
+						a.item_id,
+						SUM(a.quantity) AS qty_req,
+						a.[status],
+						a.outbound_no,
+						a.barcode,
+						a.uom
+				FROM outbound_details a
+				WHERE a.outbound_id = 630
+				GROUP BY a.outbound_id, a.item_id, a.id, a.[status], 
+				a.outbound_no, a.barcode, a.uom, a.item_code
+			),
+			kd AS (
+				SELECT
+						a.outbound_id,
+						a.item_id,
+						SUM(a.quantity) AS qty_scan,
+						a.outbound_detail_id
+				FROM outbound_barcodes a
+				WHERE a.outbound_id = ?
+				GROUP BY a.outbound_id, a.item_id, a.outbound_detail_id
+			),
+			odp AS
+				(SELECT
+					od.outbound_detail_id,
+					od.outbound_id,
+					od.item_code,
+					od.barcode,
+					od.uom,
+					od.item_id,
+					od.qty_req,
+					kd.qty_scan,
+					od.status,
+					od.outbound_no
+				FROM od
+				LEFT JOIN kd
+					ON od.outbound_id = kd.outbound_id
+					AND od.item_id = kd.item_id
+					AND od.outbound_detail_id = kd.outbound_detail_id
+				WHERE od.outbound_id = ?)
+			select 
+			odp.outbound_detail_id,
+			odp.outbound_id,
+			odp.item_code,
+			odp.barcode,
+			odp.uom,
+			odp.qty_req,
+			ROUND(odp.qty_scan / oc.conversion_rate, 3) AS qty_scan,
+			odp.status,
+			odp.outbound_no
+			from odp
+			left join uom_conversions oc ON oc.item_code = odp.item_code and oc.ean = odp.barcode and odp.uom = oc.from_uom
+			where odp.outbound_id = ?
+			`
 
-	if err := r.db.Debug().Raw(sql, outbound_id).Scan(&outboundItems).Error; err != nil {
+	// 	sql := `WITH od AS (
+	//     SELECT
+	//             id AS outbound_detail_id,
+	//             outbound_id,
+	//             item_id,
+	//             SUM(quantity) AS qty_req,
+	//             -- SUM(scan_qty) AS scan_qty,
+	//             status,
+	//             outbound_no
+	//     FROM outbound_details
+	//     GROUP BY outbound_id, item_id, id, status, outbound_no
+	// ),
+	// kd AS (
+	//     SELECT
+	//             outbound_id,
+	//             item_id,
+	//             SUM(quantity) AS qty_scan,
+	//             outbound_detail_id
+	//     FROM outbound_barcodes
+	//     GROUP BY outbound_id, item_id, outbound_detail_id
+	// )
+	// SELECT
+	//     od.outbound_detail_id,
+	//     od.outbound_id,
+	//     od.item_id,
+	//     od.qty_req,
+	//     kd.qty_scan,
+	//     od.status,
+	//     od.outbound_no
+	//     -- kd.qty_pack
+	// FROM od
+	// LEFT JOIN kd
+	//     ON od.outbound_id = kd.outbound_id
+	//     AND od.item_id = kd.item_id
+	//     AND od.outbound_detail_id = kd.outbound_detail_id
+	// WHERE od.outbound_id = ?`
+
+	if err := r.db.Debug().Raw(sql, outbound_id, outbound_id, outbound_id).Scan(&outboundItems).Error; err != nil {
 		return nil, err
 	}
 

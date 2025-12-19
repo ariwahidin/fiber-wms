@@ -538,6 +538,11 @@ func (r *InboundRepository) PutawayItem(ctx *fiber.Ctx, inboundBarcodeID int, lo
 		}
 		qtyConverted := uomConversion.QtyConverted
 
+		var product models.Product
+		if err := tx.Where("item_code = ?", barcode.ItemCode).Take(&product).Error; err != nil {
+			return errors.New("product not found for item: " + barcode.ItemCode)
+		}
+
 		// Cek apakah data inventory dengan kombinasi yang sama sudah ada
 		var existingInv models.Inventory
 		invQuery := tx.Debug().Where(`
@@ -549,16 +554,18 @@ func (r *InboundRepository) PutawayItem(ctx *fiber.Ctx, inboundBarcodeID int, lo
 			whs_code = ? AND
 			qa_status = ? AND
 			rec_date = ? AND
+			prod_date = ? AND
 			exp_date = ? AND
 			lot_number = ?`,
 			barcode.InboundId,
 			barcode.InboundDetailId,
 			barcode.ItemCode,
 			location,
-			barcode.Barcode,
+			product.Barcode,
 			barcode.WhsCode,
 			barcode.QaStatus,
 			detail.RecDate,
+			detail.ProdDate,
 			barcode.ExpDate,
 			barcode.LotNumber,
 		).First(&existingInv)
@@ -571,7 +578,7 @@ func (r *InboundRepository) PutawayItem(ctx *fiber.Ctx, inboundBarcodeID int, lo
 				RecDate:         detail.RecDate,
 				ItemId:          int(barcode.ItemID),
 				ItemCode:        barcode.ItemCode,
-				Barcode:         barcode.Barcode,
+				Barcode:         product.Barcode,
 				WhsCode:         barcode.WhsCode,
 				OwnerCode:       barcode.OwnerCode,
 				DivisionCode:    barcode.DivisionCode,
@@ -583,6 +590,7 @@ func (r *InboundRepository) PutawayItem(ctx *fiber.Ctx, inboundBarcodeID int, lo
 				QtyOnhand:       qtyConverted,
 				QtyAvailable:    qtyConverted,
 				ExpDate:         barcode.ExpDate,
+				ProdDate:        barcode.ProdDate,
 				LotNumber:       barcode.LotNumber,
 				Trans:           "putaway",
 				CreatedBy:       int(userID),

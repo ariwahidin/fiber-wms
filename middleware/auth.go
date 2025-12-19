@@ -96,7 +96,7 @@ func AuthMiddleware(ctx *fiber.Ctx) error {
 		}
 		expTime := int64(exp)
 
-		userID, ok := claims["userID"].(float64)
+		userID, ok := claims["user_id"].(float64)
 		if !ok {
 			return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 				"message": "Unauthorized: Invalid user ID",
@@ -111,6 +111,14 @@ func AuthMiddleware(ctx *fiber.Ctx) error {
 			})
 		}
 
+		sessionID, ok := claims["session_id"].(string)
+
+		if !ok {
+			return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				"message": "Unauthorized: Invalid sessionID",
+			})
+		}
+
 		fmt.Println("Token masih valid")
 		fmt.Println("Waktu kedaluwarsa:", time.Unix(expTime, 0))
 		fmt.Println("Sisa waktu:", time.Until(time.Unix(expTime, 0)))
@@ -118,6 +126,7 @@ func AuthMiddleware(ctx *fiber.Ctx) error {
 
 		// Simpan userID dan unit ke context
 		ctx.Locals("userID", userID)
+		ctx.Locals("sessionID", sessionID)
 		ctx.Locals("unit", unit)
 		ctx.Locals("userData", claims)
 

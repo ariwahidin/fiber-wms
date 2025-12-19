@@ -28,6 +28,8 @@ func SetupUserRoutes(app *fiber.App) {
 	role.Use(database.InjectDBMiddleware(userController))
 
 	role.Get("/", userController.GetRoles)
+	role.Get("/:id", userController.GetRoleByID)
+	role.Put("/:id", userController.UpdateRole)
 	role.Post("/", userController.CreateRole)
 	role.Put("/permissions/:id", userController.UpdatePermissionsForRole)
 

@@ -13,6 +13,7 @@ type Inventory struct {
 	InboundID       int     `json:"inbound_id" gorm:"default:null"`
 	InboundDetailId int     `json:"inbound_detail_id"`
 	RecDate         string  `json:"rec_date" gorm:"default:null"`
+	ProdDate        string  `json:"prod_date" gorm:"default:null"`
 	ExpDate         string  `json:"exp_date" gorm:"default:null"`
 	LotNumber       string  `json:"lot_number" gorm:"default:null"`
 	Pallet          string  `json:"pallet"`
@@ -54,14 +55,23 @@ func (p *Inventory) BeforeCreate(tx *gorm.DB) (err error) {
 
 type InventoryPolicy struct {
 	gorm.Model
-	OwnerCode          string `gorm:"not null" validate:"required" json:"owner_code" `
-	UseLotNo           bool   `gorm:"default:false" json:"use_lot_no"`
-	UseFIFO            bool   `gorm:"default:false" json:"use_fifo"`
-	UseFEFO            bool   `gorm:"default:false" json:"use_fefo"`
-	RequireExpiryDate  bool   `gorm:"default:false" json:"require_expiry_date"`
-	RequireLotNumber   bool   `gorm:"default:false" json:"require_lot_number"`
-	AllowMixedLot      bool   `gorm:"default:false" json:"allow_mixed_lot"`
-	AllowNegativeStock bool   `gorm:"default:false" json:"allow_negative_stock"`
+	OwnerCode               string `gorm:"not null" validate:"required" json:"owner_code" `
+	UseLotNo                bool   `gorm:"default:false" json:"use_lot_no"`
+	UseFIFO                 bool   `gorm:"default:false" json:"use_fifo"`
+	UseFEFO                 bool   `gorm:"default:false" json:"use_fefo"`
+	UseVAS                  bool   `gorm:"default:false" json:"use_vas"`
+	UseProductionDate       bool   `gorm:"default:false" json:"use_production_date"`
+	UseReceiveLocation      bool   `gorm:"default:false" json:"use_receive_location"`
+	ShowRecDate             bool   `gorm:"default:false" json:"show_rec_date"`
+	RequireExpiryDate       bool   `gorm:"default:false" json:"require_expiry_date"`
+	RequireLotNumber        bool   `gorm:"default:false" json:"require_lot_number"`
+	RequireScanPickLocation bool   `gorm:"default:false" json:"require_scan_pick_location"`
+	AllowMixedLot           bool   `gorm:"default:false" json:"allow_mixed_lot"`
+	AllowNegativeStock      bool   `gorm:"default:false" json:"allow_negative_stock"`
+	ValidationSN            bool   `gorm:"default:false" json:"validation_sn"`
+	CreatedBy               int
+	UpdatedBy               int
+	DeletedBy               int
 }
 
 // func (i *Inventory) BeforeCreate(tx *gorm.DB) (err error) {

@@ -29,6 +29,7 @@ type listInventory struct {
 	QtyOut       int     `json:"qty_out"`
 	CbmPcs       float64 `json:"cbm_pcs"`
 	CbmTotal     float64 `json:"cbm_total"`
+	Uom          string  `json:"uom"`
 }
 
 func (r *InventoryRepository) GetInventory() ([]listInventory, error) {
@@ -65,7 +66,7 @@ func (r *InventoryRepository) GetInventory() ([]listInventory, error) {
 func (r *InventoryRepository) GetInventoryByInbound(inbound_id int) ([]listInventory, error) {
 
 	sqlInventory := `select a.whs_code, a.location, a.barcode, a.owner_code, a.rec_date, b.category,
-	b.item_code, b.item_name, a.qa_status,
+	b.item_code, b.item_name, a.qa_status, a.uom,
 	sum(a.qty_origin) as qty_in,
 	sum(a.qty_onhand) as qty_onhand,
 	sum(a.qty_available) as qty_available,
@@ -78,7 +79,7 @@ func (r *InventoryRepository) GetInventoryByInbound(inbound_id int) ([]listInven
 	WHERE 
 	a.inbound_id = ?
 	AND a.qty_origin > 0
-	group by a.whs_code, a.location, b.item_code, b.item_name, a.qa_status,
+	group by a.whs_code, a.location, b.item_code, b.item_name, a.qa_status, a.uom,
 	a.barcode, a.owner_code, a.rec_date, b.category, a.inbound_detail_id, b.cbm`
 
 	var inventories []listInventory

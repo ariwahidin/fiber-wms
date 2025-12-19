@@ -3,6 +3,7 @@ package mobiles
 import (
 	"errors"
 	"fiber-app/models"
+	"fiber-app/repositories"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -83,39 +84,91 @@ func (c *MobileOutboundController) GetListOutboundDetail(ctx *fiber.Ctx) error {
 	// }
 
 	type OutboundResult struct {
-		OutboundDetailID int    `json:"outbound_detail_id"`
-		WhsCode          string `json:"whs_code"`
-		ItemCode         string `json:"item_code"`
-		Barcode          string `json:"barcode"`
-		Quantity         int    `json:"quantity"`
-		ItemName         string `json:"item_name"`
-		HasSerial        string `json:"has_serial"`
-		QtyScan          int    `json:"scan_qty"`
-		UOM              string `json:"uom"`
+		OutboundDetailID int     `json:"outbound_detail_id"`
+		WhsCode          string  `json:"whs_code"`
+		ItemCode         string  `json:"item_code"`
+		Barcode          string  `json:"barcode"`
+		Quantity         int     `json:"quantity"`
+		ItemName         string  `json:"item_name"`
+		HasSerial        string  `json:"has_serial"`
+		QtyScan          float64 `json:"scan_qty"`
+		UOM              string  `json:"uom"`
+		OwnerCode        string  `json:"owner_code"`
 	}
 
 	var results []OutboundResult
 
-	query := `
-		WITH ob AS (
-			SELECT outbound_id, item_code, barcode, item_id, COALESCE(SUM(quantity),0) as qty_scan
-			FROM outbound_barcodes
-			WHERE outbound_id = ?
-			GROUP BY item_code, barcode, item_id, outbound_id
+	query := `WITH ob AS (
+			SELECT a.outbound_id, a.item_code, a.barcode, a.item_id, a.outbound_detail_id,
+			COALESCE(SUM(a.quantity),0) as qty_scan
+			FROM outbound_barcodes a
+			LEFT JOIN outbound_details b ON a.outbound_detail_id = b.id
+			WHERE a.outbound_id = ?
+			GROUP BY a.item_code, a.barcode, a.item_id, a.outbound_id, a.outbound_detail_id
+		),
+		op AS (
+			SELECT a.outbound_detail_id, a.item_code, sum(a.quantity) as qty, a.uom 
+			FROM outbound_pickings a
+			WHERE a.outbound_id = ?
+			GROUP BY a.outbound_detail_id, a.item_code, a.uom 
+		),
+		opb AS (
+			SELECT a.id as outbound_detail_id, a.whs_code, a.item_code, a.barcode,
+				a.quantity, 
+				a.uom,
+				b.item_name, 
+				COALESCE(ob.qty_scan, 0) as qty_scan, 
+				b.has_serial, 
+				a.owner_code
+			FROM outbound_details a
+			INNER JOIN products b ON a.item_id = b.id
+			LEFT JOIN op ON a.id = op.outbound_detail_id
+			LEFT JOIN ob ON ob.outbound_id = a.outbound_id AND a.item_code = ob.item_code AND a.id = ob.outbound_detail_id
+			WHERE a.outbound_id = ?
 		)
-		SELECT a.id as outbound_detail_id, a.whs_code, a.item_code, a.barcode,
-			a.quantity, 
-			b.item_name, 
-			b.has_serial, 
-			COALESCE(ob.qty_scan, 0) as qty_scan, 
-			a.uom
-		FROM outbound_details a
-		INNER JOIN products b ON a.item_id = b.id
-		LEFT JOIN ob ON ob.outbound_id = a.outbound_id AND a.item_code = ob.item_code
-		WHERE a.outbound_id = ?
-		`
+		select 
+		opb.outbound_detail_id,
+		opb.whs_code,
+		opb.item_code,
+		opb.barcode,
+		opb.quantity,
+		opb.uom,
+		opb.item_name,
+		ROUND(opb.qty_scan / oc.conversion_rate, 3) AS qty_scan,
+		opb.owner_code
+		from opb
+		left join uom_conversions oc ON oc.item_code = opb.item_code and oc.ean = opb.barcode and opb.uom = oc.from_uom`
 
-	err := c.DB.Raw(query, outboundHeader.ID, outboundHeader.ID).Scan(&results).Error
+	// query := `
+	// 	WITH ob AS (
+	// 		SELECT a.outbound_id, a.item_code, a.barcode, a.item_id, a.outbound_detail_id,
+	// 		COALESCE(SUM(a.quantity),0) as qty_scan
+	// 		FROM outbound_barcodes a
+	// 		LEFT JOIN outbound_details b ON a.outbound_detail_id = b.id
+	// 		WHERE a.outbound_id = ?
+	// 		GROUP BY a.item_code, a.barcode, a.item_id, a.outbound_id, a.outbound_detail_id
+	// 	),
+	// 	op AS (
+	// 		SELECT a.outbound_detail_id, a.item_code, sum(a.quantity) as qty, a.uom
+	// 		FROM outbound_pickings a
+	// 		WHERE a.outbound_id = ?
+	// 		GROUP BY a.outbound_detail_id, a.item_code, a.uom
+	// 	)
+	// 	SELECT a.id as outbound_detail_id, a.whs_code, a.item_code, a.barcode,
+	// 		op.qty as quantity,
+	// 		b.item_name,
+	// 		b.has_serial,
+	// 		COALESCE(ob.qty_scan, 0) as qty_scan,
+	// 		op.uom,
+	// 		a.owner_code
+	// 	FROM outbound_details a
+	// 	INNER JOIN products b ON a.item_id = b.id
+	// 	LEFT JOIN op ON a.id = op.outbound_detail_id
+	// 	LEFT JOIN ob ON ob.outbound_id = a.outbound_id AND a.item_code = ob.item_code AND a.id = ob.outbound_detail_id
+	// 	WHERE a.outbound_id = ?
+	// 	`
+
+	err := c.DB.Raw(query, outboundHeader.ID, outboundHeader.ID, outboundHeader.ID).Scan(&results).Error
 	if err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -154,16 +207,37 @@ func (c *MobileOutboundController) CheckItem(ctx *fiber.Ctx) error {
 		}
 	}
 
+	var uomConversion models.UomConversion
+	if err := c.DB.Where("ean = ?", scanOutbound.Barcode).First(&uomConversion).Error; err != nil {
+		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Item not found in UOM conversion", "message": "Item not found in UOM conversion"})
+	}
+
 	var product models.Product
-	if err := c.DB.Where("barcode = ?", scanOutbound.Barcode).First(&product).Error; err != nil {
+	if err := c.DB.Where("item_code = ?", uomConversion.ItemCode).First(&product).Error; err != nil {
 		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Product not found", "message": "Product not found"})
 	}
 
 	if product.HasSerial == "Y" {
-		return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Item checked successfully", "data": product, "is_serial": true})
+		return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+			"success": true,
+			"message": "Item checked successfully",
+			"data": fiber.Map{
+				"product": product,
+				"uom":     uomConversion,
+			},
+			"is_serial": true,
+		})
 	}
 
-	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Item checked successfully", "data": product, "is_serial": false})
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": "Item checked successfully",
+		"data": fiber.Map{
+			"product": product,
+			"uom":     uomConversion,
+		},
+		"is_serial": false,
+	})
 }
 
 func (c *MobileOutboundController) ScanPicking(ctx *fiber.Ctx) error {
@@ -178,15 +252,31 @@ func (c *MobileOutboundController) ScanPicking(ctx *fiber.Ctx) error {
 	}
 
 	var scanOutbound struct {
-		PackingNo  string `json:"packing_no"`
-		OutboundNo string `json:"outbound_no"`
-		Barcode    string `json:"barcode"`
-		SerialNo   string `json:"serial_no"`
-		Qty        int    `json:"qty"`
+		PackingNo  string  `json:"packing_no"`
+		Location   string  `json:"location"`
+		OutboundNo string  `json:"outbound_no"`
+		Barcode    string  `json:"barcode"`
+		SerialNo   string  `json:"serial_no"`
+		Qty        float64 `json:"qty"`
+		Uom        string  `json:"uom"`
 	}
 
 	if err := ctx.BodyParser(&scanOutbound); err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	var inventoryPolicy models.InventoryPolicy
+	if err := c.DB.Debug().Where("owner_code = ?", outboundHeader.OwnerCode).First(&inventoryPolicy).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Inventory policy not found"})
+		}
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	if inventoryPolicy.RequireScanPickLocation {
+		if scanOutbound.Location == "" {
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Location is required"})
+		}
 	}
 
 	var packing models.OutboundPacking
@@ -197,8 +287,25 @@ func (c *MobileOutboundController) ScanPicking(ctx *fiber.Ctx) error {
 		}
 	}
 
+	var uomConversion models.UomConversion
+	if err := c.DB.Where("ean = ?", scanOutbound.Barcode).First(&uomConversion).Error; err != nil {
+		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Item not found in UOM conversion", "message": "Item not found in UOM conversion"})
+	}
+
+	uomRepo := repositories.NewUomRepository(c.DB)
+	uom, errUOM := uomRepo.ConversionQty(uomConversion.ItemCode, scanOutbound.Qty, uomConversion.FromUom)
+
+	if errUOM != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": errUOM.Error(), "message": errUOM.Error()})
+	}
+
+	var outboundDetail models.OutboundDetail
+	if err := c.DB.Where("outbound_id = ? AND item_code = ?", outboundHeader.ID, uomConversion.ItemCode).First(&outboundDetail).Error; err != nil {
+		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Item not found in outbound detail", "message": "Item not found in outbound detail"})
+	}
+
 	var product models.Product
-	if err := c.DB.Where("barcode = ?", scanOutbound.Barcode).First(&product).Error; err != nil {
+	if err := c.DB.Where("item_code = ?", uomConversion.ItemCode).First(&product).Error; err != nil {
 		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Product not found", "message": "Product not found"})
 	}
 
@@ -215,10 +322,24 @@ func (c *MobileOutboundController) ScanPicking(ctx *fiber.Ctx) error {
 
 	}
 
-	var outboundPicking models.OutboundPicking
-	if err := c.DB.Where("outbound_id = ? AND barcode = ?", outboundHeader.ID, scanOutbound.Barcode).First(&outboundPicking).Error; err != nil {
-		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Picking not found", "message": "Picking not found"})
+	queryOutboundPicking := c.DB.Where("outbound_id = ? AND barcode = ?", outboundHeader.ID, product.Barcode)
+
+	if inventoryPolicy.RequireScanPickLocation {
+		queryOutboundPicking = queryOutboundPicking.Where("location = ?", scanOutbound.Location)
 	}
+
+	var outboundPicking models.OutboundPicking
+
+	if err := queryOutboundPicking.First(&outboundPicking).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Picking not found", "message": "Picking not found"})
+		}
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	// if err := c.DB.Where("outbound_id = ? AND barcode = ?", outboundHeader.ID, product.Barcode).First(&outboundPicking).Error; err != nil {
+	// 	return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Picking not found", "message": "Picking not found"})
+	// }
 
 	var serialNumber string
 
@@ -236,7 +357,7 @@ func (c *MobileOutboundController) ScanPicking(ctx *fiber.Ctx) error {
 
 	err := c.DB.Table("outbound_pickings").
 		Select("COALESCE(SUM(quantity), 0) as qty_picking_list").
-		Where("outbound_id = ? AND barcode = ?", outboundHeader.ID, scanOutbound.Barcode).
+		Where("outbound_id = ? AND barcode = ?", outboundHeader.ID, product.Barcode).
 		Scan(&result).Error
 
 	if err != nil {
@@ -251,14 +372,14 @@ func (c *MobileOutboundController) ScanPicking(ctx *fiber.Ctx) error {
 
 	errBarcode := c.DB.Table("outbound_barcodes").
 		Select("COALESCE(SUM(quantity), 0) AS qty_barcode").
-		Where("outbound_id = ? AND barcode = ?", outboundHeader.ID, scanOutbound.Barcode).
+		Where("outbound_id = ? AND barcode = ?", outboundHeader.ID, product.Barcode).
 		Scan(&res).Error
 
 	if errBarcode != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": errBarcode.Error()})
 	}
 
-	if res.QtyBarcode+scanOutbound.Qty > result.QtyPickingList {
+	if res.QtyBarcode+int(uom.QtyConverted) > result.QtyPickingList {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Quantity exceeds the limit"})
 	}
 
@@ -270,10 +391,16 @@ func (c *MobileOutboundController) ScanPicking(ctx *fiber.Ctx) error {
 		OutboundDetailId: outboundPicking.OutboundDetailId,
 		ItemID:           int(product.ID),
 		ItemCode:         product.ItemCode,
-		Barcode:          scanOutbound.Barcode,
+		Barcode:          product.Barcode,
+		Uom:              product.Uom,
 		SerialNumber:     serialNumber,
-		Quantity:         scanOutbound.Qty,
+		Quantity:         uom.QtyConverted,
 		Status:           "pending",
+		BarcodeDataScan:  scanOutbound.Barcode,
+		QtyDataScan:      scanOutbound.Qty,
+		LocationScan:     scanOutbound.Location,
+		UomScan:          scanOutbound.Uom,
+		IsSerial:         product.HasSerial == "Y",
 		CreatedBy:        int(ctx.Locals("userID").(float64)),
 	}
 

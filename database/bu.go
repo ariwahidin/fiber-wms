@@ -3,8 +3,6 @@ package database
 import (
 	"database/sql"
 	"fiber-app/config"
-	"fiber-app/migration"
-	"fiber-app/models"
 	"fmt"
 	"log"
 	"regexp"
@@ -30,114 +28,114 @@ type DBRequest struct {
 	Name string `json:"dbName"`
 }
 
-func CreateDatabase(c *fiber.Ctx) error {
-	var req DBRequest
+// func CreateDatabase(c *fiber.Ctx) error {
+// 	var req DBRequest
 
-	userIDVal := c.Locals("userID")
-	if userIDVal == nil {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-			"success": false,
-			"message": "Unauthorized: userID not found in context",
-		})
-	}
+// 	userIDVal := c.Locals("userID")
+// 	if userIDVal == nil {
+// 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+// 			"success": false,
+// 			"message": "Unauthorized: userID not found in context",
+// 		})
+// 	}
 
-	fmt.Println("User ID:", userIDVal)
+// 	fmt.Println("User ID:", userIDVal)
 
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(400).JSON(fiber.Map{"error": "Invalid request body"})
-	}
+// 	if err := c.BodyParser(&req); err != nil {
+// 		return c.Status(400).JSON(fiber.Map{"error": "Invalid request body"})
+// 	}
 
-	dbName := strings.TrimSpace(req.Name)
-	if dbName == "" || !isValidDBName(dbName) {
-		return c.Status(400).JSON(fiber.Map{"error": "Invalid database name"})
-	}
+// 	dbName := strings.TrimSpace(req.Name)
+// 	if dbName == "" || !isValidDBName(dbName) {
+// 		return c.Status(400).JSON(fiber.Map{"error": "Invalid database name"})
+// 	}
 
-	// Buat koneksi ke DB utama
-	db, err := OpenMasterConnection()
-	if err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": "Failed to connect to master DB"})
-	}
+// 	// Buat koneksi ke DB utama
+// 	// db, err := OpenMasterConnection()
+// 	// if err != nil {
+// 	// 	return c.Status(500).JSON(fiber.Map{"error": "Failed to connect to master DB"})
+// 	// }
 
-	// Cek apakah DB sudah ada
-	exists, err := checkDatabaseExists(db, dbName)
-	if err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": "Error checking DB existence"})
-	}
-	if exists {
-		return c.Status(400).JSON(fiber.Map{"error": "Database already exists", "success": false})
-	}
+// 	// Cek apakah DB sudah ada
+// 	exists, err := checkDatabaseExists(db, dbName)
+// 	if err != nil {
+// 		return c.Status(500).JSON(fiber.Map{"error": "Error checking DB existence"})
+// 	}
+// 	if exists {
+// 		return c.Status(400).JSON(fiber.Map{"error": "Database already exists", "success": false})
+// 	}
 
-	// Buat database
-	if err := createDatabase(db, dbName); err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": "Failed to create database"})
-	}
+// 	// Buat database
+// 	if err := createDatabase(db, dbName); err != nil {
+// 		return c.Status(500).JSON(fiber.Map{"error": "Failed to create database"})
+// 	}
 
-	userIDFloat, ok := userIDVal.(float64)
-	if !ok {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"success": false,
-			"message": "userID is not a valid number",
-		})
-	}
+// 	userIDFloat, ok := userIDVal.(float64)
+// 	if !ok {
+// 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+// 			"success": false,
+// 			"message": "userID is not a valid number",
+// 		})
+// 	}
 
-	bu := models.BusinessUnit{
-		DbName:    dbName,
-		CreatedBy: int(userIDFloat),
-	}
+// 	bu := models.BusinessUnit{
+// 		DbName:    dbName,
+// 		CreatedBy: int(userIDFloat),
+// 	}
 
-	if err := db.Create(&bu).Error; err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": "Failed to save BusinessUnit"})
-	}
+// 	if err := db.Create(&bu).Error; err != nil {
+// 		return c.Status(500).JSON(fiber.Map{"error": "Failed to save BusinessUnit"})
+// 	}
 
-	return c.JSON(fiber.Map{"message": "Database " + dbName + " created successfully", "success": true, "data": dbName})
-}
+// 	return c.JSON(fiber.Map{"message": "Database " + dbName + " created successfully", "success": true, "data": dbName})
+// }
 
-func MigrateDB(c *fiber.Ctx) error {
+// func MigrateDB(c *fiber.Ctx) error {
 
-	var req DBRequest
+// 	var req DBRequest
 
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(400).JSON(fiber.Map{"error": "Invalid request body"})
-	}
+// 	if err := c.BodyParser(&req); err != nil {
+// 		return c.Status(400).JSON(fiber.Map{"error": "Invalid request body"})
+// 	}
 
-	dbName := strings.TrimSpace(req.Name)
-	if dbName == "" || !isValidDBName(dbName) {
-		return c.Status(400).JSON(fiber.Map{"error": "Invalid database name"})
-	}
+// 	dbName := strings.TrimSpace(req.Name)
+// 	if dbName == "" || !isValidDBName(dbName) {
+// 		return c.Status(400).JSON(fiber.Map{"error": "Invalid database name"})
+// 	}
 
-	db, err := OpenMasterConnection()
-	if err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": "Failed to connect to master DB"})
-	}
+// 	// db, err := OpenMasterConnection()
+// 	// if err != nil {
+// 	// 	return c.Status(500).JSON(fiber.Map{"error": "Failed to connect to master DB"})
+// 	// }
 
-	exists, err := checkDatabaseExists(db, dbName)
-	if err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": "Error checking DB existence"})
-	}
-	if !exists {
-		return c.Status(400).JSON(fiber.Map{"error": "Database does not exist", "success": false})
-	}
+// 	exists, err := checkDatabaseExists(db, dbName)
+// 	if err != nil {
+// 		return c.Status(500).JSON(fiber.Map{"error": "Error checking DB existence"})
+// 	}
+// 	if !exists {
+// 		return c.Status(400).JSON(fiber.Map{"error": "Database does not exist", "success": false})
+// 	}
 
-	newDB, err := OpenDatabaseConnection(dbName)
-	if err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": "Failed to connect to new DB"})
-	}
+// 	newDB, err := OpenDatabaseConnection(dbName)
+// 	if err != nil {
+// 		return c.Status(500).JSON(fiber.Map{"error": "Failed to connect to new DB"})
+// 	}
 
-	// RunMigration(newDB)
-	migration.MigrateBusinessUnit(newDB)
-	RunSeeders(newDB)
-	return c.JSON(fiber.Map{"message": "Database migrated", "success": true, "data": dbName})
-}
+// 	// RunMigration(newDB)
+// 	migration.MigrateBusinessUnit(newDB)
+// 	RunSeeders(newDB)
+// 	return c.JSON(fiber.Map{"message": "Database migrated", "success": true, "data": dbName})
+// }
 
-func OpenMasterConnection() (*gorm.DB, error) {
-	_, dialector := getDSNAndDialector(config.DBName)
-	return gorm.Open(dialector, &gorm.Config{})
-}
+// func OpenMasterConnection() (*gorm.DB, error) {
+// 	_, dialector := getDSNAndDialector(config.DBName)
+// 	return gorm.Open(dialector, &gorm.Config{})
+// }
 
-func OpenMasterDB() (*gorm.DB, error) {
-	_, dialector := getDSNAndDialector(config.DBName)
-	return gorm.Open(dialector, &gorm.Config{})
-}
+// func OpenMasterDB() (*gorm.DB, error) {
+// 	_, dialector := getDSNAndDialector(config.DBName)
+// 	return gorm.Open(dialector, &gorm.Config{})
+// }
 
 func OpenDatabaseConnection(dbName string) (*gorm.DB, error) {
 	_, dialector := getDSNAndDialector(dbName)
@@ -343,15 +341,15 @@ func isValidDBName(name string) bool {
 	return matched
 }
 
-func GetAllBusinessUnit(c *fiber.Ctx) error {
-	db, err := OpenMasterConnection()
-	if err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": "Failed to connect to master DB"})
-	}
+// func GetAllBusinessUnit(c *fiber.Ctx) error {
+// 	db, err := OpenMasterConnection()
+// 	if err != nil {
+// 		return c.Status(500).JSON(fiber.Map{"error": "Failed to connect to master DB"})
+// 	}
 
-	var businessUnits []models.BusinessUnit
-	if err := db.Find(&businessUnits).Error; err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": "Failed to retrieve BusinessUnits"})
-	}
-	return c.JSON(fiber.Map{"success": true, "data": businessUnits})
-}
+// 	var businessUnits []models.BusinessUnit
+// 	if err := db.Find(&businessUnits).Error; err != nil {
+// 		return c.Status(500).JSON(fiber.Map{"error": "Failed to retrieve BusinessUnits"})
+// 	}
+// 	return c.JSON(fiber.Map{"success": true, "data": businessUnits})
+// }

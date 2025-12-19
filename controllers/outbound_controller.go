@@ -56,7 +56,7 @@ type OutboundItem struct {
 	ID         int               `json:"ID"`
 	OutboundID types.SnowflakeID `json:"outbound_id"`
 	ItemCode   string            `json:"item_code"`
-	Quantity   int               `json:"quantity"`
+	Quantity   float64           `json:"quantity"`
 	UOM        string            `json:"uom"`
 	SN         string            `json:"sn"`
 	Location   string            `json:"location"`
@@ -82,6 +82,108 @@ func (c *OutboundController) CreateOutbound(ctx *fiber.Ctx) error {
 	fmt.Println("Create Outbound Payload:", payload)
 
 	// return nil
+
+	var InventoryPolicy models.InventoryPolicy
+	if err := c.DB.Where("owner_code = ?", payload.OwnerCode).First(&InventoryPolicy).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to get inventory policy",
+			"error":   err.Error(),
+		})
+	}
+
+	// Check duplicate item code / line
+	itemCodes := make(map[string]bool) // gunakan map untuk cek duplikat
+	for _, item := range payload.Items {
+
+		if item.Quantity == 0 {
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"success": false,
+				"message": "Quantity cannot be zero",
+				"error":   "Quantity cannot be zero",
+			})
+		}
+
+		if item.UOM == "" {
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"success": false,
+				"message": "UOM cannot be empty",
+				"error":   "UOM cannot be empty",
+			})
+		}
+
+		// if InventoryPolicy.UseLotNo {
+		// 	if item.LotNumber == "" {
+		// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+		// 			"success": false,
+		// 			"message": "Lot number cannot be empty",
+		// 			"error":   "Lot number cannot be empty",
+		// 		})
+		// 	}
+		// }
+
+		// if InventoryPolicy.UseProductionDate {
+		// 	if item.ProdDate == "" {
+		// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+		// 			"success": false,
+		// 			"message": "Production date cannot be empty",
+		// 			"error":   "Production date cannot be empty",
+		// 		})
+		// 	}
+		// }
+
+		// if InventoryPolicy.UseReceiveLocation {
+		// 	if item.Location == "" {
+		// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+		// 			"success": false,
+		// 			"message": "Receive location cannot be empty",
+		// 			"error":   "Receive location cannot be empty",
+		// 		})
+		// 	}
+		// }
+
+		// if InventoryPolicy.UseFEFO {
+		// 	if item.ExpDate == "" {
+		// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+		// 			"success": false,
+		// 			"message": "Expiration date cannot be empty",
+		// 			"error":   "Expiration date cannot be empty",
+		// 		})
+		// 	}
+		// }
+
+		if item.ItemCode == "" {
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"success": false,
+				"message": "Item code cannot be empty",
+				"error":   "Item code cannot be empty",
+			})
+		}
+
+		// if itemCodes[item.ItemCode] {
+		// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+		// 		"success": false,
+		// 		"message": "Duplicate item code found: " + item.ItemCode,
+		// 		"error":   "Duplicate item code for item code " + item.ItemCode,
+		// 	})
+		// }
+
+		// itemCodes[item.ItemCode] = true // tandai sebagai sudah ditemukan
+
+		key := fmt.Sprintf("%s|%s", item.ItemCode, item.UOM)
+
+		if itemCodes[key] {
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"success": false,
+				"message": "Duplicate item found: " + item.ItemCode,
+				"error": fmt.Sprintf("Duplicate item with code %s,  uom %s",
+					item.ItemCode, item.UOM),
+			})
+		}
+
+		itemCodes[key] = true
+
+	}
 
 	// Mulai transaction
 	tx := c.DB.Begin()
@@ -241,12 +343,22 @@ func (c *OutboundController) CreateOutbound(ctx *fiber.Ctx) error {
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
 
+		var uomConversion models.UomConversion
+		if err := tx.Debug().First(&uomConversion, "item_code = ? AND from_uom = ?", product.ItemCode, item.UOM).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				tx.Rollback()
+				return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "UOM conversion not found"})
+			}
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+
 		var OutboundDetail models.OutboundDetail
 		OutboundDetail.OutboundNo = payload.OutboundNo
 		OutboundDetail.OutboundID = types.SnowflakeID(outboundID)
 		OutboundDetail.ItemCode = item.ItemCode
 		OutboundDetail.ItemID = int(product.ID)
-		OutboundDetail.Barcode = product.Barcode
+		OutboundDetail.Barcode = uomConversion.Ean
 		OutboundDetail.CustomerCode = OutboundHeader.CustomerCode
 		OutboundDetail.Uom = item.UOM
 		OutboundDetail.Quantity = item.Quantity
@@ -364,6 +476,108 @@ func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
 
 	if err := ctx.BodyParser(&payload); err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	var InventoryPolicy models.InventoryPolicy
+	if err := c.DB.Where("owner_code = ?", payload.OwnerCode).First(&InventoryPolicy).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to get inventory policy",
+			"error":   err.Error(),
+		})
+	}
+
+	// Check duplicate item code / line
+	itemCodes := make(map[string]bool) // gunakan map untuk cek duplikat
+	for _, item := range payload.Items {
+
+		if item.Quantity == 0 {
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"success": false,
+				"message": "Quantity cannot be zero",
+				"error":   "Quantity cannot be zero",
+			})
+		}
+
+		if item.UOM == "" {
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"success": false,
+				"message": "UOM cannot be empty",
+				"error":   "UOM cannot be empty",
+			})
+		}
+
+		// if InventoryPolicy.UseLotNo {
+		// 	if item.LotNumber == "" {
+		// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+		// 			"success": false,
+		// 			"message": "Lot number cannot be empty",
+		// 			"error":   "Lot number cannot be empty",
+		// 		})
+		// 	}
+		// }
+
+		// if InventoryPolicy.UseProductionDate {
+		// 	if item.ProdDate == "" {
+		// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+		// 			"success": false,
+		// 			"message": "Production date cannot be empty",
+		// 			"error":   "Production date cannot be empty",
+		// 		})
+		// 	}
+		// }
+
+		// if InventoryPolicy.UseReceiveLocation {
+		// 	if item.Location == "" {
+		// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+		// 			"success": false,
+		// 			"message": "Receive location cannot be empty",
+		// 			"error":   "Receive location cannot be empty",
+		// 		})
+		// 	}
+		// }
+
+		// if InventoryPolicy.UseFEFO {
+		// 	if item.ExpDate == "" {
+		// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+		// 			"success": false,
+		// 			"message": "Expiration date cannot be empty",
+		// 			"error":   "Expiration date cannot be empty",
+		// 		})
+		// 	}
+		// }
+
+		if item.ItemCode == "" {
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"success": false,
+				"message": "Item code cannot be empty",
+				"error":   "Item code cannot be empty",
+			})
+		}
+
+		// if itemCodes[item.ItemCode] {
+		// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+		// 		"success": false,
+		// 		"message": "Duplicate item code found: " + item.ItemCode,
+		// 		"error":   "Duplicate item code for item code " + item.ItemCode,
+		// 	})
+		// }
+
+		// itemCodes[item.ItemCode] = true // tandai sebagai sudah ditemukan
+
+		key := fmt.Sprintf("%s|%s", item.ItemCode, item.UOM)
+
+		if itemCodes[key] {
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"success": false,
+				"message": "Duplicate item found: " + item.ItemCode,
+				"error": fmt.Sprintf("Duplicate item with code %s,  uom %s",
+					item.ItemCode, item.UOM),
+			})
+		}
+
+		itemCodes[key] = true
+
 	}
 
 	// Mulai transaction
@@ -491,6 +705,16 @@ func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
 
+		var uomConversion models.UomConversion
+		if err := tx.Debug().First(&uomConversion, "item_code = ? AND from_uom = ?", product.ItemCode, item.UOM).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				tx.Rollback()
+				return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "UOM conversion not found"})
+			}
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+
 		// Coba cari berdasarkan ID
 		err := tx.Debug().First(&outboundDetail, "id = ?", item.ID).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -502,7 +726,7 @@ func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
 					OutboundNo:   OutboundHeader.OutboundNo,
 					ItemID:       int(product.ID),
 					ItemCode:     item.ItemCode,
-					Barcode:      product.Barcode,
+					Barcode:      uomConversion.Ean,
 					Quantity:     item.Quantity,
 					ExpDate:      item.ExpDate,
 					LotNumber:    item.LotNumber,
@@ -534,7 +758,7 @@ func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
 				outboundDetail.OutboundID = OutboundHeader.ID
 				outboundDetail.ItemID = int(product.ID)
 				outboundDetail.ItemCode = item.ItemCode
-				outboundDetail.Barcode = product.Barcode
+				outboundDetail.Barcode = uomConversion.Ean
 				outboundDetail.Uom = item.UOM
 				outboundDetail.WhsCode = OutboundHeader.WhsCode
 				outboundDetail.OwnerCode = OutboundHeader.OwnerCode
@@ -803,8 +1027,12 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 				RecDate:          inventory.RecDate,
 				ExpDate:          inventory.ExpDate,
 				LotNumber:        inventory.LotNumber,
+				ProdDate:         inventory.ProdDate,
 				WhsCode:          inventory.WhsCode,
 				QaStatus:         inventory.QaStatus,
+				UomDisplay:       outboundDetail.Uom,
+				QtyDisplay:       qtyPick / uomConversion.Rate,
+				EanDisplay:       uomConversion.Ean,
 				CreatedBy:        int(ctx.Locals("userID").(float64)),
 			}
 

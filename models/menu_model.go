@@ -25,7 +25,7 @@ type Menu struct {
 	Path        string       `json:"path"`
 	Icon        string       `json:"icon"`
 	MenuOrder   int          `json:"menu_order" gorm:"column:menu_order"`
-	ParentID    *uint        `json:"parent_id"`
+	ParentID    *uint        `json:"parent_id" gorm:"null"`
 	Parent      *Menu        `gorm:"foreignKey:ParentID"`
 	Children    []Menu       `gorm:"foreignKey:ParentID"`
 	Permissions []Permission `gorm:"many2many:menu_permissions;"`

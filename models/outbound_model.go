@@ -58,7 +58,7 @@ type OutboundDetail struct {
 	ItemID       int               `json:"item_id"`
 	ItemCode     string            `json:"item_code" required:"required"`
 	Barcode      string            `json:"barcode"`
-	Quantity     int               `json:"quantity" required:"required"`
+	Quantity     float64           `json:"quantity" required:"required"`
 	Pallet       string            `json:"pallet"`
 	RecDate      string            `json:"rec_date" gorm:"default:null"`
 	ExpDate      string            `json:"exp_date" gorm:"default:null"`
@@ -157,9 +157,13 @@ type OutboundPicking struct {
 	QaStatus         string            `json:"qa_status"`
 	RecDate          string            `json:"rec_date"`
 	ExpDate          string            `json:"exp_date"`
+	ProdDate         string            `json:"prod_date"`
 	LotNumber        string            `json:"lot_number"`
 	Uom              string            `json:"uom"`
 	Reason           string            `json:"reason"`
+	QtyDisplay       float64           `json:"qty_display"`
+	UomDisplay       string            `json:"uom_display"`
+	EanDisplay       string            `json:"ean_display"`
 	CreatedBy        int
 	UpdatedBy        int
 	DeletedBy        int
@@ -178,9 +182,15 @@ type OutboundBarcode struct {
 	ItemID           int               `json:"item_id"`
 	ItemCode         string            `json:"item_code"`
 	Barcode          string            `json:"barcode"`
+	Uom              string            `json:"uom"`
 	SerialNumber     string            `json:"serial_number"`
-	Quantity         int               `json:"quantity"`
+	Quantity         float64           `json:"quantity"`
 	Status           string            `json:"status" gorm:"default:'pending'"`
+	BarcodeDataScan  string            `json:"barcode_data_scan"` // data barcode yang di scan
+	QtyDataScan      float64           `json:"qty_data_scan"`     // data qty yang di scan
+	LocationScan     string            `json:"location_scan"`
+	UomScan          string            `json:"uom_scan"`
+	IsSerial         bool              `json:"is_serial"`
 	CreatedBy        int
 	UpdatedBy        int
 	DeletedBy        int

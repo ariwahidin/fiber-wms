@@ -27,6 +27,7 @@ func SetupProductRoutes(app *fiber.App) {
 
 	uom.Get("/", uomController.GetAllUOM)
 	uom.Post("/item/", uomController.GetUomByItemCode)
+	uom.Post("/uom-item", uomController.GetUomConversionByItemCodeAndFromUom)
 	uom.Post("/conversion", uomController.CreateUom)
 	uom.Get("/conversion", uomController.GetAllUOMConversion)
 	uom.Put("/conversion/:id", uomController.UpdateUOMConversion)

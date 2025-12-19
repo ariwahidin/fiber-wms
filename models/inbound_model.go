@@ -59,32 +59,33 @@ type InboundReference struct {
 
 type InboundDetail struct {
 	gorm.Model
-	OwnerCode     string `json:"owner_code" required:"required"`
-	WhsCode       string `json:"whs_code" required:"required"`
-	DivisionCode  string `json:"division_code" required:"required"`
-	InboundId     int    `json:"inbound_id" gorm:"default:null"`
-	InboundNo     string `json:"inbound_no"`
-	ItemId        int    `json:"item_id" required:"required"`
-	ProductNumber int    `json:"product_number"`
-	ItemCode      string `json:"item_code" required:"required"`
-	Barcode       string `json:"barcode"`
-	Quantity      int    `json:"quantity" required:"required"`
-	RcvLocation   string `json:"rcv_location"`
-	QaStatus      string `json:"qa_status" gorm:"default:'pending'"`
-	Location      string `json:"location" required:"required"`
-	Status        string `json:"status" gorm:"default:'draft'"`
-	RecDate       string `json:"rec_date" gorm:"default:null"`
-	ExpDate       string `json:"exp_date" gorm:"default:null"`
-	LotNumber     string `json:"lot_number" gorm:"default:null"`
-	Uom           string `json:"uom" required:"required"`
-	IsSerial      string `json:"is_serial"`
-	SN            string `json:"sn"`
-	HandlingId    int    `json:"handling_id" required:"required"`
-	HandlingUsed  string `json:"handling_used"`
-	TotalVas      int    `json:"total_vas"`
-	Remarks       string `json:"remarks"`
-	RefId         int    `json:"ref_id"`
-	RefNo         string `json:"ref_no"`
+	OwnerCode     string  `json:"owner_code" required:"required"`
+	WhsCode       string  `json:"whs_code" required:"required"`
+	DivisionCode  string  `json:"division_code" required:"required"`
+	InboundId     int     `json:"inbound_id" gorm:"default:null"`
+	InboundNo     string  `json:"inbound_no"`
+	ItemId        int     `json:"item_id" required:"required"`
+	ProductNumber int     `json:"product_number"`
+	ItemCode      string  `json:"item_code" required:"required"`
+	Barcode       string  `json:"barcode"`
+	Quantity      float64 `json:"quantity" required:"required"`
+	RcvLocation   string  `json:"rcv_location"`
+	QaStatus      string  `json:"qa_status" gorm:"default:'pending'"`
+	Location      string  `json:"location" required:"required"`
+	Status        string  `json:"status" gorm:"default:'draft'"`
+	RecDate       string  `json:"rec_date" gorm:"default:null"`
+	ProdDate      string  `json:"prod_date" gorm:"default:null"`
+	ExpDate       string  `json:"exp_date" gorm:"default:null"`
+	LotNumber     string  `json:"lot_number" gorm:"default:null"`
+	Uom           string  `json:"uom" required:"required"`
+	IsSerial      string  `json:"is_serial"`
+	SN            string  `json:"sn"`
+	HandlingId    int     `json:"handling_id" required:"required"`
+	HandlingUsed  string  `json:"handling_used"`
+	TotalVas      int     `json:"total_vas"`
+	Remarks       string  `json:"remarks"`
+	RefId         int     `json:"ref_id"`
+	RefNo         string  `json:"ref_no"`
 	CreatedBy     int
 	UpdatedBy     int
 	DeletedBy     int
@@ -121,9 +122,10 @@ type InboundBarcode struct {
 	Pallet          string         `json:"pallet"`
 	Location        string         `json:"location"`
 	RecDate         string         `json:"rec_date" gorm:"default:null"`
+	ProdDate        string         `json:"prod_date" gorm:"default:null"`
 	ExpDate         string         `json:"exp_date" gorm:"default:null"`
 	LotNumber       string         `json:"lot_number" gorm:"default:null"`
-	Quantity        int            `json:"quantity"`
+	Quantity        float64        `json:"quantity"`
 	Uom             string         `json:"uom"`
 	WhsCode         string         `json:"whs_code"`
 	OwnerCode       string         `json:"owner_code"`
@@ -160,4 +162,35 @@ type FormItemInbound struct {
 	Remarks         string `json:"remarks"`
 	Location        string `json:"location"`
 	TotalVas        int    `json:"total_vas"`
+}
+
+type InboundDetailView struct {
+	ID            uint   `json:"ID"`
+	OwnerCode     string `json:"owner_code" required:"required"`
+	WhsCode       string `json:"whs_code" required:"required"`
+	DivisionCode  string `json:"division_code" required:"required"`
+	InboundId     int    `json:"inbound_id" gorm:"default:null"`
+	InboundNo     string `json:"inbound_no"`
+	ItemId        int    `json:"item_id" required:"required"`
+	ProductNumber int    `json:"product_number"`
+	ItemCode      string `json:"item_code" required:"required"`
+	Barcode       string `json:"barcode"`
+	Quantity      int    `json:"quantity" required:"required"`
+	RcvLocation   string `json:"rcv_location"`
+	QaStatus      string `json:"qa_status" gorm:"default:'pending'"`
+	Location      string `json:"location" required:"required"`
+	Status        string `json:"status" gorm:"default:'draft'"`
+	RecDate       string `json:"rec_date" gorm:"default:null"`
+	ProdDate      string `json:"prod_date" gorm:"default:null"`
+	ExpDate       string `json:"exp_date" gorm:"default:null"`
+	LotNumber     string `json:"lot_number" gorm:"default:null"`
+	Uom           string `json:"uom" required:"required"`
+	IsSerial      string `json:"is_serial"`
+	SN            string `json:"sn"`
+	HandlingId    int    `json:"handling_id" required:"required"`
+	HandlingUsed  string `json:"handling_used"`
+	TotalVas      int    `json:"total_vas"`
+	Remarks       string `json:"remarks"`
+	RefId         int    `json:"ref_id"`
+	RefNo         string `json:"ref_no"`
 }

@@ -62,5 +62,6 @@ func MigrateBusinessUnit(db *gorm.DB) error {
 		&models.OutboundVas{},
 		&models.InventoryPolicy{},
 		&models.IntegrationLog{},
+		&models.LoginLog{},
 	)
 }

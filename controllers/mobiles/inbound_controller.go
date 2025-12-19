@@ -85,28 +85,40 @@ func (c *MobileInboundController) CheckItem(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Inbound not found", "message": "Inbound not found"})
 	}
 
+	var uomConversion models.UomConversion
+	if err := c.DB.Where("ean = ?", scanInbound.Barcode).
+		First(&uomConversion).Error; err != nil {
+		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Item not found in UOM conversion", "message": "Item not found in UOM conversion"})
+	}
+
+	var inboundDetail []models.InboundDetail
+
+	if errID := c.DB.Where("inbound_id = ? AND item_code = ? AND uom = ?", inboundHeader.ID, uomConversion.ItemCode, uomConversion.FromUom).
+		Find(&inboundDetail).Error; errID != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": errID.Error()})
+	}
+
+	if len(inboundDetail) < 1 {
+		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Item not found in inbound details", "message": "Item not found in inbound details"})
+	}
+
 	var product models.Product
-	if err := c.DB.Where("barcode = ?", scanInbound.Barcode).First(&product).Error; err != nil {
+	if err := c.DB.Where("item_code = ?", uomConversion.ItemCode).First(&product).Error; err != nil {
 		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Product not found", "message": "Product not found"})
 	}
 
 	if product.HasSerial == "Y" {
-		return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Item checked successfully", "data": product, "is_serial": true})
+		return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+			"success":   true,
+			"message":   "Item checked successfully",
+			"data":      inboundDetail,
+			"is_serial": true,
+		})
 	}
 
 	var inventoryPolicy models.InventoryPolicy
 	if err := c.DB.Where("owner_code = ?", inboundHeader.OwnerCode).First(&inventoryPolicy).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-	}
-
-	var inboundDetail []models.InboundDetail
-	if err := c.DB.Where("inbound_id = ? AND item_id = ?", inboundHeader.ID, product.ID).
-		Find(&inboundDetail).Error; err != nil {
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-	}
-
-	if len(inboundDetail) < 1 {
-		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Item not found in inbound details", "message": "Item not found in inbound details"})
 	}
 
 	if inventoryPolicy.UseFEFO {
@@ -130,18 +142,19 @@ func (c *MobileInboundController) CheckItem(ctx *fiber.Ctx) error {
 func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 
 	var scanInbound struct {
-		ID        int    `json:"id"`
-		InboundNo string `json:"inboundNo"`
-		Location  string `json:"location"`
-		Barcode   string `json:"barcode"`
-		ScanType  string `json:"scanType"`
-		WhsCode   string `json:"whsCode"`
-		QaStatus  string `json:"qaStatus"`
-		Serial    string `json:"serial"`
-		QtyScan   int    `json:"qtyScan"`
-		ExpDate   string `json:"expDate"`
-		LotNo     string `json:"lotNo"`
-		Uploaded  bool   `json:"uploaded"`
+		ID        int     `json:"id"`
+		InboundNo string  `json:"inboundNo"`
+		Location  string  `json:"location"`
+		Barcode   string  `json:"barcode"`
+		ScanType  string  `json:"scanType"`
+		WhsCode   string  `json:"whsCode"`
+		QaStatus  string  `json:"qaStatus"`
+		Serial    string  `json:"serial"`
+		QtyScan   float64 `json:"qtyScan"`
+		ProdDate  string  `json:"prodDate"`
+		ExpDate   string  `json:"expDate"`
+		LotNo     string  `json:"lotNo"`
+		Uploaded  bool    `json:"uploaded"`
 	}
 
 	if err := ctx.BodyParser(&scanInbound); err != nil {
@@ -177,8 +190,14 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	var uomConversion models.UomConversion
+	if err := tx.Where("ean = ?", scanInbound.Barcode).First(&uomConversion).Error; err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Item not found in UOM conversion", "message": "Item not found in UOM conversion"})
+	}
+
 	var product models.Product
-	if err := tx.Where("barcode = ?", scanInbound.Barcode).First(&product).Error; err != nil {
+	if err := tx.Where("item_code = ?", uomConversion.ItemCode).First(&product).Error; err != nil {
 		tx.Rollback()
 		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Product not found", "message": "Product not found"})
 	}
@@ -199,9 +218,9 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 	// kalau pakai FEFO, berarti exp_date dan lot_no wajib ikut
 	if inventoryPolicy.UseFEFO && inventoryPolicy.UseLotNo {
 		queryInboundDetail = queryInboundDetail.Where("exp_date = ? AND lot_number = ? AND quantity = ? ", scanInbound.ExpDate, scanInbound.LotNo, scanInbound.QtyScan)
-	} else if inventoryPolicy.UseFIFO {
-		// kalau FIFO biasanya hanya butuh lot_no (tergantung kebijakan)
-		queryInboundDetail = queryInboundDetail.Where("lot_number = ?", scanInbound.LotNo)
+	} else if inventoryPolicy.UseProductionDate {
+		// kalau hanya production date-based
+		queryInboundDetail = queryInboundDetail.Where("prod_date = ?", scanInbound.ProdDate)
 	} else if inventoryPolicy.UseLotNo {
 		// kalau hanya LOT-based
 		queryInboundDetail = queryInboundDetail.Where("lot_number = ? AND quantity = ?", scanInbound.LotNo, scanInbound.QtyScan)
@@ -223,7 +242,7 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	qtyScanned := 0
+	qtyScanned := 0.0
 
 	for _, item := range inboundBarcodes {
 		qtyScanned += item.Quantity
@@ -273,6 +292,7 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 		ScanData:        scanInbound.Serial,
 		SerialNumber:    scanInbound.Serial,
 		RecDate:         inboundDetail.RecDate,
+		ProdDate:        scanInbound.ProdDate,
 		ExpDate:         scanInbound.ExpDate,
 		LotNumber:       scanInbound.LotNo,
 		Quantity:        scanInbound.QtyScan,
@@ -309,8 +329,8 @@ func (c *MobileInboundController) GetInboundDetail(ctx *fiber.Ctx) error {
 
 	type InboundDetailResult struct {
 		models.InboundDetail
-		IsSerial bool `json:"is_serial"`
-		ScanQty  int  `json:"scan_qty"`
+		IsSerial bool    `json:"is_serial"`
+		ScanQty  float64 `json:"scan_qty"`
 	}
 
 	var result []InboundDetailResult
@@ -323,6 +343,11 @@ func (c *MobileInboundController) GetInboundDetail(ctx *fiber.Ctx) error {
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
 
+		var uomConvesion models.UomConversion
+		if err := c.DB.Where("item_code = ? AND from_uom = ?", product.ItemCode, v.Uom).First(&uomConvesion).Error; err != nil {
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+
 		if product.HasSerial == "Y" {
 			isSerial = true
 		}
@@ -332,7 +357,7 @@ func (c *MobileInboundController) GetInboundDetail(ctx *fiber.Ctx) error {
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
 
-		var scanQty int
+		var scanQty float64
 
 		for _, item := range inboundBarcode {
 			if int(v.ID) == int(item.InboundDetailId) {
@@ -340,6 +365,7 @@ func (c *MobileInboundController) GetInboundDetail(ctx *fiber.Ctx) error {
 			}
 		}
 
+		v.Barcode = uomConvesion.Ean
 		result = append(result, InboundDetailResult{
 			InboundDetail: v,
 			ScanQty:       scanQty,
@@ -683,8 +709,8 @@ func (c *MobileInboundController) EditInboundBarcode(ctx *fiber.Ctx) error {
 	id := ctx.Params("id")
 
 	var input struct {
-		ID       int `json:"id"`
-		Quantity int `json:"quantity"`
+		ID       int     `json:"id"`
+		Quantity float64 `json:"quantity"`
 	}
 
 	if err := ctx.BodyParser(&input); err != nil {
@@ -706,7 +732,7 @@ func (c *MobileInboundController) EditInboundBarcode(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	qtyScanned := 0
+	qtyScanned := 0.0
 
 	for _, item := range inboundBarcodes {
 		qtyScanned += item.Quantity
