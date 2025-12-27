@@ -3,8 +3,11 @@ package controllers
 import (
 	"errors"
 	"fiber-app/models"
+	"fmt"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/xuri/excelize/v2"
 	"gorm.io/gorm"
 )
 
@@ -157,4 +160,208 @@ func (c *CustomerController) DeleteCustomer(ctx *fiber.Ctx) error {
 	}
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Customer deleted successfully", "data": customer})
+}
+
+// upload customer from excel file
+
+type CustomerUploadResult struct {
+	TotalRows     int      `json:"total_rows"`
+	SuccessCount  int      `json:"success_count"`
+	SkippedCount  int      `json:"skipped_count"`
+	ErrorCount    int      `json:"error_count"`
+	SkippedItems  []string `json:"skipped_items"`
+	ErrorMessages []string `json:"error_messages"`
+}
+
+func (c *CustomerController) CreateCustomerFromExcel(ctx *fiber.Ctx) error {
+	// Get file from request
+	file, err := ctx.FormFile("file")
+	if err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"error":   "File is required",
+		})
+	}
+
+	// Validate file extension
+	if !strings.HasSuffix(strings.ToLower(file.Filename), ".xlsx") &&
+		!strings.HasSuffix(strings.ToLower(file.Filename), ".xls") {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"error":   "Only Excel files (.xlsx, .xls) are allowed",
+		})
+	}
+
+	// Open uploaded file
+	fileContent, err := file.Open()
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"error":   "Failed to open file",
+		})
+	}
+	defer fileContent.Close()
+
+	// Read Excel file
+	f, err := excelize.OpenReader(fileContent)
+	if err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"error":   "Failed to read Excel file",
+		})
+	}
+	defer f.Close()
+
+	// Get first sheet
+	sheets := f.GetSheetList()
+	if len(sheets) == 0 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"error":   "No sheets found in Excel file",
+		})
+	}
+
+	rows, err := f.GetRows(sheets[0])
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"error":   "Failed to read rows",
+		})
+	}
+
+	if len(rows) < 2 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"error":   "Excel file must contain header and at least one data row",
+		})
+	}
+
+	result := CustomerUploadResult{
+		TotalRows:     len(rows) - 1,
+		SuccessCount:  0,
+		SkippedCount:  0,
+		ErrorCount:    0,
+		SkippedItems:  []string{},
+		ErrorMessages: []string{},
+	}
+
+	userID := int(ctx.Locals("userID").(float64))
+
+	// Start transaction
+	tx := c.DB.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	// Process each row (skip header)
+	for i, row := range rows[1:] {
+		rowNum := i + 2 // Excel row number (header is row 1)
+
+		// Skip empty rows
+		if len(row) == 0 || (len(row) > 0 && strings.TrimSpace(row[0]) == "") {
+			continue
+		}
+
+		// Ensure minimum columns
+		if len(row) < 9 {
+			result.ErrorCount++
+			result.ErrorMessages = append(result.ErrorMessages,
+				fmt.Sprintf("Row %d: Insufficient columns (expected 9)", rowNum))
+			continue
+		}
+
+		// Sanitize and normalize input
+		customerCode := strings.ToUpper(strings.TrimSpace(row[0]))
+		customerName := strings.TrimSpace(row[1])
+		custAddr1 := strings.TrimSpace(row[2])
+		custAddr2 := strings.TrimSpace(row[3])
+		custCity := strings.TrimSpace(row[4])
+		custArea := strings.TrimSpace(row[5])
+		custPhone := strings.TrimSpace(row[6])
+		custCountry := strings.TrimSpace(row[7])
+		custEmail := strings.TrimSpace(row[8])
+
+		// Validate required fields
+		if customerCode == "" || customerName == "" {
+			result.ErrorCount++
+			result.ErrorMessages = append(result.ErrorMessages,
+				fmt.Sprintf("Row %d: CUSTOMER_CODE and CUSTOMER_NAME are required", rowNum))
+			continue
+		}
+
+		// Check if customer code already exists
+		var existingCustomer models.Customer
+		if err := tx.Where("customer_code = ?", customerCode).First(&existingCustomer).Error; err == nil {
+			result.SkippedCount++
+			result.SkippedItems = append(result.SkippedItems, customerCode)
+			continue
+		}
+
+		// Validate email format if provided
+		if custEmail != "" && !isValidEmail(custEmail) {
+			result.ErrorCount++
+			result.ErrorMessages = append(result.ErrorMessages,
+				fmt.Sprintf("Row %d: Invalid email format '%s'", rowNum, custEmail))
+			continue
+		}
+
+		// Create customer
+		customer := models.Customer{
+			CustomerCode: customerCode,
+			CustomerName: customerName,
+			CustAddr1:    custAddr1,
+			CustAddr2:    custAddr2,
+			CustCity:     custCity,
+			CustArea:     custArea,
+			CustPhone:    custPhone,
+			CustCountry:  custCountry,
+			CustEmail:    custEmail,
+			CreatedBy:    userID,
+		}
+
+		if err := tx.Create(&customer).Error; err != nil {
+			result.ErrorCount++
+			result.ErrorMessages = append(result.ErrorMessages,
+				fmt.Sprintf("Row %d: Failed to create customer - %s", rowNum, err.Error()))
+			continue
+		}
+
+		result.SuccessCount++
+	}
+
+	// Commit transaction
+	if err := tx.Commit().Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"error":   "Failed to commit transaction",
+		})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": fmt.Sprintf("Upload completed: %d success, %d skipped, %d errors",
+			result.SuccessCount, result.SkippedCount, result.ErrorCount),
+		"data": result,
+	})
+}
+
+// Helper function to validate email format
+func isValidEmail(email string) bool {
+	if email == "" {
+		return true // Empty email is valid (optional field)
+	}
+	// Simple email validation
+	parts := strings.Split(email, "@")
+	if len(parts) != 2 {
+		return false
+	}
+	if len(parts[0]) == 0 || len(parts[1]) == 0 {
+		return false
+	}
+	if !strings.Contains(parts[1], ".") {
+		return false
+	}
+	return true
 }

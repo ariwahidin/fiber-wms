@@ -71,7 +71,7 @@ func SeedUoms(db *gorm.DB) {
 		var existing models.Uom
 		if err := db.Where("code = ?", u.Code).First(&existing).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
-				u.ID = types.SnowflakeID(idgen.GenerateID())
+				u.ID = uint(types.SnowflakeID(idgen.GenerateID()))
 				db.Create(&u)
 			}
 		}
@@ -121,21 +121,21 @@ func SeedMenus(db *gorm.DB) error {
 		},
 		{
 			Name:      "Product",
-			Path:      "/master/product",
+			Path:      "/wms/master/product",
 			Icon:      "Box",
 			MenuOrder: 1,
 			ParentID:  getMenuIDByName(db, "Master Data"), // ambil ID parent
 		},
 		{
 			Name:      "Supplier",
-			Path:      "/master/supplier",
+			Path:      "/wms/master/supplier",
 			Icon:      "Truck",
 			MenuOrder: 2,
 			ParentID:  getMenuIDByName(db, "Master Data"),
 		},
 		{
 			Name:      "Handling",
-			Path:      "/master/handling",
+			Path:      "/wms/master/handling",
 			Icon:      "Truck",
 			MenuOrder: 3,
 			ParentID:  getMenuIDByName(db, "Master Data"),

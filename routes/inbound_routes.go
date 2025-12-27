@@ -17,6 +17,7 @@ func SetupInboundRoutes(app *fiber.App) {
 	api.Post("/handle-putaway", inboundController.PutawayByInboundNo)
 	api.Post("/putaway-bulk", inboundController.PutawayBulk)
 
+	api.Post("/upload-excel", inboundController.CreateInboundFromExcelFile)
 	api.Post("/", inboundController.CreateInbound)
 	api.Get("/", inboundController.GetAllListInbound)
 	api.Get("/inventory/:inbound_no", inboundController.GetInventoryByInbound)

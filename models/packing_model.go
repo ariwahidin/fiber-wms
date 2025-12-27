@@ -1,15 +1,13 @@
 package models
 
 import (
-	"fiber-app/types"
-
 	"gorm.io/gorm"
 )
 
 type OutboundScan struct {
 	gorm.Model
 	NoKoli     string               `json:"no_koli"`
-	OutboundID types.SnowflakeID    `json:"outbound_id"`
+	OutboundID uint                 `json:"outbound_id"`
 	CreatedBy  int                  `json:"created_by"`
 	UpdatedBy  int                  `json:"updated_by"`
 	DeletedBy  int                  `json:"deleted_by"`

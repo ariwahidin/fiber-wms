@@ -9,41 +9,48 @@ import (
 
 type InboundHeader struct {
 	gorm.Model
-	InboundNo      string `json:"inbound_no" gorm:"unique"`
-	OwnerCode      string `json:"owner_code" required:"required"`
-	WhsCode        string `json:"whs_code" required:"required"`
-	ReceiptID      string `json:"receipt_id" required:"required" gorm:"unique"`
-	SupplierId     int    `json:"supplier_id"`
-	Supplier       string `json:"supplier"`
-	Status         string `json:"status" gorm:"default:'draft'"`
-	InboundDate    string `json:"inbound_date"`
-	Transporter    string `json:"transporter"`
-	Driver         string `json:"driver"`
-	TruckId        int    `json:"truck_id"`
-	NoTruck        string `json:"no_truck"`
-	Type           string `json:"type"`
-	Container      string `json:"container"`
-	Origin         string `json:"origin"`
-	PoDate         string `json:"po_date"`
-	ArrivalTime    string `json:"arrival_time"`
-	StartUnloading string `json:"start_unloading"`
-	EndUnloading   string `json:"end_unloading"`
-	TruckSize      string `json:"truck_size"`
-	BLNo           string `json:"bl_no"`
-	Koli           int    `json:"koli"`
-	Remarks        string `json:"remarks"`
-	Integration    bool   `json:"integration" gorm:"default:false"`
-	CreatedBy      int
-	UpdatedBy      int
-	DeletedBy      int
-	CheckingAt     *time.Time `json:"checking_at" gorm:"type:datetime"`
-	CheckingBy     int
-	CancelAt       *time.Time `json:"cancel_at" gorm:"type:datetime"`
-	CancelBy       int
-	PutawayAt      *time.Time `json:"putaway_at" gorm:"type:datetime"`
-	PutawayBy      int
-	CompleteAt     *time.Time `json:"complete_at" gorm:"type:datetime"`
-	CompleteBy     int
+	InboundNo         string    `json:"inbound_no" gorm:"unique"`
+	OwnerCode         string    `json:"owner_code" required:"required"`
+	WhsCode           string    `json:"whs_code" required:"required"`
+	ReceiptID         string    `json:"receipt_id" required:"required" gorm:"unique"`
+	SupplierId        int       `json:"supplier_id"`
+	Supplier          string    `json:"supplier"`
+	Status            string    `json:"status" gorm:"default:'draft'"`
+	RawStatus         string    `json:"raw_status" gorm:"default:'DRAFT'"`
+	DraftTime         time.Time `json:"draft_time" gorm:"default:null"`
+	ConfirmTime       time.Time `json:"confirm_time" gorm:"default:null"`
+	ConfirmBy         int       `json:"confirm_by" gorm:"default:null"`
+	CompleteTime      time.Time `json:"complete_time" gorm:"default:null"`
+	CompleteBy        int       `json:"complete_by" gorm:"default:null"`
+	ChangeToDraftTime time.Time `json:"change_to_draft_time" gorm:"default:null"`
+	ChangeToDraftBy   int       `json:"change_to_draft_by" gorm:"default:null"`
+	InboundDate       string    `json:"inbound_date"`
+	Transporter       string    `json:"transporter"`
+	Driver            string    `json:"driver"`
+	TruckId           int       `json:"truck_id"`
+	NoTruck           string    `json:"no_truck"`
+	Type              string    `json:"type"`
+	Container         string    `json:"container"`
+	Origin            string    `json:"origin"`
+	PoDate            string    `json:"po_date"`
+	ArrivalTime       string    `json:"arrival_time"`
+	StartUnloading    string    `json:"start_unloading"`
+	EndUnloading      string    `json:"end_unloading"`
+	TruckSize         string    `json:"truck_size"`
+	BLNo              string    `json:"bl_no"`
+	Koli              int       `json:"koli"`
+	Remarks           string    `json:"remarks"`
+	Integration       bool      `json:"integration" gorm:"default:false"`
+	CreatedBy         int
+	UpdatedBy         int
+	DeletedBy         int
+	CheckingAt        *time.Time `json:"checking_at" gorm:"type:datetime"`
+	CheckingBy        int
+	CancelAt          *time.Time `json:"cancel_at" gorm:"type:datetime"`
+	CancelBy          int
+	PutawayAt         *time.Time `json:"putaway_at" gorm:"type:datetime"`
+	PutawayBy         int
+	CompleteAt        *time.Time `json:"complete_at" gorm:"type:datetime"`
 
 	// Relations
 	InboundReferences []InboundReference `gorm:"foreignKey:InboundId;references:ID;constraint:OnDelete:CASCADE" json:"references"`
@@ -64,7 +71,7 @@ type InboundDetail struct {
 	DivisionCode  string  `json:"division_code" required:"required"`
 	InboundId     int     `json:"inbound_id" gorm:"default:null"`
 	InboundNo     string  `json:"inbound_no"`
-	ItemId        int     `json:"item_id" required:"required"`
+	ItemId        uint    `json:"item_id" required:"required"`
 	ProductNumber int     `json:"product_number"`
 	ItemCode      string  `json:"item_code" required:"required"`
 	Barcode       string  `json:"barcode"`
@@ -113,7 +120,8 @@ type InboundBarcode struct {
 	DeletedAt       gorm.DeletedAt `gorm:"index"`
 	InboundId       int            `json:"inbound_id" gorm:"default:null"`
 	InboundDetailId int            `gorm:"foreignKey:InboundDetailId" json:"inbound_detail_id"`
-	ItemID          int            `json:"item_id"`
+	ItemID          uint           `json:"item_id" required:"required"`
+	Product         Product        `gorm:"foreignKey:ItemID;references:ID" json:"product"`
 	ItemCode        string         `json:"item_code"`
 	ScanType        string         `json:"scan_type"`
 	ScanData        string         `json:"scan_data"`

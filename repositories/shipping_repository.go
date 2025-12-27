@@ -71,7 +71,8 @@ func (r *ShippingRepository) GetAllOutboundList() ([]OutboundList, error) {
 			ROUND(od.total_cbm, 4) as total_cbm,
 			od.total_item,
 			ps.qty_plan as total_qty,
-			odt.outbound_id as odt_id
+			odt.outbound_id as odt_id,
+			inpo.use_vas
             from outbound_headers a
             left join od on a.id = od.outbound_id
             LEFT JOIN ps ON a.id = ps.outbound_id
@@ -79,9 +80,10 @@ func (r *ShippingRepository) GetAllOutboundList() ([]OutboundList, error) {
             LEFT JOIN customers cs ON a.customer_code = cs.customer_code
 			LEFT JOIN customers cd ON a.deliv_to = cd.customer_code
 			LEFT JOIN order_details odt ON a.id = odt.outbound_id
+			LEFT JOIN inventory_policies inpo ON a.owner_code = inpo.owner_code
 			WHERE a.status = 'complete'
 			AND odt.outbound_id IS NULL
-			order by a.id desc`
+			order by a.id desc;`
 
 	if err := r.db.Raw(sql).Scan(&outboundList).Error; err != nil {
 		return nil, err

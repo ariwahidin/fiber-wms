@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fiber-app/config"
+	"fiber-app/controllers"
 	"fiber-app/controllers/idgen"
 	"fiber-app/database"
 	"fiber-app/migration"
@@ -110,6 +111,8 @@ func main() {
 
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
+	} else {
+		fmt.Println("Connected to unit database successfully")
 	}
 
 	err = migration.MigrateBusinessUnit(unitDB)
@@ -169,6 +172,10 @@ func main() {
 	routes.SetupLocationRoutes(app)
 	routes.SetupVasRoutes(app)
 	routes.SetupIntegrationRoutes(app)
+
+	// Setup controller
+	itemPackagingCtrl := controllers.NewItemPackagingController(unitDB)
+	itemPackagingCtrl.SetupRoutes(app)
 
 	// routes.SetupRfInboundRoutes(app, RfInboundController)
 	// routes.SetupOutboundRoutes(app, db)

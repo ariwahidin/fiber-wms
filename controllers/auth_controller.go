@@ -364,7 +364,7 @@ func Login(ctx *fiber.Ctx) error {
 		Model(&models.Menu{}).
 		Joins("JOIN menu_permissions mp ON mp.menu_id = menus.id").
 		Where("mp.permission_id IN ?", permissionIDs).
-		// Where("menus.parent_id IS NULL").
+		Where("menus.parent_id IS NULL").
 		Preload("Children", func(tx *gorm.DB) *gorm.DB {
 			return tx.
 				Joins("JOIN menu_permissions mp2 ON mp2.menu_id = menus.id").

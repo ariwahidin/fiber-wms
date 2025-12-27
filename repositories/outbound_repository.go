@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 )
 
@@ -193,6 +194,7 @@ type OutboundList struct {
 	DelivCity    string  `json:"deliv_city"`
 	QtyKoli      int     `json:"qty_koli"`
 	TotalCBM     float64 `json:"total_cbm"`
+	UseVas       bool    `json:"use_vas"`
 }
 
 func (r *OutboundRepository) GetAllOutboundList() ([]OutboundList, error) {
@@ -1157,4 +1159,106 @@ order by ov.outbound_id desc
 	}
 
 	return result, nil
+}
+
+func (r *OutboundRepository) ValidateSerialNumber(item_code string, serial_number string, outbound_id int) (bool, error) {
+
+	// check if serial number has been scanned
+	var outboundBarcodes []models.OutboundBarcode
+	var outboundPicking models.OutboundPicking
+	var inventory models.Inventory
+
+	if err := r.db.First(&outboundPicking, "outbound_id = ? AND item_code = ?", outbound_id, item_code).Error; err != nil {
+		fmt.Println("Error checking outbound picking:", err)
+		return false, err
+	}
+
+	if err := r.db.First(&inventory, "item_code = ? AND id = ?", item_code, outboundPicking.InventoryID).Error; err != nil {
+		fmt.Println("Error checking inventory:", err)
+		return false, err
+	}
+
+	if err := r.db.Find(&outboundBarcodes, "item_code = ? AND serial_number = ?", item_code, serial_number).Error; err != nil {
+		return false, err
+	}
+
+	if len(outboundBarcodes) > 0 {
+		// serial number found, not valid to use and custom error
+		return false, errors.New("serial number has been scanned before")
+	}
+
+	// check if serial number in inbound barcodes
+	var inboundBarcode models.InboundBarcode
+
+	if err := r.db.First(&inboundBarcode, "item_code = ? AND serial_number = ? AND inbound_id = ?", item_code, serial_number, inventory.InboundID).Error; err != nil {
+		fmt.Println("Error checking inbound barcode:", err)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			// serial number not found, not valid to use
+			return false, errors.New("serial number not found in inbound records")
+		}
+		return false, err
+	}
+
+	return true, nil
+}
+
+func (r *OutboundRepository) InsertIntoOutboundBarcodeFromOutboundPicking(
+	tx *gorm.DB,
+	ctx *fiber.Ctx,
+	outboundID uint,
+) error {
+
+	uidFloat, ok := ctx.Locals("userID").(float64)
+	if !ok {
+		return errors.New("invalid user id")
+	}
+	userID := uint(uidFloat)
+
+	now := time.Now()
+
+	if err := tx.
+		Where("outbound_id = ?", outboundID).
+		Delete(&models.OutboundBarcode{}).Error; err != nil {
+		return err
+	}
+
+	sql := `
+	INSERT INTO outbound_barcodes (
+		picking_sheet_id,
+		outbound_id,
+		outbound_no,
+		outbound_detail_id,
+		item_id,
+		item_code,
+		quantity,
+		uom,
+		barcode,
+		serial_number,
+		location_scan,
+		inventory_id,
+		created_by,
+		created_at,
+		updated_at
+	)
+	SELECT
+		op.id as picking_sheet_id,
+		op.outbound_id,
+		op.outbound_no,
+		op.outbound_detail_id,
+		op.item_id,
+		op.item_code,
+		op.quantity,
+		op.uom,
+		op.barcode,
+		op.barcode as serial_number,
+		op.location as location_scan,
+		op.inventory_id,
+		?,
+		?,
+		?
+	FROM outbound_pickings op
+	WHERE op.outbound_id = ?
+	`
+
+	return tx.Exec(sql, userID, now, now, outboundID).Error
 }

@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"errors"
+	"fiber-app/controllers/helpers"
 	"fiber-app/models"
 	"fmt"
 	"strconv"
@@ -506,7 +507,7 @@ func (r *InboundRepository) GenerateInboundNo() (string, error) {
 	return inboundNo, nil
 }
 
-func (r *InboundRepository) PutawayItem(ctx *fiber.Ctx, inboundBarcodeID int, location string) (bool, error) {
+func (r *InboundRepository) ProcessPutawayItem(ctx *fiber.Ctx, inboundBarcodeID int, location string) (bool, error) {
 	userID, ok := ctx.Locals("userID").(float64)
 	if !ok {
 		return false, errors.New("invalid user ID")
@@ -599,6 +600,22 @@ func (r *InboundRepository) PutawayItem(ctx *fiber.Ctx, inboundBarcodeID int, lo
 			if err := tx.Create(&newInv).Error; err != nil {
 				return err
 			}
+
+			// ledger
+			helpers.InsertInventoryMovement(tx, helpers.InventoryMovementPayload{
+				InventoryID:        newInv.ID,
+				RefType:            "INBOUND PUTAWAY",
+				RefID:              uint(barcode.InboundId),
+				ToWhsCode:          newInv.WhsCode,
+				QtyOnhandChange:    qtyConverted,
+				QtyAvailableChange: qtyConverted,
+				FromLocation:       barcode.Location,
+				NewQaStatus:        barcode.QaStatus,
+				ToLocation:         location,
+				Reason:             "Inbound receipt",
+				CreatedBy:          int(userID),
+			})
+
 		} else if invQuery.Error == nil {
 			// Sudah ada → Update qty
 			if err := tx.Model(&existingInv).Updates(map[string]interface{}{
@@ -610,6 +627,21 @@ func (r *InboundRepository) PutawayItem(ctx *fiber.Ctx, inboundBarcodeID int, lo
 			}).Error; err != nil {
 				return err
 			}
+
+			// ledger
+			helpers.InsertInventoryMovement(tx, helpers.InventoryMovementPayload{
+				InventoryID:        existingInv.ID,
+				RefType:            "INBOUND PUTAWAY",
+				RefID:              uint(barcode.InboundId),
+				ToWhsCode:          existingInv.WhsCode,
+				QtyOnhandChange:    existingInv.QtyOnhand + qtyConverted,
+				QtyAvailableChange: existingInv.QtyAvailable + qtyConverted,
+				NewQaStatus:        barcode.QaStatus,
+				FromLocation:       barcode.Location,
+				ToLocation:         location,
+				Reason:             "Inbound receipt",
+				CreatedBy:          int(userID),
+			})
 		} else {
 			return invQuery.Error
 		}

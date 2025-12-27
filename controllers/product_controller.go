@@ -4,10 +4,13 @@ import (
 	"errors"
 	"fiber-app/models"
 	"fmt"
+	"math"
+	"strings"
 	"time"
 
 	"github.com/go-playground/validator"
 	"github.com/gofiber/fiber/v2"
+	"github.com/xuri/excelize/v2"
 	"gorm.io/gorm"
 )
 
@@ -28,8 +31,10 @@ var productInput struct {
 	Width      float64 `json:"width"`
 	Length     float64 `json:"length"`
 	Height     float64 `json:"height"`
-	Group      string  `json:"group" validate:"required,min=3"`
-	Category   string  `json:"category" validate:"required,min=3"`
+	Weight     float64 `json:"weight"`
+	Color      string  `json:"color" gorm:"default:null"`
+	Group      string  `json:"group" gorm:"default:null"`
+	Category   string  `json:"category" gorm:"default:null"`
 	Serial     string  `json:"serial" validate:"required,min=1"`
 	Waranty    string  `json:"waranty" validate:"required,min=1"`
 	Adaptor    string  `json:"adaptor" validate:"required,min=1"`
@@ -67,6 +72,8 @@ func (c *ProductController) CreateProduct(ctx *fiber.Ctx) error {
 		Width:      productInput.Width,
 		Length:     productInput.Length,
 		Height:     productInput.Height,
+		Weight:     productInput.Weight,
+		Color:      productInput.Color,
 		Group:      productInput.Group,
 		Category:   productInput.Category,
 		HasSerial:  productInput.Serial,
@@ -84,6 +91,7 @@ func (c *ProductController) CreateProduct(ctx *fiber.Ctx) error {
 	}
 
 	uomConversion := models.UomConversion{
+		ItemID:         product.ID,
 		ItemCode:       product.ItemCode,
 		Ean:            productInput.GMC,
 		FromUom:        product.Uom,
@@ -172,6 +180,8 @@ func (c *ProductController) UpdateProduct(ctx *fiber.Ctx) error {
 			"width":       productInput.Width,
 			"length":      productInput.Length,
 			"height":      productInput.Height,
+			"weight":      productInput.Weight,
+			"color":       productInput.Color,
 			"has_serial":  productInput.Serial,
 			"has_waranty": productInput.Waranty,
 			"has_adaptor": productInput.Adaptor,
@@ -284,4 +294,251 @@ func (c *ProductController) DeleteProduct(ctx *fiber.Ctx) error {
 
 	// Respons sukses
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Product deleted successfully", "data": product})
+}
+
+// Upload Via Excel File
+
+type ExcelUploadResult struct {
+	TotalRows     int      `json:"total_rows"`
+	SuccessCount  int      `json:"success_count"`
+	SkippedCount  int      `json:"skipped_count"`
+	ErrorCount    int      `json:"error_count"`
+	SkippedItems  []string `json:"skipped_items"`
+	ErrorMessages []string `json:"error_messages"`
+}
+
+func (c *ProductController) CreateProductFromExcelFile(ctx *fiber.Ctx) error {
+	// Get file from request
+	file, err := ctx.FormFile("file")
+	if err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"error":   "File is required",
+		})
+	}
+
+	// Validate file extension
+	if !strings.HasSuffix(strings.ToLower(file.Filename), ".xlsx") &&
+		!strings.HasSuffix(strings.ToLower(file.Filename), ".xls") {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"error":   "Only Excel files (.xlsx, .xls) are allowed",
+		})
+	}
+
+	// Open uploaded file
+	fileContent, err := file.Open()
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"error":   "Failed to open file",
+		})
+	}
+	defer fileContent.Close()
+
+	// Read Excel file
+	f, err := excelize.OpenReader(fileContent)
+	if err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"error":   "Failed to read Excel file",
+		})
+	}
+	defer f.Close()
+
+	// Get first sheet
+	sheets := f.GetSheetList()
+	if len(sheets) == 0 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"error":   "No sheets found in Excel file",
+		})
+	}
+
+	rows, err := f.GetRows(sheets[0])
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"error":   "Failed to read rows",
+		})
+	}
+
+	if len(rows) < 2 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"error":   "Excel file must contain header and at least one data row",
+		})
+	}
+
+	result := ExcelUploadResult{
+		TotalRows:     len(rows) - 1,
+		SuccessCount:  0,
+		SkippedCount:  0,
+		ErrorCount:    0,
+		SkippedItems:  []string{},
+		ErrorMessages: []string{},
+	}
+
+	userID := int(ctx.Locals("userID").(float64))
+
+	// Start transaction
+	tx := c.DB.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	// Process each row (skip header)
+	for i, row := range rows[1:] {
+		rowNum := i + 2 // Excel row number (header is row 1)
+
+		// Skip empty rows
+		if len(row) == 0 || (len(row) > 0 && strings.TrimSpace(row[0]) == "") {
+			continue
+		}
+
+		// Ensure minimum columns
+		if len(row) < 16 {
+			result.ErrorCount++
+			result.ErrorMessages = append(result.ErrorMessages,
+				fmt.Sprintf("Row %d: Insufficient columns", rowNum))
+			continue
+		}
+
+		// Sanitize and normalize input
+		itemCode := strings.ToUpper(strings.TrimSpace(row[0]))
+		itemName := strings.TrimSpace(row[1])
+		width := parseFloat(row[2])
+		length := parseFloat(row[3])
+		height := parseFloat(row[4])
+		cbm := calculateCBM(width, length, height) // Auto calculate CBM
+		gmc := strings.ToUpper(strings.TrimSpace(row[5]))
+		weight := parseFloat(row[6])
+		color := strings.TrimSpace(row[7])
+		group := strings.TrimSpace(row[8])
+		category := strings.TrimSpace(row[9])
+		serial := strings.ToUpper(strings.TrimSpace(row[10]))
+		warranty := strings.ToUpper(strings.TrimSpace(row[11]))
+		adaptor := strings.ToUpper(strings.TrimSpace(row[12]))
+		manualBook := strings.ToUpper(strings.TrimSpace(row[13]))
+		uom := strings.ToUpper(strings.TrimSpace(row[14]))
+		ownerCode := strings.ToUpper(strings.TrimSpace(row[15]))
+
+		// Validate required fields
+		if itemCode == "" || itemName == "" || gmc == "" ||
+			serial == "" || warranty == "" || adaptor == "" ||
+			manualBook == "" || uom == "" || ownerCode == "" {
+			result.ErrorCount++
+			result.ErrorMessages = append(result.ErrorMessages,
+				fmt.Sprintf("Row %d: Missing required fields", rowNum))
+			continue
+		}
+
+		// Check if item code already exists
+		var existingProduct models.Product
+		if err := tx.Where("item_code = ?", itemCode).First(&existingProduct).Error; err == nil {
+			result.SkippedCount++
+			result.SkippedItems = append(result.SkippedItems, itemCode)
+			continue
+		}
+
+		// Validate UOM exists
+		var uomModel models.Uom
+		if err := tx.Where("code = ?", uom).First(&uomModel).Error; err != nil {
+			result.ErrorCount++
+			result.ErrorMessages = append(result.ErrorMessages,
+				fmt.Sprintf("Row %d: UOM '%s' not found", rowNum, uom))
+			continue
+		}
+
+		// Create product
+		product := models.Product{
+			ItemCode:   itemCode,
+			ItemName:   itemName,
+			CBM:        cbm,
+			Barcode:    gmc,
+			GMC:        gmc,
+			Width:      width,
+			Length:     length,
+			Height:     height,
+			Weight:     weight,
+			Color:      color,
+			Group:      group,
+			Category:   category,
+			HasSerial:  serial,
+			HasWaranty: warranty,
+			HasAdaptor: adaptor,
+			ManualBook: manualBook,
+			Uom:        uom,
+			OwnerCode:  ownerCode,
+			CreatedBy:  userID,
+		}
+
+		if err := tx.Create(&product).Error; err != nil {
+			result.ErrorCount++
+			result.ErrorMessages = append(result.ErrorMessages,
+				fmt.Sprintf("Row %d: Failed to create product - %s", rowNum, err.Error()))
+			continue
+		}
+
+		// Create UOM conversion
+		uomConversion := models.UomConversion{
+			ItemID:         product.ID,
+			ItemCode:       product.ItemCode,
+			Ean:            gmc,
+			FromUom:        uom,
+			ToUom:          uom,
+			IsBase:         true,
+			ConversionRate: 1,
+			CreatedBy:      userID,
+		}
+
+		if err := tx.Create(&uomConversion).Error; err != nil {
+			result.ErrorCount++
+			result.ErrorMessages = append(result.ErrorMessages,
+				fmt.Sprintf("Row %d: Failed to create UOM conversion - %s", rowNum, err.Error()))
+			tx.Rollback()
+			continue
+		}
+
+		result.SuccessCount++
+	}
+
+	// Commit transaction
+	if err := tx.Commit().Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"error":   "Failed to commit transaction",
+		})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": fmt.Sprintf("Upload completed: %d success, %d skipped, %d errors",
+			result.SuccessCount, result.SkippedCount, result.ErrorCount),
+		"data": result,
+	})
+}
+
+// Helper function to parse float from string
+func parseFloat(s string) float64 {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0
+	}
+	var val float64
+	fmt.Sscanf(s, "%f", &val)
+	return val
+}
+
+// Helper function to calculate CBM (Cubic Meter)
+func calculateCBM(width, length, height float64) float64 {
+	if width <= 0 || length <= 0 || height <= 0 {
+		return 0
+	}
+	// Convert cm to meter and calculate volume
+	cbm := (width / 100) * (length / 100) * (height / 100)
+	// Round to 6 decimal places
+	return math.Round(cbm*1000000) / 1000000
 }

@@ -496,6 +496,7 @@ func (c *InventoryController) UpdateInventoryPolicy(ctx *fiber.Ctx) error {
 	policy.AllowMixedLot = updateData.AllowMixedLot
 	policy.AllowNegativeStock = updateData.AllowNegativeStock
 	policy.ValidationSN = updateData.ValidationSN
+	policy.RequirePickingScan = updateData.RequirePickingScan
 	policy.UpdatedBy = int(ctx.Locals("userID").(float64))
 
 	if err := c.DB.Save(&policy).Error; err != nil {

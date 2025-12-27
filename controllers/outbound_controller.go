@@ -2,13 +2,18 @@ package controllers
 
 import (
 	"errors"
+	"fiber-app/controllers/helpers"
 	"fiber-app/models"
 	"fiber-app/repositories"
 	"fiber-app/types"
 	"fmt"
+	"log"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/xuri/excelize/v2"
 	"gorm.io/gorm"
 )
 
@@ -112,46 +117,6 @@ func (c *OutboundController) CreateOutbound(ctx *fiber.Ctx) error {
 			})
 		}
 
-		// if InventoryPolicy.UseLotNo {
-		// 	if item.LotNumber == "" {
-		// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-		// 			"success": false,
-		// 			"message": "Lot number cannot be empty",
-		// 			"error":   "Lot number cannot be empty",
-		// 		})
-		// 	}
-		// }
-
-		// if InventoryPolicy.UseProductionDate {
-		// 	if item.ProdDate == "" {
-		// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-		// 			"success": false,
-		// 			"message": "Production date cannot be empty",
-		// 			"error":   "Production date cannot be empty",
-		// 		})
-		// 	}
-		// }
-
-		// if InventoryPolicy.UseReceiveLocation {
-		// 	if item.Location == "" {
-		// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-		// 			"success": false,
-		// 			"message": "Receive location cannot be empty",
-		// 			"error":   "Receive location cannot be empty",
-		// 		})
-		// 	}
-		// }
-
-		// if InventoryPolicy.UseFEFO {
-		// 	if item.ExpDate == "" {
-		// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-		// 			"success": false,
-		// 			"message": "Expiration date cannot be empty",
-		// 			"error":   "Expiration date cannot be empty",
-		// 		})
-		// 	}
-		// }
-
 		if item.ItemCode == "" {
 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 				"success": false,
@@ -159,16 +124,6 @@ func (c *OutboundController) CreateOutbound(ctx *fiber.Ctx) error {
 				"error":   "Item code cannot be empty",
 			})
 		}
-
-		// if itemCodes[item.ItemCode] {
-		// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-		// 		"success": false,
-		// 		"message": "Duplicate item code found: " + item.ItemCode,
-		// 		"error":   "Duplicate item code for item code " + item.ItemCode,
-		// 	})
-		// }
-
-		// itemCodes[item.ItemCode] = true // tandai sebagai sudah ditemukan
 
 		key := fmt.Sprintf("%s|%s", item.ItemCode, item.UOM)
 
@@ -273,6 +228,8 @@ func (c *OutboundController) CreateOutbound(ctx *fiber.Ctx) error {
 	OutboundHeader.CreatedBy = userID
 	OutboundHeader.UpdatedBy = userID
 	OutboundHeader.Status = "open"
+	OutboundHeader.RawStatus = "DRAFT"
+	OutboundHeader.DraftTime = time.Now()
 	OutboundHeader.TransporterCode = payload.TransporterCode
 	OutboundHeader.PickerName = payload.PickerName
 	OutboundHeader.CustAddress = payload.CustAddress
@@ -303,9 +260,9 @@ func (c *OutboundController) CreateOutbound(ctx *fiber.Ctx) error {
 		})
 	}
 
-	var outboundID int
+	var outboundID uint
 	if res.RowsAffected == 1 {
-		outboundID = int(OutboundHeader.ID)
+		outboundID = OutboundHeader.ID
 	}
 
 	if len(payload.Items) < 1 {
@@ -355,7 +312,7 @@ func (c *OutboundController) CreateOutbound(ctx *fiber.Ctx) error {
 
 		var OutboundDetail models.OutboundDetail
 		OutboundDetail.OutboundNo = payload.OutboundNo
-		OutboundDetail.OutboundID = types.SnowflakeID(outboundID)
+		OutboundDetail.OutboundID = outboundID
 		OutboundDetail.ItemCode = item.ItemCode
 		OutboundDetail.ItemID = int(product.ID)
 		OutboundDetail.Barcode = uomConversion.Ean
@@ -939,16 +896,15 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 			queryInventory = queryInventory.Where("lot_number = ?", outboundDetail.LotNumber).
 				Order("rec_date, pallet, location ASC")
 		} else if invetoryPolicy.UseFEFO {
-			queryInventory = queryInventory.Order("exp_date, rec_date, pallet, location ASC")
+			queryInventory = queryInventory.Order("exp_date, rec_date, qty_available, pallet, location ASC")
 		} else {
-			queryInventory = queryInventory.Order("rec_date, pallet, location ASC")
+			queryInventory = queryInventory.Order("rec_date, qty_available, pallet, location ASC")
 		}
 
 		var inventories []models.Inventory
 
 		if err := queryInventory.Find(&inventories).Error; err != nil {
 			tx.Rollback()
-			// return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 				"error": fmt.Sprintf(
 					"Failed to fetch inventory for ItemCode: %s (ItemID: %d, Whs: %s, UOM: %s, Owner: %s). Detail: %s",
@@ -1072,6 +1028,9 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 	}
 
 	outboundHeader.Status = "picking"
+	outboundHeader.RawStatus = "CONFIRMED"
+	outboundHeader.ConfirmTime = time.Now()
+	outboundHeader.ConfirmBy = int(ctx.Locals("userID").(float64))
 	outboundHeader.UpdatedBy = int(ctx.Locals("userID").(float64))
 
 	if err := tx.Save(&outboundHeader).Error; err != nil {
@@ -1121,30 +1080,48 @@ func (c *OutboundController) PickingComplete(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to start transaction"})
 	}
 
-	repo := repositories.NewOutboundRepository(tx)
-
-	outboundItems, err := repo.GetOutboundItemByID(inputBody.OutboundID)
-	if err != nil {
-		tx.Rollback()
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-	}
-
-	if len(outboundItems) == 0 {
-		tx.Rollback()
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Outbound scanned not found"})
-	}
-
-	for _, outboundItem := range outboundItems {
-		if outboundItem.QtyReq != outboundItem.QtyScan {
-			tx.Rollback()
-			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Scan picking not complete"})
-		}
-	}
-
 	var outboundHeader models.OutboundHeader
 	if err := tx.Where("id = ?", inputBody.OutboundID).First(&outboundHeader).Error; err != nil {
 		tx.Rollback()
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to get outbound header: " + err.Error()})
+	}
+
+	repo := repositories.NewOutboundRepository(tx)
+
+	// Check inventory policy
+	var invetoryPolicy models.InventoryPolicy
+	if err := tx.Debug().First(&invetoryPolicy, "owner_code = ?", outboundHeader.OwnerCode).Error; err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	if invetoryPolicy.RequirePickingScan {
+		// Check outbound item scan complete
+		outboundItems, err := repo.GetOutboundItemByID(inputBody.OutboundID)
+		if err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+
+		if len(outboundItems) == 0 {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Outbound scanned not found"})
+		}
+
+		for _, outboundItem := range outboundItems {
+			if outboundItem.QtyReq != outboundItem.QtyScan {
+				tx.Rollback()
+				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Scan picking not complete"})
+			}
+		}
+	} else {
+
+		err := repo.InsertIntoOutboundBarcodeFromOutboundPicking(tx, ctx, outboundHeader.ID) // insert into outbound barcodes
+		if err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error(), "message": "Failed to insert into outbound barcodes"})
+		}
+
 	}
 
 	var outboundDetails []models.OutboundDetail
@@ -1156,7 +1133,7 @@ func (c *OutboundController) PickingComplete(ctx *fiber.Ctx) error {
 	var pickingSheets []models.OutboundPicking
 	if err := tx.Debug().Where("outbound_id = ?", inputBody.OutboundID).Find(&pickingSheets).Error; err != nil {
 		tx.Rollback()
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error(), "message": "Failed to get picking sheets"})
 	}
 
 	for _, pickingSheet := range pickingSheets {
@@ -1180,15 +1157,17 @@ func (c *OutboundController) PickingComplete(ctx *fiber.Ctx) error {
 		Model(&models.OutboundHeader{}).
 		Where("id = ?", inputBody.OutboundID).
 		Updates(map[string]interface{}{
-			"status":     "complete",
-			"updated_by": int(ctx.Locals("userID").(float64)),
+			"status":        "complete",
+			"raw_status":    "COMPLETED",
+			"complete_time": time.Now(),
+			"complete_by":   int(ctx.Locals("userID").(float64)),
+			"updated_by":    int(ctx.Locals("userID").(float64)),
 		}).Error; err != nil {
 		tx.Rollback()
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
 	// Update Outbound Barcodes Status
-
 	if err := tx.Debug().
 		Model(&models.OutboundBarcode{}).
 		Where("outbound_id = ?", inputBody.OutboundID).
@@ -1201,7 +1180,6 @@ func (c *OutboundController) PickingComplete(ctx *fiber.Ctx) error {
 	}
 
 	// Commit transaction
-
 	if err := tx.Commit().Error; err != nil {
 		tx.Rollback()
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
@@ -1603,10 +1581,24 @@ func (r *OutboundController) ProccesHandleOpen(ctx *fiber.Ctx) error {
 
 	// Update status
 	if err := tx.Model(&models.OutboundHeader{}).Where("id = ?", outboundHeader.ID).
-		Update("status", payload.Status).Error; err != nil {
+		Updates(map[string]interface{}{
+			"status":               payload.Status,
+			"raw_status":           "DRAFT",
+			"draft_time":           time.Now(),
+			"change_to_draft_time": time.Now(),
+			"change_to_draft_by":   userID,
+			"updated_by":           userID,
+			"updated_at":           time.Now(),
+		}).Error; err != nil {
 		tx.Rollback()
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
+
+	// if err := tx.Model(&models.OutboundHeader{}).Where("id = ?", outboundHeader.ID).
+	// 	Update("status", payload.Status).Error; err != nil {
+	// 	tx.Rollback()
+	// 	return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	// }
 
 	if err := tx.Commit().Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
@@ -1761,3 +1753,690 @@ func (c *OutboundController) GetOutboundVasByID(ctx *fiber.Ctx) error {
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "data": outboundVas})
 }
+
+//======================================================================
+// BEGIN PROCESS UPLOAD OUTBOUND FROM EXCEL
+//======================================================================
+
+type ExcelOutboundUploadResponse struct {
+	Success          bool              `json:"success"`
+	Message          string            `json:"message"`
+	TotalRows        int               `json:"total_rows"`
+	SuccessCount     int               `json:"success_count"`
+	FailedCount      int               `json:"failed_count"`
+	OutboundNumbers  []string          `json:"outbound_numbers,omitempty"`
+	Errors           []ExcelRowError   `json:"errors,omitempty"`
+	ValidationErrors []ValidationError `json:"validation_errors,omitempty"`
+}
+
+type ExcelOutboundHeader struct {
+	OutboundDate    string
+	ShipmentID      string
+	CustomerCode    string
+	WhsCode         string
+	OwnerCode       string
+	Remarks         string
+	TransporterCode string
+	PickerName      string
+	CustAddress     string
+	CustCity        string
+	PlanPickupDate  string
+	PlanPickupTime  string
+	RcvDoDate       string
+	RcvDoTime       string
+	StartPickTime   string
+	EndPickTime     string
+	DelivTo         string
+	DelivAddress    string
+	DelivCity       string
+	Driver          string
+	QtyKoli         string
+	QtyKoliSeal     string
+	TruckSize       string
+	TruckNo         string
+}
+
+type ExcelOutboundDetail struct {
+	ItemCode  string
+	UOM       string
+	Quantity  float64
+	ExpDate   string
+	LotNumber string
+	Location  string
+	SN        string
+	Remarks   string
+	VasID     int
+	Row       int
+}
+
+func (c *OutboundController) CreateOutboundFromExcelFile(ctx *fiber.Ctx) error {
+	// Parse uploaded file
+	file, err := ctx.FormFile("file")
+	if err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(ExcelOutboundUploadResponse{
+			Success: false,
+			Message: "No file uploaded or invalid file",
+			Errors: []ExcelRowError{
+				{Row: 0, Message: "File Error", Detail: err.Error()},
+			},
+		})
+	}
+
+	// Validate file extension
+	if !strings.HasSuffix(strings.ToLower(file.Filename), ".xlsx") &&
+		!strings.HasSuffix(strings.ToLower(file.Filename), ".xls") {
+		return ctx.Status(fiber.StatusBadRequest).JSON(ExcelOutboundUploadResponse{
+			Success: false,
+			Message: "Invalid file format. Only .xlsx and .xls files are allowed",
+		})
+	}
+
+	// Validate file size (max 10MB)
+	if file.Size > 10*1024*1024 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(ExcelOutboundUploadResponse{
+			Success: false,
+			Message: "File size exceeds maximum limit of 10MB",
+		})
+	}
+
+	// Open uploaded file
+	fileHeader, err := file.Open()
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(ExcelOutboundUploadResponse{
+			Success: false,
+			Message: "Failed to open uploaded file",
+			Errors: []ExcelRowError{
+				{Row: 0, Message: "File Processing Error", Detail: err.Error()},
+			},
+		})
+	}
+	defer fileHeader.Close()
+
+	// Read Excel file
+	excelFile, err := excelize.OpenReader(fileHeader)
+	if err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(ExcelOutboundUploadResponse{
+			Success: false,
+			Message: "Failed to read Excel file. Please ensure the file is not corrupted",
+			Errors: []ExcelRowError{
+				{Row: 0, Message: "Excel Read Error", Detail: err.Error()},
+			},
+		})
+	}
+	defer excelFile.Close()
+
+	// Get first sheet
+	sheets := excelFile.GetSheetList()
+	if len(sheets) == 0 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(ExcelOutboundUploadResponse{
+			Success: false,
+			Message: "Excel file contains no sheets",
+		})
+	}
+
+	sheetName := sheets[0]
+	rows, err := excelFile.GetRows(sheetName)
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(ExcelOutboundUploadResponse{
+			Success: false,
+			Message: "Failed to read rows from Excel",
+			Errors: []ExcelRowError{
+				{Row: 0, Message: "Sheet Read Error", Detail: err.Error()},
+			},
+		})
+	}
+
+	if len(rows) < 2 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(ExcelOutboundUploadResponse{
+			Success: false,
+			Message: "Excel file must contain at least header row and one data row",
+		})
+	}
+
+	// Parse header information from first data row
+	headerInfo, err := c.parseOutboundHeaderFromExcel(rows)
+	if err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(ExcelOutboundUploadResponse{
+			Success: false,
+			Message: "Failed to parse header information",
+			ValidationErrors: []ValidationError{
+				{Field: "Header", Message: err.Error(), Row: 1},
+			},
+		})
+	}
+
+	// Get user ID
+	userID := int(ctx.Locals("userID").(float64))
+
+	// Start transaction for validation
+	tx := c.DB.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+			log.Printf("Panic recovered in CreateOutboundFromExcelFile: %v", r)
+		}
+	}()
+
+	// Validate inventory policy
+	var inventoryPolicy models.InventoryPolicy
+	if err := tx.Where("owner_code = ?", headerInfo.OwnerCode).First(&inventoryPolicy).Error; err != nil {
+		tx.Rollback()
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ctx.Status(fiber.StatusNotFound).JSON(ExcelOutboundUploadResponse{
+				Success: false,
+				Message: "Inventory Policy not found for owner: " + headerInfo.OwnerCode,
+				Errors: []ExcelRowError{
+					{Row: 1, Message: "Inventory Policy Error", Detail: "Owner code: " + headerInfo.OwnerCode},
+				},
+			})
+		}
+		return ctx.Status(fiber.StatusInternalServerError).JSON(ExcelOutboundUploadResponse{
+			Success: false,
+			Message: "Failed to get inventory policy",
+			Errors: []ExcelRowError{
+				{Row: 1, Message: "Database Error", Detail: err.Error()},
+			},
+		})
+	}
+
+	// Validate customer exists
+	var customer models.Customer
+	if err := tx.First(&customer, "customer_code = ?", headerInfo.CustomerCode).Error; err != nil {
+		tx.Rollback()
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ctx.Status(fiber.StatusNotFound).JSON(ExcelOutboundUploadResponse{
+				Success: false,
+				Message: "Customer not found: " + headerInfo.CustomerCode,
+				Errors: []ExcelRowError{
+					{Row: 1, Message: "Customer Not Found", Detail: "Customer code: " + headerInfo.CustomerCode},
+				},
+			})
+		}
+		return ctx.Status(fiber.StatusInternalServerError).JSON(ExcelOutboundUploadResponse{
+			Success: false,
+			Message: "Failed to validate customer",
+			Errors: []ExcelRowError{
+				{Row: 1, Message: "Database Error", Detail: err.Error()},
+			},
+		})
+	}
+
+	// Parse detail rows
+	details, validationErrors := c.parseOutboundDetailsFromExcel(rows, inventoryPolicy)
+	if len(validationErrors) > 0 {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusBadRequest).JSON(ExcelOutboundUploadResponse{
+			Success:          false,
+			Message:          fmt.Sprintf("Validation failed with %d errors", len(validationErrors)),
+			ValidationErrors: validationErrors,
+			TotalRows:        len(rows) - 1,
+		})
+	}
+
+	if len(details) < 1 {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusBadRequest).JSON(ExcelOutboundUploadResponse{
+			Success:   false,
+			Message:   "No valid items found in Excel file",
+			TotalRows: len(rows) - 1,
+		})
+	}
+
+	// Check for duplicate items
+	duplicateErrors := c.checkDuplicateOutboundItems(details)
+	if len(duplicateErrors) > 0 {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusBadRequest).JSON(ExcelOutboundUploadResponse{
+			Success:          false,
+			Message:          "Duplicate items found in Excel file",
+			ValidationErrors: duplicateErrors,
+			TotalRows:        len(rows) - 1,
+		})
+	}
+
+	// Validate all products exist and UOM conversions are valid
+	productValidationErrors := c.validateOutboundProducts(tx, details)
+	if len(productValidationErrors) > 0 {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusBadRequest).JSON(ExcelOutboundUploadResponse{
+			Success:          false,
+			Message:          "Product validation failed",
+			ValidationErrors: productValidationErrors,
+			TotalRows:        len(details),
+		})
+	}
+
+	repositories := repositories.NewOutboundRepository(tx)
+
+	// Generate outbound number
+	outboundNo, err := repositories.GenerateOutboundNumber()
+	if err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(ExcelOutboundUploadResponse{
+			Success: false,
+			Message: "Failed to generate outbound number",
+			Errors: []ExcelRowError{
+				{Row: 0, Message: "Outbound Generation Error", Detail: err.Error()},
+			},
+		})
+	}
+
+	// Create outbound header
+	outboundHeader := models.OutboundHeader{
+		OutboundNo:      outboundNo,
+		OutboundDate:    headerInfo.OutboundDate,
+		CustomerCode:    customer.CustomerCode,
+		ShipmentID:      headerInfo.ShipmentID,
+		WhsCode:         headerInfo.WhsCode,
+		OwnerCode:       headerInfo.OwnerCode,
+		Remarks:         headerInfo.Remarks,
+		Status:          "open",
+		RawStatus:       "DRAFT",
+		DraftTime:       time.Now(),
+		TransporterCode: headerInfo.TransporterCode,
+		PickerName:      headerInfo.PickerName,
+		CustAddress:     headerInfo.CustAddress,
+		CustCity:        headerInfo.CustCity,
+		PlanPickupDate:  headerInfo.PlanPickupDate,
+		PlanPickupTime:  headerInfo.PlanPickupTime,
+		RcvDoDate:       headerInfo.RcvDoDate,
+		RcvDoTime:       headerInfo.RcvDoTime,
+		StartPickTime:   headerInfo.StartPickTime,
+		EndPickTime:     headerInfo.EndPickTime,
+		DelivTo:         headerInfo.DelivTo,
+		DelivAddress:    headerInfo.DelivAddress,
+		DelivCity:       headerInfo.DelivCity,
+		Driver:          headerInfo.Driver,
+		// QtyKoli:         headerInfo.QtyKoli,
+		// QtyKoliSeal:     headerInfo.QtyKoliSeal,
+		TruckSize: headerInfo.TruckSize,
+		TruckNo:   headerInfo.TruckNo,
+		CreatedBy: userID,
+		UpdatedBy: userID,
+	}
+
+	if err := tx.Create(&outboundHeader).Error; err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(ExcelOutboundUploadResponse{
+			Success: false,
+			Message: "Failed to create outbound header",
+			Errors: []ExcelRowError{
+				{Row: 1, Message: "Database Insert Error", Detail: err.Error()},
+			},
+		})
+	}
+
+	successCount := 0
+
+	// Create outbound details
+	for _, detail := range details {
+		// Get product info
+		var product models.Product
+		if err := tx.First(&product, "item_code = ?", detail.ItemCode).Error; err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusNotFound).JSON(ExcelOutboundUploadResponse{
+				Success: false,
+				Message: "Product not found during detail creation",
+				Errors: []ExcelRowError{
+					{Row: detail.Row, Message: "Product Not Found", Detail: "Item code: " + detail.ItemCode},
+				},
+			})
+		}
+
+		// Get UOM conversion
+		var uomConversion models.UomConversion
+		if err := tx.First(&uomConversion, "item_code = ? AND from_uom = ?", product.ItemCode, detail.UOM).Error; err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusNotFound).JSON(ExcelOutboundUploadResponse{
+				Success: false,
+				Message: "UOM conversion not found during detail creation",
+				Errors: []ExcelRowError{
+					{Row: detail.Row, Message: "UOM Not Found", Detail: fmt.Sprintf("Item: %s, UOM: %s", detail.ItemCode, detail.UOM)},
+				},
+			})
+		}
+
+		// Get VAS info if VasID is provided
+		var vas models.Vas
+		vasName := ""
+		if detail.VasID > 0 {
+			if err := tx.First(&vas, "id = ?", detail.VasID).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					tx.Rollback()
+					return ctx.Status(fiber.StatusNotFound).JSON(ExcelOutboundUploadResponse{
+						Success: false,
+						Message: "VAS not found",
+						Errors: []ExcelRowError{
+							{Row: detail.Row, Message: "VAS Not Found", Detail: fmt.Sprintf("VAS ID: %d", detail.VasID)},
+						},
+					})
+				}
+				tx.Rollback()
+				return ctx.Status(fiber.StatusInternalServerError).JSON(ExcelOutboundUploadResponse{
+					Success: false,
+					Message: "Failed to validate VAS",
+					Errors: []ExcelRowError{
+						{Row: detail.Row, Message: "Database Error", Detail: err.Error()},
+					},
+				})
+			}
+			vasName = vas.Name
+		}
+
+		// Create outbound detail
+		outboundDetail := models.OutboundDetail{
+			OutboundNo:   outboundNo,
+			OutboundID:   outboundHeader.ID,
+			ItemCode:     detail.ItemCode,
+			ItemID:       int(product.ID),
+			Barcode:      uomConversion.Ean,
+			CustomerCode: customer.CustomerCode,
+			Uom:          detail.UOM,
+			Quantity:     detail.Quantity,
+			ExpDate:      detail.ExpDate,
+			LotNumber:    detail.LotNumber,
+			WhsCode:      headerInfo.WhsCode,
+			DivisionCode: "REGULAR",
+			Location:     detail.Location,
+			QaStatus:     "A",
+			SN:           detail.SN,
+			SNCheck:      "N",
+			OwnerCode:    headerInfo.OwnerCode,
+			Remarks:      detail.Remarks,
+			VasID:        detail.VasID,
+			VasName:      vasName,
+			CreatedBy:    userID,
+			UpdatedBy:    userID,
+		}
+
+		if err := tx.Create(&outboundDetail).Error; err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(ExcelOutboundUploadResponse{
+				Success: false,
+				Message: "Failed to create outbound detail",
+				Errors: []ExcelRowError{
+					{Row: detail.Row, Message: "Database Insert Error", Detail: err.Error()},
+				},
+			})
+		}
+
+		successCount++
+	}
+
+	// Insert transaction history
+	if err := helpers.InsertTransactionHistory(tx, outboundNo, "open", "OUTBOUND", "Created from Excel upload", userID); err != nil {
+		log.Printf("Warning: Failed to insert transaction history for %s: %v", outboundNo, err)
+		// Don't rollback for history error, just log it
+	}
+
+	// Commit transaction
+	if err := tx.Commit().Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(ExcelOutboundUploadResponse{
+			Success: false,
+			Message: "Failed to commit transaction",
+			Errors: []ExcelRowError{
+				{Row: 0, Message: "Transaction Commit Error", Detail: err.Error()},
+			},
+		})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(ExcelOutboundUploadResponse{
+		Success:         true,
+		Message:         fmt.Sprintf("Successfully created outbound %s with %d items", outboundNo, successCount),
+		TotalRows:       len(details),
+		SuccessCount:    successCount,
+		FailedCount:     0,
+		OutboundNumbers: []string{outboundNo},
+	})
+}
+
+// Helper functions
+func (c *OutboundController) parseOutboundHeaderFromExcel(rows [][]string) (*ExcelOutboundHeader, error) {
+	if len(rows) < 2 {
+		return nil, errors.New("no header data found")
+	}
+
+	// Parse from first data row (row index 1)
+	row := rows[1]
+	header := &ExcelOutboundHeader{
+		OutboundDate:    strings.TrimSpace(getCell(row, 0)),
+		ShipmentID:      strings.TrimSpace(getCell(row, 1)),
+		CustomerCode:    strings.TrimSpace(getCell(row, 2)),
+		WhsCode:         strings.TrimSpace(getCell(row, 3)),
+		OwnerCode:       strings.TrimSpace(getCell(row, 4)),
+		TransporterCode: strings.TrimSpace(getCell(row, 5)),
+		PickerName:      strings.TrimSpace(getCell(row, 6)),
+		CustAddress:     strings.TrimSpace(getCell(row, 7)),
+		CustCity:        strings.TrimSpace(getCell(row, 8)),
+		PlanPickupDate:  strings.TrimSpace(getCell(row, 9)),
+		PlanPickupTime:  strings.TrimSpace(getCell(row, 10)),
+		RcvDoDate:       strings.TrimSpace(getCell(row, 11)),
+		RcvDoTime:       strings.TrimSpace(getCell(row, 12)),
+		DelivTo:         strings.TrimSpace(getCell(row, 13)),
+		DelivAddress:    strings.TrimSpace(getCell(row, 14)),
+		DelivCity:       strings.TrimSpace(getCell(row, 15)),
+		Driver:          strings.TrimSpace(getCell(row, 16)),
+		TruckNo:         strings.TrimSpace(getCell(row, 17)),
+		TruckSize:       strings.TrimSpace(getCell(row, 18)),
+		QtyKoli:         strings.TrimSpace(getCell(row, 19)),
+		QtyKoliSeal:     strings.TrimSpace(getCell(row, 20)),
+		Remarks:         strings.TrimSpace(getCell(row, 21)),
+	}
+
+	// Validate required fields
+	if header.CustomerCode == "" {
+		return nil, errors.New("customer code is required")
+	}
+	if header.WhsCode == "" {
+		return nil, errors.New("warehouse code is required")
+	}
+	if header.OwnerCode == "" {
+		return nil, errors.New("owner code is required")
+	}
+	if header.OutboundDate == "" {
+		return nil, errors.New("outbound date is required")
+	}
+
+	return header, nil
+}
+
+func (c *OutboundController) parseOutboundDetailsFromExcel(rows [][]string, policy models.InventoryPolicy) ([]ExcelOutboundDetail, []ValidationError) {
+	var details []ExcelOutboundDetail
+	var errors []ValidationError
+
+	// Start from row 2 (index 1), assuming row 1 is header
+	for i := 1; i < len(rows); i++ {
+		row := rows[i]
+		rowNum := i + 1
+
+		// Skip empty rows
+		if len(row) == 0 || strings.TrimSpace(getCell(row, 22)) == "" {
+			continue
+		}
+
+		detail := ExcelOutboundDetail{Row: rowNum}
+
+		// Parse item details starting from column 22 (index 22)
+		detail.ItemCode = strings.TrimSpace(getCell(row, 22))
+		detail.UOM = strings.TrimSpace(getCell(row, 23))
+
+		qtyStr := strings.TrimSpace(getCell(row, 24))
+		if qtyStr != "" {
+			qty, err := strconv.ParseFloat(qtyStr, 64)
+			if err != nil {
+				errors = append(errors, ValidationError{
+					Field:   "Quantity",
+					Message: "Invalid quantity format: " + qtyStr,
+					Row:     rowNum,
+				})
+				continue
+			}
+			detail.Quantity = qty
+		}
+
+		detail.Location = strings.TrimSpace(getCell(row, 25))
+		detail.LotNumber = strings.TrimSpace(getCell(row, 26))
+		detail.ExpDate = strings.TrimSpace(getCell(row, 27))
+		detail.SN = strings.TrimSpace(getCell(row, 28))
+
+		vasIDStr := strings.TrimSpace(getCell(row, 29))
+		if vasIDStr != "" {
+			vasID, err := strconv.Atoi(vasIDStr)
+			if err != nil {
+				errors = append(errors, ValidationError{
+					Field:   "VasID",
+					Message: "Invalid VAS ID format: " + vasIDStr,
+					Row:     rowNum,
+				})
+				continue
+			}
+			detail.VasID = vasID
+		}
+
+		detail.Remarks = strings.TrimSpace(getCell(row, 30))
+
+		// Validate required fields
+		if detail.ItemCode == "" {
+			errors = append(errors, ValidationError{
+				Field:   "ItemCode",
+				Message: "Item code cannot be empty",
+				Row:     rowNum,
+			})
+			continue
+		}
+
+		if detail.UOM == "" {
+			errors = append(errors, ValidationError{
+				Field:   "UOM",
+				Message: "UOM cannot be empty",
+				Row:     rowNum,
+			})
+			continue
+		}
+
+		if detail.Quantity == 0 {
+			errors = append(errors, ValidationError{
+				Field:   "Quantity",
+				Message: "Quantity cannot be zero",
+				Row:     rowNum,
+			})
+			continue
+		}
+
+		if detail.Quantity < 0 {
+			errors = append(errors, ValidationError{
+				Field:   "Quantity",
+				Message: "Quantity cannot be negative",
+				Row:     rowNum,
+			})
+			continue
+		}
+
+		// Validate based on inventory policy
+		if policy.RequireLotNumber && detail.LotNumber == "" {
+			errors = append(errors, ValidationError{
+				Field:   "LotNumber",
+				Message: "Lot number is required by inventory policy",
+				Row:     rowNum,
+			})
+			continue
+		}
+
+		details = append(details, detail)
+	}
+
+	return details, errors
+}
+
+func (c *OutboundController) checkDuplicateOutboundItems(details []ExcelOutboundDetail) []ValidationError {
+	var errors []ValidationError
+	itemMap := make(map[string]int)
+
+	for _, detail := range details {
+		// Key based on ItemCode and UOM only (same as original validation)
+		key := fmt.Sprintf("%s|%s", detail.ItemCode, detail.UOM)
+
+		if existingRow, exists := itemMap[key]; exists {
+			errors = append(errors, ValidationError{
+				Field: "Duplicate",
+				Message: fmt.Sprintf("Duplicate item found (same as row %d): Item Code %s, UOM %s",
+					existingRow, detail.ItemCode, detail.UOM),
+				Row: detail.Row,
+			})
+		} else {
+			itemMap[key] = detail.Row
+		}
+	}
+
+	return errors
+}
+
+func (c *OutboundController) validateOutboundProducts(tx *gorm.DB, details []ExcelOutboundDetail) []ValidationError {
+	var errorss []ValidationError
+
+	for _, detail := range details {
+		// Check if product exists
+		var product models.Product
+		if err := tx.First(&product, "item_code = ?", detail.ItemCode).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				errorss = append(errorss, ValidationError{
+					Field:   "ItemCode",
+					Message: "Product not found: " + detail.ItemCode,
+					Row:     detail.Row,
+				})
+			} else {
+				errorss = append(errorss, ValidationError{
+					Field:   "ItemCode",
+					Message: "Failed to validate product: " + err.Error(),
+					Row:     detail.Row,
+				})
+			}
+			continue
+		}
+
+		// Check if UOM conversion exists
+		var uomConversion models.UomConversion
+		if err := tx.First(&uomConversion, "item_code = ? AND from_uom = ?", product.ItemCode, detail.UOM).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				errorss = append(errorss, ValidationError{
+					Field:   "UOM",
+					Message: fmt.Sprintf("UOM conversion not found for Item: %s, UOM: %s", detail.ItemCode, detail.UOM),
+					Row:     detail.Row,
+				})
+			} else {
+				errorss = append(errorss, ValidationError{
+					Field:   "UOM",
+					Message: "Failed to validate UOM: " + err.Error(),
+					Row:     detail.Row,
+				})
+			}
+			continue
+		}
+
+		// Validate VAS if provided
+		if detail.VasID > 0 {
+			var vas models.Vas
+			if err := tx.First(&vas, "id = ?", detail.VasID).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					errorss = append(errorss, ValidationError{
+						Field:   "VasID",
+						Message: fmt.Sprintf("VAS not found with ID: %d", detail.VasID),
+						Row:     detail.Row,
+					})
+				} else {
+					errorss = append(errorss, ValidationError{
+						Field:   "VasID",
+						Message: "Failed to validate VAS: " + err.Error(),
+						Row:     detail.Row,
+					})
+				}
+			}
+		}
+	}
+
+	return errorss
+}
+
+//======================================================================
+// END PROCESS UPLOAD OUTBOUND FROM EXCEL
+//======================================================================

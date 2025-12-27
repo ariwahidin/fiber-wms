@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fiber-app/models"
 	"fiber-app/repositories"
+	"fmt"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -43,13 +44,14 @@ func (c *MobileOutboundController) GetListOutbound(ctx *fiber.Ctx) error {
 
 	SELECT a.id, a.outbound_no, b.customer_name,
 	a.shipment_id, od.qty_req, od.scan_qty, kd.qty_pack,
-	a.status, a.updated_at
+	a.status, a.updated_at, ipo.require_picking_scan
 	FROM outbound_headers a
 	INNER JOIN customers b ON a.customer_code = b.customer_code
 	LEFT JOIN od ON a.id = od.outbound_id	
 	LEFT JOIN kd ON a.id = kd.outbound_id
-	WHERE a.status = 'picking'
-	ORDER BY a.id DESC`
+	LEFT JOIN inventory_policies ipo ON a.owner_code = ipo.owner_code
+	WHERE a.status = 'picking' and ipo.require_picking_scan <> 0
+	ORDER BY a.id DESC;`
 	var listOutbound []listOutboundResponse
 	if err := c.DB.Raw(sql).Scan(&listOutbound).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
@@ -273,6 +275,8 @@ func (c *MobileOutboundController) ScanPicking(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	var outboundRepo = repositories.NewOutboundRepository(c.DB)
+
 	if inventoryPolicy.RequireScanPickLocation {
 		if scanOutbound.Location == "" {
 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Location is required"})
@@ -320,6 +324,13 @@ func (c *MobileOutboundController) ScanPicking(ctx *fiber.Ctx) error {
 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Item already scanned", "data": outboundBarcodes, "is_serial": true})
 		}
 
+		fmt.Println("Inventory Policy Validation SN:", inventoryPolicy.ValidationSN)
+		if inventoryPolicy.ValidationSN {
+			_, err := outboundRepo.ValidateSerialNumber(product.ItemCode, scanOutbound.SerialNo, int(outboundHeader.ID))
+			if err != nil {
+				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+			}
+		}
 	}
 
 	queryOutboundPicking := c.DB.Where("outbound_id = ? AND barcode = ?", outboundHeader.ID, product.Barcode)
@@ -336,10 +347,6 @@ func (c *MobileOutboundController) ScanPicking(ctx *fiber.Ctx) error {
 		}
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
-
-	// if err := c.DB.Where("outbound_id = ? AND barcode = ?", outboundHeader.ID, product.Barcode).First(&outboundPicking).Error; err != nil {
-	// 	return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Picking not found", "message": "Picking not found"})
-	// }
 
 	var serialNumber string
 

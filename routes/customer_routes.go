@@ -16,6 +16,7 @@ func SetupCustomerRoutes(app *fiber.App) {
 
 	api.Get("/", customerController.GetAllCustomers)
 	api.Post("/", customerController.CreateCustomer)
+	api.Post("/upload-excel", customerController.CreateCustomerFromExcel)
 	api.Get("/:id", customerController.GetCustomerByID)
 	api.Put("/:id", customerController.UpdateCustomer)
 	api.Delete("/:id", customerController.DeleteCustomer)

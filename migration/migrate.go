@@ -27,6 +27,7 @@ func MigrateBusinessUnit(db *gorm.DB) error {
 		&models.Truck{},
 		&models.Origin{},
 		&models.Inventory{},
+		&models.InventoryMovement{},
 		&models.Warehouse{},
 		&models.QaStatus{},
 		&models.InboundBarcode{},
@@ -63,5 +64,6 @@ func MigrateBusinessUnit(db *gorm.DB) error {
 		&models.InventoryPolicy{},
 		&models.IntegrationLog{},
 		&models.LoginLog{},
+		&models.ItemPackaging{},
 	)
 }

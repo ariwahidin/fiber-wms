@@ -260,6 +260,7 @@ type OrderItem struct {
 	TotalItem    int               `json:"total_item"`
 	TotalQty     int               `json:"total_qty"`
 	TotalCBM     float64           `json:"total_cbm"`
+	Remarks      string            `json:"remarks"`
 }
 
 type Order struct {
@@ -376,6 +377,7 @@ func (c *ShippingController) CreateOrder(ctx *fiber.Ctx) error {
 		orderItem.TotalItem = item.TotalItem
 		orderItem.TotalQty = item.TotalQty
 		orderItem.TotalCBM = item.TotalCBM
+		orderItem.Remarks = item.Remarks
 		orderItem.CreatedBy = int(ctx.Locals("userID").(float64))
 		orderItem.CreatedAt = time.Now()
 		orderItem.UpdatedAt = time.Now()
@@ -582,6 +584,7 @@ func (c *ShippingController) UpdateOrderByID(ctx *fiber.Ctx) error {
 			orderItem.TotalItem = item.TotalItem
 			orderItem.TotalQty = item.TotalQty
 			orderItem.TotalCBM = item.TotalCBM
+			orderItem.Remarks = item.Remarks
 			orderItem.CreatedBy = int(ctx.Locals("userID").(float64))
 			orderItem.CreatedAt = time.Now()
 			orderItem.UpdatedAt = time.Now()

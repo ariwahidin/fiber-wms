@@ -1,6 +1,8 @@
 package models
 
 import (
+	"time"
+
 	"gorm.io/gorm"
 )
 
@@ -69,9 +71,40 @@ type InventoryPolicy struct {
 	AllowMixedLot           bool   `gorm:"default:false" json:"allow_mixed_lot"`
 	AllowNegativeStock      bool   `gorm:"default:false" json:"allow_negative_stock"`
 	ValidationSN            bool   `gorm:"default:false" json:"validation_sn"`
+	RequirePickingScan      bool   `gorm:"default:false" json:"require_picking_scan"`
 	CreatedBy               int
 	UpdatedBy               int
 	DeletedBy               int
+}
+
+type InventoryMovement struct {
+	ID uint `gorm:"primaryKey"`
+
+	InventoryID uint `gorm:"index;not null"`
+
+	// Referensi proses
+	RefType string `gorm:"size:50;index"` // inbound, outbound, allocate, release, transfer, adjust, qc
+	RefID   uint   `gorm:"index"`
+
+	// Perubahan kuantitas (DELTA)
+	QtyOnhandChange    float64 `gorm:"default:0"`
+	QtyAvailableChange float64 `gorm:"default:0"`
+	QtyAllocatedChange float64 `gorm:"default:0"`
+	QtySuspendChange   float64 `gorm:"default:0"`
+	QtyShippedChange   float64 `gorm:"default:0"`
+
+	// Konteks whs_code, lokasi & status
+	FromWhsCode  string `gorm:"size:20"`
+	ToWhsCode    string `gorm:"size:20"`
+	FromLocation string `gorm:"size:100"`
+	ToLocation   string `gorm:"size:100"`
+	OldQaStatus  string `gorm:"size:50"`
+	NewQaStatus  string `gorm:"size:50"`
+
+	// Metadata
+	Reason    string `gorm:"size:255"`
+	CreatedBy int
+	CreatedAt time.Time
 }
 
 // func (i *Inventory) BeforeCreate(tx *gorm.DB) (err error) {
@@ -81,3 +114,31 @@ type InventoryPolicy struct {
 // 	}
 // 	return nil
 // }
+
+// qa_status_change_request table
+type QAStatusChangeRequest struct {
+	gorm.Model
+	InventoryID     int     `json:"inventory_id"`
+	InventoryNumber int     `json:"inventory_number"`
+	CurrentStatus   string  `json:"current_status"`
+	RequestedStatus string  `json:"requested_status"`
+	Quantity        float64 `json:"quantity"`
+	ReasonCode      string  `json:"reason_code"`
+	ReasonNotes     string  `json:"reason_notes"`
+	RequestedBy     string  `json:"requested_by"`
+	RequestedDate   string  `json:"requested_date"`
+	ApprovalStatus  string  `json:"approval_status"` // PENDING, APPROVED, REJECTED
+	ApprovedBy      string  `json:"approved_by"`
+	ApprovedDate    string  `json:"approved_date"`
+	ApprovalNotes   string  `json:"approval_notes"`
+}
+
+// qa_status_change_reason (master table)
+type QAStatusChangeReason struct {
+	gorm.Model
+	Code             string `json:"code" gorm:"unique"`
+	Description      string `json:"description"`
+	FromStatus       string `json:"from_status"`
+	ToStatus         string `json:"to_status"`
+	RequiresApproval bool   `json:"requires_approval"`
+}
