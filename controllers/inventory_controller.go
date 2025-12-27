@@ -21,6 +21,28 @@ func NewInventoryController(DB *gorm.DB) *InventoryController {
 	return &InventoryController{DB: DB}
 }
 
+func (c *InventoryController) GetAllInventoryAvailable(ctx *fiber.Ctx) error {
+	var inventories []models.Inventory
+
+	// Query inventory dengan qty_available > 0
+	if err := c.DB.Where("qty_available > ?", 0).
+		Order("item_code ASC, whs_code ASC, location ASC").
+		Find(&inventories).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"error":   "Failed to fetch inventories",
+		})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"data": fiber.Map{
+			"inventories": inventories,
+			"total":       len(inventories),
+		},
+	})
+}
+
 func (c *InventoryController) GetInventory(ctx *fiber.Ctx) error {
 
 	inventory_repo := repositories.NewInventoryRepository(c.DB)
@@ -548,3 +570,355 @@ func (c *InventoryController) HardDelete(ctx *fiber.Ctx) error {
 		"message": "Inventory policy berhasil dihapus secara permanen",
 	})
 }
+
+//===================================================================
+// BEGIN INTERNAL TRANSFER
+// ==================================================================
+
+type TransferInventoryInput struct {
+	InventoryID   uint    `json:"inventory_id" validate:"required"`
+	FromWhsCode   string  `json:"from_whs_code" validate:"required"`
+	ToWhsCode     string  `json:"to_whs_code" validate:"required"`
+	FromLocation  string  `json:"from_location" validate:"required"`
+	ToLocation    string  `json:"to_location" validate:"required"`
+	OldQaStatus   string  `json:"old_qa_status"`
+	NewQaStatus   string  `json:"new_qa_status"`
+	RecDate       string  `json:"rec_date"`
+	ProdDate      string  `json:"prod_date"`
+	ExpDate       string  `json:"exp_date"`
+	LotNumber     string  `json:"lot_number"`
+	Pallet        string  `json:"pallet"`
+	QtyToTransfer float64 `json:"qty_to_transfer" validate:"required,gt=0"`
+	Reason        string  `json:"reason"`
+	DivisionCode  string  `json:"division_code" validate:"required"`
+}
+
+func (c *InventoryController) TransferInventory(ctx *fiber.Ctx) error {
+	var input TransferInventoryInput
+
+	// Parse body
+	if err := ctx.BodyParser(&input); err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"error":   "Invalid request body",
+		})
+	}
+
+	// Validate input
+	if input.InventoryID == 0 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"error":   "Inventory ID is required",
+		})
+	}
+
+	if input.QtyToTransfer <= 0 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"error":   "Quantity to transfer must be greater than 0",
+		})
+	}
+
+	if input.FromWhsCode == "" || input.ToWhsCode == "" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"error":   "From and To warehouse codes are required",
+		})
+	}
+
+	if input.FromLocation == "" || input.ToLocation == "" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"error":   "From and To locations are required",
+		})
+	}
+
+	userID := int(ctx.Locals("userID").(float64))
+
+	// Start transaction
+	tx := c.DB.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	// Get source inventory
+	var sourceInventory models.Inventory
+	if err := tx.Where("id = ?", input.InventoryID).First(&sourceInventory).Error; err != nil {
+		tx.Rollback()
+		if err == gorm.ErrRecordNotFound {
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"success": false,
+				"error":   "Source inventory not found",
+			})
+		}
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"error":   "Failed to fetch source inventory",
+		})
+	}
+
+	// Validate warehouse and location match
+	if sourceInventory.WhsCode != input.FromWhsCode {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"error":   fmt.Sprintf("Source warehouse mismatch. Expected: %s, Got: %s", sourceInventory.WhsCode, input.FromWhsCode),
+		})
+	}
+
+	if sourceInventory.Location != input.FromLocation {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"error":   fmt.Sprintf("Source location mismatch. Expected: %s, Got: %s", sourceInventory.Location, input.FromLocation),
+		})
+	}
+
+	// Validate sufficient quantity
+	if sourceInventory.QtyAvailable < input.QtyToTransfer {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"error":   fmt.Sprintf("Insufficient quantity. Available: %.2f, Requested: %.2f", sourceInventory.QtyAvailable, input.QtyToTransfer),
+		})
+	}
+
+	// Use existing QA status if not provided
+	newQaStatus := input.NewQaStatus
+	if newQaStatus == "" {
+		newQaStatus = sourceInventory.QaStatus
+	}
+
+	// Check if destination inventory exists with same attributes
+	var destInventory models.Inventory
+	destQuery := tx.Where("whs_code = ? AND location = ? AND item_code = ? AND barcode = ? AND qa_status = ? AND lot_number = ?",
+		input.ToWhsCode,
+		input.ToLocation,
+		sourceInventory.ItemCode,
+		sourceInventory.Barcode,
+		newQaStatus,
+		input.LotNumber,
+	)
+
+	// Add optional filters if provided
+	if input.RecDate != "" {
+		destQuery = destQuery.Where("rec_date = ?", input.RecDate)
+	}
+	if input.ProdDate != "" {
+		destQuery = destQuery.Where("prod_date = ?", input.ProdDate)
+	}
+	if input.ExpDate != "" {
+		destQuery = destQuery.Where("exp_date = ?", input.ExpDate)
+	}
+	if input.Pallet != "" {
+		destQuery = destQuery.Where("pallet = ?", input.Pallet)
+	}
+
+	err := destQuery.First(&destInventory).Error
+	isNewDestination := err == gorm.ErrRecordNotFound
+
+	if err != nil && err != gorm.ErrRecordNotFound {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"error":   "Failed to check destination inventory",
+		})
+	}
+
+	// Update source inventory - deduct quantity
+	sourceInventory.QtyOrigin -= input.QtyToTransfer
+	sourceInventory.QtyOnhand -= input.QtyToTransfer
+	sourceInventory.QtyAvailable -= input.QtyToTransfer
+	sourceInventory.UpdatedBy = userID
+
+	if err := tx.Save(&sourceInventory).Error; err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"error":   "Failed to update source inventory",
+		})
+	}
+
+	// Record source inventory movement
+	sourceMovement := models.InventoryMovement{
+		InventoryID:        sourceInventory.ID,
+		RefType:            "transfer",
+		RefID:              0, // Will be updated with destination inventory ID
+		QtyOnhandChange:    -input.QtyToTransfer,
+		QtyAvailableChange: -input.QtyToTransfer,
+		QtyAllocatedChange: 0,
+		QtySuspendChange:   0,
+		QtyShippedChange:   0,
+		FromWhsCode:        input.FromWhsCode,
+		ToWhsCode:          input.ToWhsCode,
+		FromLocation:       input.FromLocation,
+		ToLocation:         input.ToLocation,
+		OldQaStatus:        sourceInventory.QaStatus,
+		NewQaStatus:        newQaStatus,
+		Reason:             input.Reason,
+		CreatedBy:          userID,
+		CreatedAt:          time.Now(),
+	}
+
+	if err := tx.Create(&sourceMovement).Error; err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"error":   "Failed to record source movement",
+		})
+	}
+
+	var destInventoryID uint
+
+	if isNewDestination {
+		// Create new destination inventory
+		newInventory := models.Inventory{
+			OwnerCode:       sourceInventory.OwnerCode,
+			WhsCode:         input.ToWhsCode,
+			InboundID:       sourceInventory.InboundID,
+			InboundDetailId: sourceInventory.InboundDetailId,
+			DivisionCode:    input.DivisionCode,
+			RecDate:         input.RecDate,
+			ProdDate:        input.ProdDate,
+			ExpDate:         input.ExpDate,
+			LotNumber:       input.LotNumber,
+			Pallet:          input.Pallet,
+			Location:        input.ToLocation,
+			ItemId:          sourceInventory.ItemId,
+			ItemCode:        sourceInventory.ItemCode,
+			Barcode:         sourceInventory.Barcode,
+			QaStatus:        newQaStatus,
+			Uom:             sourceInventory.Uom,
+			QtyOrigin:       input.QtyToTransfer,
+			QtyOnhand:       input.QtyToTransfer,
+			QtyAvailable:    input.QtyToTransfer,
+			QtyAllocated:    0,
+			QtySuspend:      0,
+			QtyShipped:      0,
+			Trans:           "TRANSFER",
+			IsTransfer:      true,
+			TransferFrom:    sourceInventory.ID,
+			CreatedBy:       userID,
+			UpdatedBy:       userID,
+		}
+
+		if err := tx.Create(&newInventory).Error; err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"success": false,
+				"error":   "Failed to create destination inventory",
+			})
+		}
+
+		destInventoryID = newInventory.ID
+
+		// Record destination inventory movement
+		destMovement := models.InventoryMovement{
+			InventoryID:        newInventory.ID,
+			RefType:            "TRANSFER",
+			RefID:              sourceInventory.ID,
+			QtyOnhandChange:    input.QtyToTransfer,
+			QtyAvailableChange: input.QtyToTransfer,
+			QtyAllocatedChange: 0,
+			QtySuspendChange:   0,
+			QtyShippedChange:   0,
+			FromWhsCode:        input.FromWhsCode,
+			ToWhsCode:          input.ToWhsCode,
+			FromLocation:       input.FromLocation,
+			ToLocation:         input.ToLocation,
+			OldQaStatus:        sourceInventory.QaStatus,
+			NewQaStatus:        newQaStatus,
+			Reason:             input.Reason,
+			CreatedBy:          userID,
+			CreatedAt:          time.Now(),
+		}
+
+		if err := tx.Create(&destMovement).Error; err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"success": false,
+				"error":   "Failed to record destination movement",
+			})
+		}
+
+	} else {
+		// Update existing destination inventory
+		destInventory.QtyOnhand += input.QtyToTransfer
+		destInventory.QtyAvailable += input.QtyToTransfer
+		destInventory.UpdatedBy = userID
+
+		if err := tx.Save(&destInventory).Error; err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"success": false,
+				"error":   "Failed to update destination inventory",
+			})
+		}
+
+		destInventoryID = destInventory.ID
+
+		// Record destination inventory movement
+		destMovement := models.InventoryMovement{
+			InventoryID:        destInventory.ID,
+			RefType:            "transfer",
+			RefID:              sourceInventory.ID,
+			QtyOnhandChange:    input.QtyToTransfer,
+			QtyAvailableChange: input.QtyToTransfer,
+			QtyAllocatedChange: 0,
+			QtySuspendChange:   0,
+			QtyShippedChange:   0,
+			FromWhsCode:        input.FromWhsCode,
+			ToWhsCode:          input.ToWhsCode,
+			FromLocation:       input.FromLocation,
+			ToLocation:         input.ToLocation,
+			OldQaStatus:        sourceInventory.QaStatus,
+			NewQaStatus:        newQaStatus,
+			Reason:             input.Reason,
+			CreatedBy:          userID,
+			CreatedAt:          time.Now(),
+		}
+
+		if err := tx.Create(&destMovement).Error; err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"success": false,
+				"error":   "Failed to record destination movement",
+			})
+		}
+	}
+
+	// Update source movement with destination ref
+	sourceMovement.RefID = destInventoryID
+	if err := tx.Save(&sourceMovement).Error; err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"error":   "Failed to update source movement reference",
+		})
+	}
+
+	// Commit transaction
+	if err := tx.Commit().Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"error":   "Failed to commit transaction",
+		})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": fmt.Sprintf("Successfully transferred %.2f units from %s to %s", input.QtyToTransfer, input.FromLocation, input.ToLocation),
+		"data": fiber.Map{
+			"source_inventory_id":      sourceInventory.ID,
+			"destination_inventory_id": destInventoryID,
+			"quantity_transferred":     input.QtyToTransfer,
+			"is_new_destination":       isNewDestination,
+		},
+	})
+}
+
+//===================================================================
+// END INTERNAL TRANSFER
+//===================================================================

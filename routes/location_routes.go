@@ -19,6 +19,7 @@ func SetupLocationRoutes(app *fiber.App) {
 	api.Use(database.InjectDBMiddleware(locationController))
 
 	// Register endpoints
+	api.Post("/upload-excel", locationController.CreateLocationFromExcel)
 	api.Post("/", locationController.CreateLocation)
 	api.Get("/", locationController.GetAllLocations)
 	api.Get("/:id", locationController.GetLocationByID)

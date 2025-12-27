@@ -15,11 +15,13 @@ func SetupInventoryRoutes(app *fiber.App) {
 	api.Use(database.InjectDBMiddleware(inventoryController))
 
 	api.Get("/", inventoryController.GetInventory)
+	api.Get("/all", inventoryController.GetAllInventoryAvailable)
 	api.Get("/policy", inventoryController.GetInventoryPolicy)
 	api.Get("/excel", inventoryController.ExportExcel)
 	api.Post("/rf/pallet", inventoryController.GetInventoryByPalletAndLocation)
 	api.Post("/rf/move", inventoryController.MoveItem)
 	api.Post("/change", inventoryController.ChangeStatusInventory)
+	api.Post("/transfer", inventoryController.TransferInventory)
 
 	api.Post("/policies", inventoryController.CreateInvetoryPolicy)
 	api.Get("/policies", inventoryController.GetAllInventoryPolicy)
