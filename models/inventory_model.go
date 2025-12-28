@@ -20,7 +20,7 @@ type Inventory struct {
 	LotNumber       string  `json:"lot_number" gorm:"default:null"`
 	Pallet          string  `json:"pallet"`
 	Location        string  `json:"location"`
-	ItemId          int     `json:"item_id"`
+	ItemId          uint    `json:"item_id"`
 	ItemCode        string  `json:"item_code"`
 	Barcode         string  `json:"barcode" gorm:"not null" validate:"required"`
 	QaStatus        string  `json:"qa_status"`
@@ -37,6 +37,7 @@ type Inventory struct {
 	CreatedBy       int
 	UpdatedBy       int
 	DeletedBy       int
+	Product         Product `json:"product" gorm:"foreignKey:ItemId;references:ID"`
 }
 
 func (p *Inventory) BeforeCreate(tx *gorm.DB) (err error) {

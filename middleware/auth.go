@@ -17,12 +17,6 @@ type AuthMiddlewareStruct struct {
 	DB *gorm.DB
 }
 
-// func NewAuthMiddleware(DB *gorm.DB) *AuthMiddlewareStruct {
-// 	return &AuthMiddlewareStruct{DB: DB}
-// }
-
-// var secretKey = []byte(config.JWTSecret) // Ambil dari .env
-
 func AuthMiddleware(ctx *fiber.Ctx) error {
 	// Ambil header Authorization
 	authHeader := ctx.Get("Authorization")
@@ -42,18 +36,6 @@ func AuthMiddleware(ctx *fiber.Ctx) error {
 	tokenStringHeader := tokenParts[1]
 
 	fmt.Println("tokenStringHeader: ", tokenStringHeader)
-
-	// Ambil token dari cookie
-	// tokenStringCookie := ctx.Cookies("x_token")
-	// fmt.Println("tokenString: ", tokenStringCookie)
-
-	// if tokenStringCookie == "" {
-	// 	return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-	// 		"message": "Unauthorized: Token not found in cookie",
-	// 	})
-	// }
-
-	// fmt.Println("tokenStringCookie: ", tokenStringCookie)
 
 	// Parse dan validasi token
 	token, err := jwt.Parse(tokenStringHeader, func(token *jwt.Token) (interface{}, error) {

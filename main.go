@@ -177,6 +177,10 @@ func main() {
 	itemPackagingCtrl := controllers.NewItemPackagingController(unitDB)
 	itemPackagingCtrl.SetupRoutes(app)
 
+	// Setup Main Controller 2025-12-28 14:38 (ari.wahidin)
+	mainCtrl := controllers.NewController(unitDB)
+	mainCtrl.SetupRoutes(app)
+
 	// routes.SetupRfInboundRoutes(app, RfInboundController)
 	// routes.SetupOutboundRoutes(app, db)
 	// routes.SetupStockTakeRoutes(app, db)

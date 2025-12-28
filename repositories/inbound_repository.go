@@ -577,7 +577,7 @@ func (r *InboundRepository) ProcessPutawayItem(ctx *fiber.Ctx, inboundBarcodeID 
 				InboundID:       detail.InboundId,
 				InboundDetailId: int(detail.ID),
 				RecDate:         detail.RecDate,
-				ItemId:          int(barcode.ItemID),
+				ItemId:          barcode.ItemID,
 				ItemCode:        barcode.ItemCode,
 				Barcode:         product.Barcode,
 				WhsCode:         barcode.WhsCode,

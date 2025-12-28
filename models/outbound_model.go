@@ -157,7 +157,7 @@ type OutboundPicking struct {
 	OwnerCode        string  `json:"owner_code"`
 	WhsCode          string  `json:"whs_code"`
 	DivisionCode     string  `json:"division_code" gorm:"default:'REGULAR'"`
-	ItemID           int     `json:"item_id"`
+	ItemID           uint    `json:"item_id"`
 	ItemCode         string  `json:"item_code"`
 	Barcode          string  `json:"barcode"`
 	Pallet           string  `json:"pallet"`

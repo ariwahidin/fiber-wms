@@ -1,14 +1,11 @@
 package models
 
 import (
-	"fiber-app/types"
-
 	"gorm.io/gorm"
 )
 
 type Origin struct {
 	gorm.Model
-	// ID        types.SnowflakeID `json:"id" gorm:"primaryKey"`
 	Country   string `json:"country" gorm:"unique"`
 	IsActive  bool   `json:"is_active" gorm:"default:true"`
 	CreatedBy int
@@ -18,10 +15,10 @@ type Origin struct {
 
 type Warehouse struct {
 	gorm.Model
-	ID          types.SnowflakeID `json:"id" gorm:"primaryKey"`
-	Code        string            `json:"code" gorm:"unique"`
-	Name        string            `json:"name" gorm:"unique"`
-	Description string            `json:"description"`
+	ID          uint   `json:"id" gorm:"primaryKey"`
+	Code        string `json:"code" gorm:"unique"`
+	Name        string `json:"name" gorm:"unique"`
+	Description string `json:"description"`
 	CreatedBy   int
 	UpdatedBy   int
 	DeletedBy   int
@@ -29,10 +26,10 @@ type Warehouse struct {
 
 type Division struct {
 	gorm.Model
-	ID          types.SnowflakeID `json:"id" gorm:"primaryKey"`
-	Code        string            `json:"code" gorm:"unique"`
-	Name        string            `json:"name" gorm:"unique"`
-	Description string            `json:"description"`
+	ID          uint   `json:"id" gorm:"primaryKey"`
+	Code        string `json:"code" gorm:"unique"`
+	Name        string `json:"name" gorm:"unique"`
+	Description string `json:"description"`
 	CreatedBy   int
 	UpdatedBy   int
 	DeletedBy   int
@@ -40,9 +37,10 @@ type Division struct {
 
 type QaStatus struct {
 	gorm.Model
-	ID        types.SnowflakeID `json:"id" gorm:"primaryKey"`
-	QaStatus  string            `json:"qa_status" gorm:"unique"`
-	CreatedBy int
-	UpdatedBy int
-	DeletedBy int
+	ID          uint   `json:"id" gorm:"primaryKey"`
+	QaStatus    string `json:"qa_status" gorm:"unique"`
+	Description string `json:"description"`
+	CreatedBy   int
+	UpdatedBy   int
+	DeletedBy   int
 }

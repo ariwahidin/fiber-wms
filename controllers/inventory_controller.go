@@ -25,7 +25,9 @@ func (c *InventoryController) GetAllInventoryAvailable(ctx *fiber.Ctx) error {
 	var inventories []models.Inventory
 
 	// Query inventory dengan qty_available > 0
-	if err := c.DB.Where("qty_available > ?", 0).
+	if err := c.DB.
+		Preload("Product").
+		Where("qty_available > ?", 0).
 		Order("item_code ASC, whs_code ASC, location ASC").
 		Find(&inventories).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
@@ -137,7 +139,7 @@ func (c *InventoryController) createNewInventory(ctx *fiber.Ctx, oldInv *models.
 	newInventory := models.Inventory{
 		InboundDetailId: oldInv.InboundDetailId,
 		RecDate:         oldInv.RecDate,
-		ItemId:          itemID,
+		ItemId:          uint(itemID),
 		ItemCode:        oldInv.ItemCode,
 		WhsCode:         oldInv.WhsCode,
 		DivisionCode:    oldInv.DivisionCode,

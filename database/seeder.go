@@ -18,7 +18,7 @@ func RunSeeders(db *gorm.DB) {
 	// SeedWarehouse(db)
 	SeedUserMaster(db)
 	SeedCategory(db)
-	SeedDivision(db)
+	// SeedDivision(db)
 }
 
 func SeedUnit(db *gorm.DB) {
@@ -95,21 +95,21 @@ func SeedUoms(db *gorm.DB) {
 // 	}
 // }
 
-func SeedDivision(db *gorm.DB) {
-	divisions := []models.Division{
-		{Code: "REGULAR", Name: "REGULAR", Description: "REGULAR"},
-	}
+// func SeedDivision(db *gorm.DB) {
+// 	divisions := []models.Division{
+// 		{Code: "REGULAR", Name: "REGULAR", Description: "REGULAR"},
+// 	}
 
-	for _, d := range divisions {
-		var existing models.Division
-		if err := db.Where("code = ?", d.Code).First(&existing).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
-				d.ID = types.SnowflakeID(idgen.GenerateID())
-				db.Create(&d)
-			}
-		}
-	}
-}
+// 	for _, d := range divisions {
+// 		var existing models.Division
+// 		if err := db.Where("code = ?", d.Code).First(&existing).Error; err != nil {
+// 			if err == gorm.ErrRecordNotFound {
+// 				d.ID = types.SnowflakeID(idgen.GenerateID())
+// 				db.Create(&d)
+// 			}
+// 		}
+// 	}
+// }
 
 func SeedMenus(db *gorm.DB) error {
 	menus := []models.Menu{

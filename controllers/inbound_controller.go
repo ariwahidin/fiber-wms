@@ -1677,6 +1677,18 @@ func (c *InboundController) CreateInboundFromExcelFile(ctx *fiber.Ctx) error {
 		})
 	}
 
+	// Validate Warehouse
+	var warehouse models.Warehouse
+	if err := c.DB.Where("code = ?", headerInfo.WhsCode).First(&warehouse).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(ExcelUploadResponse{
+			Success: false,
+			Message: "Failed to get warehouse: " + headerInfo.WhsCode,
+			Errors: []ExcelRowError{
+				{Row: 1, Message: "Warehouse Error", Detail: err.Error()},
+			},
+		})
+	}
+
 	// Parse detail rows (starting from row 2, assuming row 1 is header)
 	details, validationErrors := c.parseDetailsFromExcel(rows, inventoryPolicy)
 	if len(validationErrors) > 0 {
@@ -1815,12 +1827,12 @@ func (c *InboundController) CreateInboundFromExcelFile(ctx *fiber.Ctx) error {
 		for _, detail := range detailGroup {
 			// Validate product
 			var product models.Product
-			if err := tx.First(&product, "item_code = ?", detail.ItemCode).Error; err != nil {
+			if err := tx.First(&product, "item_code = ? AND owner_code = ?", detail.ItemCode, headerInfo.OwnerCode).Error; err != nil {
 				tx.Rollback()
 				if errors.Is(err, gorm.ErrRecordNotFound) {
 					return ctx.Status(fiber.StatusNotFound).JSON(ExcelUploadResponse{
 						Success: false,
-						Message: "Product not found",
+						Message: "Product not found for item code: " + detail.ItemCode,
 						Errors: []ExcelRowError{
 							{Row: detail.Row, Message: "Product Not Found", Detail: "Item code: " + detail.ItemCode},
 						},
@@ -1851,6 +1863,28 @@ func (c *InboundController) CreateInboundFromExcelFile(ctx *fiber.Ctx) error {
 				return ctx.Status(fiber.StatusInternalServerError).JSON(ExcelUploadResponse{
 					Success: false,
 					Message: "Failed to validate UOM",
+					Errors: []ExcelRowError{
+						{Row: detail.Row, Message: "Database Error", Detail: err.Error()},
+					},
+				})
+			}
+
+			// Validate QA status
+			var qaStatus models.QaStatus
+			if err := tx.First(&qaStatus, "qa_status = ?", detail.QaStatus).Error; err != nil {
+				tx.Rollback()
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return ctx.Status(fiber.StatusNotFound).JSON(ExcelUploadResponse{
+						Success: false,
+						Message: "QA status not found",
+						Errors: []ExcelRowError{
+							{Row: detail.Row, Message: "QA Status Not Found", Detail: "Status: " + detail.QaStatus},
+						},
+					})
+				}
+				return ctx.Status(fiber.StatusInternalServerError).JSON(ExcelUploadResponse{
+					Success: false,
+					Message: "Failed to validate QA status",
 					Errors: []ExcelRowError{
 						{Row: detail.Row, Message: "Database Error", Detail: err.Error()},
 					},
