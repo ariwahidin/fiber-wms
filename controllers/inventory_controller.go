@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-playground/validator"
 	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
 	"github.com/xuri/excelize/v2"
 	"gorm.io/gorm"
 )
@@ -597,6 +598,7 @@ type TransferInventoryInput struct {
 
 func (c *InventoryController) TransferInventory(ctx *fiber.Ctx) error {
 	var input TransferInventoryInput
+	movementID := uuid.NewString()
 
 	// Parse body
 	if err := ctx.BodyParser(&input); err != nil {
@@ -745,9 +747,12 @@ func (c *InventoryController) TransferInventory(ctx *fiber.Ctx) error {
 
 	// Record source inventory movement
 	sourceMovement := models.InventoryMovement{
+		MovementID:         movementID,
 		InventoryID:        sourceInventory.ID,
-		RefType:            "transfer",
+		RefType:            "TRANSFER",
 		RefID:              0, // Will be updated with destination inventory ID
+		ItemID:             sourceInventory.ItemId,
+		ItemCode:           sourceInventory.ItemCode,
 		QtyOnhandChange:    -input.QtyToTransfer,
 		QtyAvailableChange: -input.QtyToTransfer,
 		QtyAllocatedChange: 0,
@@ -818,9 +823,12 @@ func (c *InventoryController) TransferInventory(ctx *fiber.Ctx) error {
 
 		// Record destination inventory movement
 		destMovement := models.InventoryMovement{
+			MovementID:         movementID,
 			InventoryID:        newInventory.ID,
 			RefType:            "TRANSFER",
 			RefID:              sourceInventory.ID,
+			ItemID:             sourceInventory.ItemId,
+			ItemCode:           sourceInventory.ItemCode,
 			QtyOnhandChange:    input.QtyToTransfer,
 			QtyAvailableChange: input.QtyToTransfer,
 			QtyAllocatedChange: 0,
@@ -863,9 +871,12 @@ func (c *InventoryController) TransferInventory(ctx *fiber.Ctx) error {
 
 		// Record destination inventory movement
 		destMovement := models.InventoryMovement{
+			MovementID:         movementID,
 			InventoryID:        destInventory.ID,
-			RefType:            "transfer",
+			RefType:            "TRANSFER",
 			RefID:              sourceInventory.ID,
+			ItemID:             sourceInventory.ItemId,
+			ItemCode:           sourceInventory.ItemCode,
 			QtyOnhandChange:    input.QtyToTransfer,
 			QtyAvailableChange: input.QtyToTransfer,
 			QtyAllocatedChange: 0,

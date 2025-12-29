@@ -79,9 +79,14 @@ type InventoryPolicy struct {
 }
 
 type InventoryMovement struct {
-	ID uint `gorm:"primaryKey"`
+	ID         uint `gorm:"primaryKey"`
+	MovementID string
 
 	InventoryID uint `gorm:"index;not null"`
+
+	// Referensi barang
+	ItemID   uint
+	ItemCode string
 
 	// Referensi proses
 	RefType string `gorm:"size:50;index"` // inbound, outbound, allocate, release, transfer, adjust, qc

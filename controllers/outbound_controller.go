@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
 	"github.com/xuri/excelize/v2"
 	"gorm.io/gorm"
 )
@@ -1074,6 +1075,8 @@ func (c *OutboundController) PickingComplete(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	movementID := uuid.NewString()
+
 	// transaction
 	tx := c.DB.Begin()
 	if tx.Error != nil {
@@ -1150,6 +1153,39 @@ func (c *OutboundController) PickingComplete(ctx *fiber.Ctx) error {
 			tx.Rollback()
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
+
+		// Record source inventory movement
+		sourceMovement := models.InventoryMovement{
+			InventoryID:        uint(pickingSheet.InventoryID),
+			MovementID:         movementID,
+			RefType:            "OUTBOUND COMPLETE",
+			RefID:              uint(inputBody.OutboundID),
+			ItemID:             pickingSheet.ItemID,
+			ItemCode:           pickingSheet.ItemCode,
+			QtyOnhandChange:    -pickingSheet.Quantity,
+			QtyAvailableChange: -pickingSheet.Quantity,
+			QtyAllocatedChange: 0,
+			QtySuspendChange:   0,
+			QtyShippedChange:   0,
+			// FromWhsCode:        input.FromWhsCode,
+			// ToWhsCode:          input.ToWhsCode,
+			// FromLocation:       input.FromLocation,
+			// ToLocation:         input.ToLocation,
+			// OldQaStatus:        sourceInventory.QaStatus,
+			// NewQaStatus:        newQaStatus,
+			Reason:    outboundHeader.OutboundNo + " COMPLETE",
+			CreatedBy: int(ctx.Locals("userID").(float64)),
+			CreatedAt: time.Now(),
+		}
+
+		if err := tx.Create(&sourceMovement).Error; err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"success": false,
+				"error":   "Failed to record source movement",
+			})
+		}
+
 	}
 
 	// UPDATE OUTBOUND STATUS

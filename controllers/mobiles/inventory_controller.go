@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -177,6 +178,8 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 
 	fmt.Println("Input : ", input)
 
+	movementID := uuid.NewString()
+
 	if input.FromLocation == "" || input.ToLocation == "" {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "From Location and To Location are required"})
 	}
@@ -257,6 +260,38 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
 
+		// Record destination inventory movement
+		destMovement := models.InventoryMovement{
+			MovementID:         movementID,
+			InventoryID:        newInventory.ID,
+			RefType:            "TRANSFER",
+			RefID:              inventory.ID,
+			ItemID:             newInventory.ItemId,
+			ItemCode:           newInventory.ItemCode,
+			QtyOnhandChange:    newInventory.QtyOnhand,
+			QtyAvailableChange: newInventory.QtyAvailable,
+			QtyAllocatedChange: 0,
+			QtySuspendChange:   0,
+			QtyShippedChange:   0,
+			FromWhsCode:        inventory.WhsCode,
+			ToWhsCode:          newInventory.WhsCode,
+			FromLocation:       input.FromLocation,
+			ToLocation:         input.ToLocation,
+			OldQaStatus:        inventory.QaStatus,
+			NewQaStatus:        newInventory.QaStatus,
+			Reason:             "TRANSFER USING SCANNER",
+			CreatedBy:          int(ctx.Locals("userID").(float64)),
+			CreatedAt:          time.Now(),
+		}
+
+		if err := tx.Create(&destMovement).Error; err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"success": false,
+				"error":   err.Error(),
+			})
+		}
+
 		var oldInventory models.Inventory
 		if err := tx.Where("id = ?", inv.ID).First(&oldInventory).Error; err != nil {
 			tx.Rollback()
@@ -274,6 +309,38 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
 
+		// Record source inventory movement
+		sourceMovement := models.InventoryMovement{
+			MovementID:         movementID,
+			InventoryID:        oldInventory.ID,
+			RefType:            "TRANSFER",
+			RefID:              0, // Will be updated with destination inventory ID
+			ItemID:             oldInventory.ItemId,
+			ItemCode:           oldInventory.ItemCode,
+			QtyOnhandChange:    -inventory.QtyAvailable,
+			QtyAvailableChange: -inventory.QtyAvailable,
+			QtyAllocatedChange: 0,
+			QtySuspendChange:   0,
+			QtyShippedChange:   0,
+			FromWhsCode:        oldInventory.WhsCode,
+			ToWhsCode:          newInventory.WhsCode,
+			FromLocation:       input.FromLocation,
+			ToLocation:         input.ToLocation,
+			OldQaStatus:        oldInventory.QaStatus,
+			NewQaStatus:        newInventory.QaStatus,
+			Reason:             "TRANSFER USING SCANNER",
+			CreatedBy:          int(ctx.Locals("userID").(float64)),
+			CreatedAt:          time.Now(),
+		}
+
+		if err := tx.Create(&sourceMovement).Error; err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"success": false,
+				"error":   "Failed to record source movement",
+			})
+		}
+
 	}
 
 	if err := tx.Commit().Error; err != nil {
@@ -284,7 +351,7 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 }
 
 func (c *MobileInventoryController) ConfirmTransferByInventoryID(ctx *fiber.Ctx) error {
-
+	movementID := uuid.NewString()
 	var input struct {
 		FromLocation string  `json:"from_location"`
 		ToLocation   string  `json:"to_location"`
@@ -310,11 +377,6 @@ func (c *MobileInventoryController) ConfirmTransferByInventoryID(ctx *fiber.Ctx)
 	}
 
 	inventoryID := input.InventoryID
-	// convert InventoryID to int
-	// inventoryID, err := strconv.Atoi(input.InventoryID)
-	// if err != nil {
-	// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid Inventory ID"})
-	// }
 
 	if input.FromLocation == "" || input.ToLocation == "" || inventoryID == 0 || input.QtyTransfer == 0 {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "From Location, To Location, Inventory ID and Qty Transfer are required"})
@@ -404,6 +466,38 @@ func (c *MobileInventoryController) ConfirmTransferByInventoryID(ctx *fiber.Ctx)
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	// Record destination inventory movement
+	destMovement := models.InventoryMovement{
+		MovementID:         movementID,
+		InventoryID:        newInventory.ID,
+		RefType:            "TRANSFER",
+		RefID:              inventory.ID,
+		ItemID:             newInventory.ItemId,
+		ItemCode:           newInventory.ItemCode,
+		QtyOnhandChange:    newInventory.QtyOnhand,
+		QtyAvailableChange: newInventory.QtyAvailable,
+		QtyAllocatedChange: 0,
+		QtySuspendChange:   0,
+		QtyShippedChange:   0,
+		FromWhsCode:        inventory.WhsCode,
+		ToWhsCode:          newInventory.WhsCode,
+		FromLocation:       input.FromLocation,
+		ToLocation:         input.ToLocation,
+		OldQaStatus:        inventory.QaStatus,
+		NewQaStatus:        newInventory.QaStatus,
+		Reason:             "TRANSFER USING SCANNER",
+		CreatedBy:          int(ctx.Locals("userID").(float64)),
+		CreatedAt:          time.Now(),
+	}
+
+	if err := tx.Create(&destMovement).Error; err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"error":   "Failed to record destination movement",
+		})
+	}
+
 	var oldInventory models.Inventory
 	if err := tx.Where("id = ?", inventoryID).First(&oldInventory).Error; err != nil {
 		tx.Rollback()
@@ -419,6 +513,38 @@ func (c *MobileInventoryController) ConfirmTransferByInventoryID(ctx *fiber.Ctx)
 	if err := tx.Select("qty_origin", "qty_onhand", "qty_available", "updated_at", "updated_by").Updates(&oldInventory).Error; err != nil {
 		tx.Rollback()
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	// Record source inventory movement
+	sourceMovement := models.InventoryMovement{
+		MovementID:         movementID,
+		InventoryID:        oldInventory.ID,
+		RefType:            "TRANSFER",
+		RefID:              0, // Will be updated with destination inventory ID
+		ItemID:             oldInventory.ItemId,
+		ItemCode:           oldInventory.ItemCode,
+		QtyOnhandChange:    -input.QtyTransfer,
+		QtyAvailableChange: -input.QtyTransfer,
+		QtyAllocatedChange: 0,
+		QtySuspendChange:   0,
+		QtyShippedChange:   0,
+		FromWhsCode:        oldInventory.WhsCode,
+		ToWhsCode:          newInventory.WhsCode,
+		FromLocation:       input.FromLocation,
+		ToLocation:         input.ToLocation,
+		OldQaStatus:        oldInventory.QaStatus,
+		NewQaStatus:        newInventory.QaStatus,
+		Reason:             "TRANSFER USING SCANNER",
+		CreatedBy:          int(ctx.Locals("userID").(float64)),
+		CreatedAt:          time.Now(),
+	}
+
+	if err := tx.Create(&sourceMovement).Error; err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"error":   "Failed to record source movement",
+		})
 	}
 
 	if err := tx.Commit().Error; err != nil {

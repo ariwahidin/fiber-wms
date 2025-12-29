@@ -29,9 +29,13 @@ func InsertTransactionHistory(db *gorm.DB, refNo, status, txType, detail string,
 
 type InventoryMovementPayload struct {
 	InventoryID uint
+	MovementID  string
 
 	RefType string
 	RefID   uint
+
+	ItemID   uint
+	ItemCode string
 
 	QtyOnhandChange    float64
 	QtyAvailableChange float64
@@ -57,8 +61,11 @@ func InsertInventoryMovement(
 
 	movement := models.InventoryMovement{
 		InventoryID:        p.InventoryID,
+		MovementID:         p.MovementID,
 		RefType:            p.RefType,
 		RefID:              p.RefID,
+		ItemID:             p.ItemID,
+		ItemCode:           p.ItemCode,
 		QtyOnhandChange:    p.QtyOnhandChange,
 		QtyAvailableChange: p.QtyAvailableChange,
 		QtyAllocatedChange: p.QtyAllocatedChange,

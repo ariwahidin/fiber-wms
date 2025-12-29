@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -509,6 +510,7 @@ func (r *InboundRepository) GenerateInboundNo() (string, error) {
 
 func (r *InboundRepository) ProcessPutawayItem(ctx *fiber.Ctx, inboundBarcodeID int, location string) (bool, error) {
 	userID, ok := ctx.Locals("userID").(float64)
+	movementID := uuid.NewString()
 	if !ok {
 		return false, errors.New("invalid user ID")
 	}
@@ -604,15 +606,18 @@ func (r *InboundRepository) ProcessPutawayItem(ctx *fiber.Ctx, inboundBarcodeID 
 			// ledger
 			helpers.InsertInventoryMovement(tx, helpers.InventoryMovementPayload{
 				InventoryID:        newInv.ID,
+				MovementID:         movementID,
 				RefType:            "INBOUND PUTAWAY",
 				RefID:              uint(barcode.InboundId),
+				ItemID:             product.ID,
+				ItemCode:           product.ItemCode,
 				ToWhsCode:          newInv.WhsCode,
 				QtyOnhandChange:    qtyConverted,
 				QtyAvailableChange: qtyConverted,
 				FromLocation:       barcode.Location,
 				NewQaStatus:        barcode.QaStatus,
 				ToLocation:         location,
-				Reason:             "Inbound receipt",
+				Reason:             detail.InboundNo + " PUTAWAY",
 				CreatedBy:          int(userID),
 			})
 
@@ -631,15 +636,18 @@ func (r *InboundRepository) ProcessPutawayItem(ctx *fiber.Ctx, inboundBarcodeID 
 			// ledger
 			helpers.InsertInventoryMovement(tx, helpers.InventoryMovementPayload{
 				InventoryID:        existingInv.ID,
+				MovementID:         movementID,
 				RefType:            "INBOUND PUTAWAY",
 				RefID:              uint(barcode.InboundId),
+				ItemID:             product.ID,
+				ItemCode:           product.ItemCode,
 				ToWhsCode:          existingInv.WhsCode,
 				QtyOnhandChange:    existingInv.QtyOnhand + qtyConverted,
 				QtyAvailableChange: existingInv.QtyAvailable + qtyConverted,
 				NewQaStatus:        barcode.QaStatus,
 				FromLocation:       barcode.Location,
 				ToLocation:         location,
-				Reason:             "Inbound receipt",
+				Reason:             detail.InboundNo + " PUTAWAY",
 				CreatedBy:          int(userID),
 			})
 		} else {
