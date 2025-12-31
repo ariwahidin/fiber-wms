@@ -148,7 +148,9 @@ func (c *SupplierController) DeleteSupplier(ctx *fiber.Ctx) error {
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Supplier deleted successfully", "data": supplier})
 }
 
-// upload supplier from excel file
+// =========================================================================
+// Begin upload supplier from excel file
+// =========================================================================
 
 type SupplierUploadResult struct {
 	TotalRows     int      `json:"total_rows"`
@@ -345,3 +347,78 @@ func (c *SupplierController) CreateSupplierFromExcel(ctx *fiber.Ctx) error {
 		"data": result,
 	})
 }
+
+// ==========================================================================
+// End Upload Supplier From Excel
+// ==========================================================================
+
+// ==========================================================================
+// Begin Export Supplier To Excel
+// ==========================================================================
+
+func (c *SupplierController) ExportSuppliers(ctx *fiber.Ctx) error {
+	// Parse request body
+	type ExportRequest struct {
+		OwnerCodes []string `json:"owner_codes"`
+	}
+
+	var req ExportRequest
+	if err := ctx.BodyParser(&req); err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "Invalid request body",
+		})
+	}
+
+	// Build query
+	var suppliers []models.Supplier
+	query := c.DB.Model(&models.Supplier{})
+
+	// Filter by owner codes if provided
+	if len(req.OwnerCodes) > 0 {
+		query = query.Where("owner_code IN ?", req.OwnerCodes)
+	}
+
+	if err := query.Order("created_at DESC").Find(&suppliers).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to fetch suppliers",
+			"error":   err.Error(),
+		})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": "Suppliers retrieved successfully",
+		"data":    suppliers,
+	})
+}
+
+// Add this to get unique owner codes for the dropdown
+func (c *SupplierController) GetOwnerCodes(ctx *fiber.Ctx) error {
+	var ownerCodes []string
+
+	if err := c.DB.Model(&models.Supplier{}).
+		Distinct("owner_code").
+		Where("owner_code IS NOT NULL AND owner_code != ''").
+		Order("owner_code ASC").
+		Pluck("owner_code", &ownerCodes).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to fetch owner codes",
+		})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": "Owner codes retrieved successfully",
+		"data":    ownerCodes,
+	})
+}
+
+// supplierGroup.Get("/owner-codes", supplierController.GetOwnerCodes)
+// supplierGroup.Post("/export", supplierController.ExportSuppliers)
+
+//===========================================================================
+// End Export Supplier To Excel
+// ==========================================================================

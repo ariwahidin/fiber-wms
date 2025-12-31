@@ -1997,6 +1997,72 @@ func (c *OutboundController) CreateOutboundFromExcelFile(ctx *fiber.Ctx) error {
 		})
 	}
 
+	// Validate Delivery to is exist
+	var customerTo models.Customer
+	if err := tx.First(&customerTo, "customer_code = ?", headerInfo.DelivTo).Error; err != nil {
+		tx.Rollback()
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ctx.Status(fiber.StatusNotFound).JSON(ExcelOutboundUploadResponse{
+				Success: false,
+				Message: "Delivery to not found: " + headerInfo.DelivTo,
+				Errors: []ExcelRowError{
+					{Row: 1, Message: "Delivery to Not Found", Detail: "Customer code: " + headerInfo.DelivTo},
+				},
+			})
+		}
+		return ctx.Status(fiber.StatusInternalServerError).JSON(ExcelOutboundUploadResponse{
+			Success: false,
+			Message: "Failed to validate delivery to",
+			Errors: []ExcelRowError{
+				{Row: 1, Message: "Database Error", Detail: err.Error()},
+			},
+		})
+	}
+
+	// Validate Transporter is exists
+	var transporter models.Transporter
+	if err := tx.First(&transporter, "transporter_code = ?", headerInfo.TransporterCode).Error; err != nil {
+		tx.Rollback()
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ctx.Status(fiber.StatusNotFound).JSON(ExcelOutboundUploadResponse{
+				Success: false,
+				Message: "Transporter not found: " + headerInfo.TransporterCode,
+				Errors: []ExcelRowError{
+					{Row: 1, Message: "Transporter Not Found", Detail: "Transporter code: " + headerInfo.TransporterCode},
+				},
+			})
+		}
+		return ctx.Status(fiber.StatusInternalServerError).JSON(ExcelOutboundUploadResponse{
+			Success: false,
+			Message: "Failed to validate transporter",
+			Errors: []ExcelRowError{
+				{Row: 1, Message: "Database Error", Detail: err.Error()},
+			},
+		})
+	}
+
+	// Validate Warehouse Code is exists
+	var warehouse models.Warehouse
+	if err := tx.First(&warehouse, "code = ?", headerInfo.WhsCode).Error; err != nil {
+		tx.Rollback()
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ctx.Status(fiber.StatusNotFound).JSON(ExcelOutboundUploadResponse{
+				Success: false,
+				Message: "Warehouse not found: " + headerInfo.WhsCode,
+				Errors: []ExcelRowError{
+					{Row: 1, Message: "Warehouse Not Found", Detail: "Warehouse code: " + headerInfo.WhsCode},
+				},
+			})
+		}
+		return ctx.Status(fiber.StatusInternalServerError).JSON(ExcelOutboundUploadResponse{
+			Success: false,
+			Message: "Failed to validate warehouse",
+			Errors: []ExcelRowError{
+				{Row: 1, Message: "Database Error", Detail: err.Error()},
+			},
+		})
+	}
+
 	// Parse detail rows
 	details, validationErrors := c.parseOutboundDetailsFromExcel(rows, inventoryPolicy)
 	if len(validationErrors) > 0 {
@@ -2069,19 +2135,19 @@ func (c *OutboundController) CreateOutboundFromExcelFile(ctx *fiber.Ctx) error {
 		Status:          "open",
 		RawStatus:       "DRAFT",
 		DraftTime:       time.Now(),
-		TransporterCode: headerInfo.TransporterCode,
+		TransporterCode: transporter.TransporterCode,
 		PickerName:      headerInfo.PickerName,
-		CustAddress:     headerInfo.CustAddress,
-		CustCity:        headerInfo.CustCity,
+		CustAddress:     customer.CustAddr1,
+		CustCity:        customer.CustCity,
 		PlanPickupDate:  headerInfo.PlanPickupDate,
 		PlanPickupTime:  headerInfo.PlanPickupTime,
 		RcvDoDate:       headerInfo.RcvDoDate,
 		RcvDoTime:       headerInfo.RcvDoTime,
 		StartPickTime:   headerInfo.StartPickTime,
 		EndPickTime:     headerInfo.EndPickTime,
-		DelivTo:         headerInfo.DelivTo,
-		DelivAddress:    headerInfo.DelivAddress,
-		DelivCity:       headerInfo.DelivCity,
+		DelivTo:         customerTo.CustomerCode,
+		DelivAddress:    customerTo.CustAddr1,
+		DelivCity:       customerTo.CustCity,
 		Driver:          headerInfo.Driver,
 		// QtyKoli:         headerInfo.QtyKoli,
 		// QtyKoliSeal:     headerInfo.QtyKoliSeal,

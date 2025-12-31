@@ -81,72 +81,28 @@ func (c *TransporterController) UpdateTransporter(ctx *fiber.Ctx) error {
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Transporter updated successfully", "data": transporter})
 }
 
-// func (c *SupplierController) GetSupplierByID(ctx *fiber.Ctx) error {
-// 	id, err := ctx.ParamsInt("id")
-// 	if err != nil {
-// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid ID"})
-// 	}
+// =======================================================================
+// Begin Export Transporter To Excel
+// =======================================================================
 
-// 	var result models.Supplier
-// 	if err := c.DB.First(&result, id).Error; err != nil {
-// 		if errors.Is(err, gorm.ErrRecordNotFound) {
-// 			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Supplier not found"})
-// 		}
-// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-// 	}
+func (c *TransporterController) ExportTransporters(ctx *fiber.Ctx) error {
+	var transporters []models.Transporter
 
-// 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Supplier found", "data": result})
-// }
+	if err := c.DB.Order("transporter_code ASC").Find(&transporters).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to fetch transporters",
+			"error":   err.Error(),
+		})
+	}
 
-// func (c *SupplierController) UpdateSupplier(ctx *fiber.Ctx) error {
-// 	id, err := ctx.ParamsInt("id")
-// 	if err != nil {
-// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid ID"})
-// 	}
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": "Transporters retrieved successfully",
+		"data":    transporters,
+	})
+}
 
-// 	if err := ctx.BodyParser(&supplierInput); err != nil {
-// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
-// 	}
-
-// 	supplier := models.Supplier{
-// 		SupplierCode: supplierInput.SupplierCode,
-// 		SupplierName: supplierInput.SupplierName,
-// 		UpdatedBy:    int(ctx.Locals("userID").(float64)),
-// 	}
-
-// 	// Hanya menyimpan field yang dipilih dengan menggunakan Select
-// 	if err := c.DB.Select("supplier_code", "supplier_name", "updated_by").Where("id = ?", id).Updates(&supplier).Error; err != nil {
-// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-// 	}
-
-// 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Supplier updated successfully", "data": supplier})
-// }
-
-// func (c *SupplierController) DeleteSupplier(ctx *fiber.Ctx) error {
-// 	id, err := ctx.ParamsInt("id")
-// 	if err != nil {
-// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid ID"})
-// 	}
-
-// 	var supplier models.Supplier
-// 	if err := c.DB.First(&supplier, id).Error; err != nil {
-// 		if errors.Is(err, gorm.ErrRecordNotFound) {
-// 			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Supplier not found"})
-// 		}
-// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-// 	}
-
-// 	// Add SupplierID to DeletedBy field
-// 	supplier.DeletedBy = int(ctx.Locals("userID").(float64))
-
-// 	// Hanya menyimpan field yang dipilih dengan menggunakan Select
-// 	if err := c.DB.Select("deleted_by").Where("id = ?", id).Updates(&supplier).Error; err != nil {
-// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-// 	}
-
-// 	if err := c.DB.Delete(&supplier).Error; err != nil {
-// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-// 	}
-
-// 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Supplier deleted successfully", "data": supplier})
-// }
+// ==========================================================================
+// End Export Transporter To Excel
+// ==========================================================================

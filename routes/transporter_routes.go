@@ -14,6 +14,7 @@ func SetupTransporterRoutes(app *fiber.App) {
 	api := app.Group("/api/v1/transporters", middleware.AuthMiddleware)
 	api.Use(database.InjectDBMiddleware(transporterController))
 
+	api.Get("/export", transporterController.ExportTransporters)
 	api.Post("/", transporterController.CreateTransporter)
 	api.Get("/", transporterController.GetAllTransporter)
 	// api.Get("/:id", supplierController.GetSupplierByID)

@@ -16,6 +16,8 @@ func SetupSupplierRoutes(app *fiber.App) {
 	api.Use(database.InjectDBMiddleware(supplierController))
 
 	api.Post("/upload-excel", supplierController.CreateSupplierFromExcel)
+	api.Get("/owner-codes", supplierController.GetOwnerCodes)
+	api.Post("/export", supplierController.ExportSuppliers)
 	api.Post("/", supplierController.CreateSupplier)
 	api.Get("/", supplierController.GetAllSuppliers)
 	api.Get("/:id", supplierController.GetSupplierByID)
