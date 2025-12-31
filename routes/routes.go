@@ -14,4 +14,8 @@ func SetupWarehouseRoutes(app *fiber.App) {
 	api := app.Group(config.MAIN_ROUTES+"/warehouses", middleware.AuthMiddleware)
 	api.Use(database.InjectDBMiddleware(controller))
 	api.Get("/", controller.GetAllWarehouses)
+	api.Get("/:id", controller.GetWarehouseByID)
+	api.Post("/", controller.CreateWarehouse)
+	api.Put("/:id", controller.UpdateWarehouse)
+	api.Delete("/:id", controller.DeleteWarehouse)
 }

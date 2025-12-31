@@ -443,6 +443,15 @@ func (c *ProductController) CreateProductFromExcelFile(ctx *fiber.Ctx) error {
 			continue
 		}
 
+		// Validate owner code exists
+		var ownerModel models.Owner
+		if err := tx.Where("code = ?", ownerCode).First(&ownerModel).Error; err != nil {
+			result.ErrorCount++
+			result.ErrorMessages = append(result.ErrorMessages,
+				fmt.Sprintf("Row %d: Owner code '%s' not found", rowNum, ownerCode))
+			continue
+		}
+
 		// Validate UOM exists
 		var uomModel models.Uom
 		if err := tx.Where("code = ?", uom).First(&uomModel).Error; err != nil {

@@ -16,6 +16,7 @@ type SupplierController struct {
 }
 
 var supplierInput struct {
+	OwnerCode    string `json:"owner_code"`
 	SupplierCode string `json:"supplier_code" gorm:"unique"`
 	SupplierName string `json:"supplier_name" gorm:"unique"`
 	SuppAddr1    string `json:"supp_addr1"`
@@ -34,7 +35,13 @@ func (c *SupplierController) CreateSupplier(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	var owner models.Owner
+	if err := c.DB.First(&owner, "code = ?", supplierInput.OwnerCode).Error; err != nil {
+		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Owner not found"})
+	}
+
 	supplier := models.Supplier{
+		OwnerCode:    supplierInput.OwnerCode,
 		SupplierCode: supplierInput.SupplierCode,
 		SupplierName: supplierInput.SupplierName,
 		SuppAddr1:    supplierInput.SuppAddr1,
@@ -42,7 +49,6 @@ func (c *SupplierController) CreateSupplier(ctx *fiber.Ctx) error {
 		SuppCountry:  supplierInput.SuppCountry,
 		SuppPhone:    supplierInput.SuppPhone,
 		SuppEmail:    supplierInput.SuppEmail,
-		OwnerCode:    "YMID",
 		CreatedBy:    int(ctx.Locals("userID").(float64)),
 	}
 
@@ -89,6 +95,11 @@ func (c *SupplierController) UpdateSupplier(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	var owner models.Owner
+	if err := c.DB.First(&owner, "code = ?", supplierInput.OwnerCode).Error; err != nil {
+		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Owner not found"})
+	}
+
 	supplier := models.Supplier{
 		SupplierCode: supplierInput.SupplierCode,
 		SupplierName: supplierInput.SupplierName,
@@ -97,18 +108,13 @@ func (c *SupplierController) UpdateSupplier(ctx *fiber.Ctx) error {
 		SuppCountry:  supplierInput.SuppCountry,
 		SuppPhone:    supplierInput.SuppPhone,
 		SuppEmail:    supplierInput.SuppEmail,
-		OwnerCode:    "YMID",
+		OwnerCode:    supplierInput.OwnerCode,
 		UpdatedBy:    int(ctx.Locals("userID").(float64)),
 	}
 
 	if err := c.DB.Model(&supplier).Where("id = ?", id).Updates(supplier).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
-
-	// Hanya menyimpan field yang dipilih dengan menggunakan Select
-	// if err := c.DB.Select("supplier_code", "supplier_name", "updated_by").Where("id = ?", id).Updates(&supplier).Error; err != nil {
-	// 	return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-	// }
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Supplier updated successfully", "data": supplier})
 }

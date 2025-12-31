@@ -403,10 +403,23 @@ func Login(ctx *fiber.Ctx) error {
 		})
 	}
 
+	var userRole models.User
+
+	errUserRole := db.
+		Preload("Roles").
+		First(&userRole, mUser.ID).Error
+
+	if errUserRole != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error":   errUserRole.Error(),
+			"message": "Failed to get user",
+		})
+	}
+
 	// Return data user (opsional, jangan kirim password)
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
 		"success": true,
-		"message": "Login successful",
+		"message": "Login successfully",
 		"x_token": accesTokenString,
 		"user": fiber.Map{
 			"id":       mUser.ID,
@@ -415,6 +428,7 @@ func Login(ctx *fiber.Ctx) error {
 			"name":     mUser.Name,
 			"base_url": mUser.BaseRoute,
 			"unit":     config.DBUnit,
+			"roles":    userRole.Roles,
 		},
 		"menus": resultMenu,
 	})

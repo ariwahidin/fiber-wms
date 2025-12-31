@@ -1689,6 +1689,30 @@ func (c *InboundController) CreateInboundFromExcelFile(ctx *fiber.Ctx) error {
 		})
 	}
 
+	// Validate Supplier
+	var supplier models.Supplier
+	if err := c.DB.Where("supplier_code = ?", headerInfo.Supplier).First(&supplier).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(ExcelUploadResponse{
+			Success: false,
+			Message: "Failed to get supplier: " + headerInfo.Supplier,
+			Errors: []ExcelRowError{
+				{Row: 1, Message: "Supplier Error", Detail: err.Error()},
+			},
+		})
+	}
+
+	// Validate Origin
+	var origin models.Origin
+	if err := c.DB.Where("country = ?", headerInfo.Origin).First(&origin).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(ExcelUploadResponse{
+			Success: false,
+			Message: "Failed to get origin: " + headerInfo.Origin,
+			Errors: []ExcelRowError{
+				{Row: 1, Message: "Origin Error", Detail: err.Error()},
+			},
+		})
+	}
+
 	// Parse detail rows (starting from row 2, assuming row 1 is header)
 	details, validationErrors := c.parseDetailsFromExcel(rows, inventoryPolicy)
 	if len(validationErrors) > 0 {
@@ -1767,20 +1791,21 @@ func (c *InboundController) CreateInboundFromExcelFile(ctx *fiber.Ctx) error {
 
 		// Create inbound header
 		inboundHeader := models.InboundHeader{
-			InboundNo:      inboundNo,
-			InboundDate:    headerInfo.InboundDate,
-			ReceiptID:      headerInfo.ReceiptID,
-			Supplier:       headerInfo.Supplier,
-			SupplierId:     int(supplier.ID),
-			Status:         "open",
-			RawStatus:      "DRAFT",
-			DraftTime:      time.Now(),
-			Transporter:    headerInfo.Transporter,
-			NoTruck:        headerInfo.NoTruck,
-			Driver:         headerInfo.Driver,
-			Container:      headerInfo.Container,
-			Remarks:        headerInfo.Remarks,
-			Type:           headerInfo.Type,
+			InboundNo:   inboundNo,
+			InboundDate: headerInfo.InboundDate,
+			ReceiptID:   headerInfo.ReceiptID,
+			Supplier:    headerInfo.Supplier,
+			SupplierId:  int(supplier.ID),
+			Status:      "open",
+			RawStatus:   "DRAFT",
+			DraftTime:   time.Now(),
+			Transporter: headerInfo.Transporter,
+			NoTruck:     headerInfo.NoTruck,
+			Driver:      headerInfo.Driver,
+			Container:   headerInfo.Container,
+			Remarks:     headerInfo.Remarks,
+			// Type:           headerInfo.Type,
+			Type:           "NORMAL",
 			WhsCode:        headerInfo.WhsCode,
 			OwnerCode:      headerInfo.OwnerCode,
 			Origin:         headerInfo.Origin,
@@ -1901,17 +1926,19 @@ func (c *InboundController) CreateInboundFromExcelFile(ctx *fiber.Ctx) error {
 				Barcode:       uomConversion.Ean,
 				Uom:           detail.UOM,
 				Quantity:      detail.Quantity,
+				RcvLocation:   detail.Location,
 				Location:      detail.Location,
 				QaStatus:      detail.QaStatus,
-				WhsCode:       detail.WhsCode,
 				RecDate:       detail.RecDate,
 				ProdDate:      detail.ProdDate,
 				ExpDate:       detail.ExpDate,
 				LotNumber:     detail.LotNumber,
 				IsSerial:      product.HasSerial,
+				SN:            product.HasSerial,
 				RefId:         int(inboundReference.ID),
 				RefNo:         detail.RefNo,
 				OwnerCode:     headerInfo.OwnerCode,
+				WhsCode:       headerInfo.WhsCode,
 				DivisionCode:  detail.Division,
 				CreatedBy:     userID,
 				UpdatedBy:     userID,
@@ -1980,6 +2007,7 @@ func (c *InboundController) parseHeaderFromExcel(rows [][]string) (*ExcelInbound
 		header.Supplier = getCell(rows[1], 2)
 		header.WhsCode = getCell(rows[1], 3)
 		header.OwnerCode = getCell(rows[1], 4)
+		header.Origin = getCell(rows[1], 5)
 		// ... map other fields
 	}
 
@@ -2015,7 +2043,7 @@ func (c *InboundController) parseDetailsFromExcel(rows [][]string, policy models
 		}{Row: rowNum}
 
 		// Parse columns - adjust indices based on your template
-		detail.RefNo = strings.TrimSpace(getCell(row, 5))
+		detail.RefNo = strings.TrimSpace(getCell(row, 0))
 		detail.ItemCode = strings.TrimSpace(getCell(row, 6))
 		detail.UOM = strings.TrimSpace(getCell(row, 7))
 

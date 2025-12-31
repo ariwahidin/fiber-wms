@@ -180,6 +180,7 @@ func main() {
 	// Setup Main Controller 2025-12-28 14:38 (ari.wahidin)
 	mainCtrl := controllers.NewController(unitDB)
 	mainCtrl.SetupRoutes(app)
+	mainCtrl.SetupOwnerRoutes(app)
 
 	// routes.SetupRfInboundRoutes(app, RfInboundController)
 	// routes.SetupOutboundRoutes(app, db)

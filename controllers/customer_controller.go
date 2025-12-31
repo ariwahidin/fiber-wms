@@ -64,7 +64,13 @@ func (c *CustomerController) CreateCustomer(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	var owner models.Owner
+	if err := c.DB.First(&owner, "code = ?", customerInput.OwnerCode).Error; err != nil {
+		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Owner not found"})
+	}
+
 	customer := models.Customer{
+		OwnerCode:    customerInput.OwnerCode,
 		CustomerCode: customerInput.CustomerCode,
 		CustomerName: customerInput.CustomerName,
 		CustAddr1:    customerInput.CustAddr1,
@@ -94,11 +100,17 @@ func (c *CustomerController) UpdateCustomer(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	var owner models.Owner
+	if err := c.DB.First(&owner, "code = ?", customerInput.OwnerCode).Error; err != nil {
+		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Owner not found"})
+	}
+
 	if err := c.DB.Debug().
 		Model(&models.Customer{}).
 		Where("id = ?", id).
 		Updates(map[string]interface{}{
 			// "customer_code": customerInput.CustomerCode,
+			"owner_code":    customerInput.OwnerCode,
 			"customer_name": customerInput.CustomerName,
 			"cust_addr1":    customerInput.CustAddr1,
 			"cust_city":     customerInput.CustCity,
@@ -282,6 +294,7 @@ func (c *CustomerController) CreateCustomerFromExcel(ctx *fiber.Ctx) error {
 		custPhone := strings.TrimSpace(row[6])
 		custCountry := strings.TrimSpace(row[7])
 		custEmail := strings.TrimSpace(row[8])
+		custOwnerCode := strings.ToUpper(strings.TrimSpace(row[9]))
 
 		// Validate required fields
 		if customerCode == "" || customerName == "" {
@@ -307,8 +320,18 @@ func (c *CustomerController) CreateCustomerFromExcel(ctx *fiber.Ctx) error {
 			continue
 		}
 
+		// Validate owner code
+		var owner models.Owner
+		if err := tx.Where("code = ?", custOwnerCode).First(&owner).Error; err != nil {
+			result.ErrorCount++
+			result.ErrorMessages = append(result.ErrorMessages,
+				fmt.Sprintf("Row %d: Invalid owner code '%s'", rowNum, custOwnerCode))
+			continue
+		}
+
 		// Create customer
 		customer := models.Customer{
+			OwnerCode:    owner.Code,
 			CustomerCode: customerCode,
 			CustomerName: customerName,
 			CustAddr1:    custAddr1,
