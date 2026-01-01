@@ -735,6 +735,7 @@ func (c *InboundController) GetInboundByID(ctx *fiber.Ctx) error {
 	if err := c.DB.Debug().
 		Preload("InboundReferences").
 		Preload("Received").
+		Preload("Received.Product").
 		Preload("Details", func(db *gorm.DB) *gorm.DB {
 			return db.Limit(limit).Order("id ASC")
 		}).

@@ -291,14 +291,16 @@ func (c *OutboundController) CreateOutbound(ctx *fiber.Ctx) error {
 
 		var vas models.Vas
 
-		if err := tx.Debug().First(&vas, "id = ?", item.VasID).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				tx.Rollback()
-				return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Vas not found"})
-			}
+		if invetoryPolicy.UseVAS {
+			if err := tx.Debug().First(&vas, "id = ?", item.VasID).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					tx.Rollback()
+					return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Vas not found"})
+				}
 
-			tx.Rollback()
-			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+				tx.Rollback()
+				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+			}
 		}
 
 		var uomConversion models.UomConversion
@@ -653,14 +655,17 @@ func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
 
 		var vas models.Vas
 
-		if err := tx.Debug().First(&vas, "id = ?", item.VasID).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				tx.Rollback()
-				return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Vas not found"})
-			}
+		if invetoryPolicy.UseVAS {
 
-			tx.Rollback()
-			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+			if err := tx.Debug().First(&vas, "id = ?", item.VasID).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					tx.Rollback()
+					return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Vas not found"})
+				}
+
+				tx.Rollback()
+				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+			}
 		}
 
 		var uomConversion models.UomConversion
@@ -1790,6 +1795,25 @@ func (c *OutboundController) GetOutboundVasByID(ctx *fiber.Ctx) error {
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "data": outboundVas})
 }
 
+func (c *OutboundController) GetOutboundBarcodeByOutboundNo(ctx *fiber.Ctx) error {
+	outboundNo := ctx.Params("outbound_no")
+
+	var outboundHeader models.OutboundHeader
+	if err := c.DB.Debug().Where("outbound_no = ?", outboundNo).First(&outboundHeader).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	var outboundBarcodes []models.OutboundBarcode
+	if err := c.DB.Debug().
+		Preload("Product").
+		Where("outbound_id = ?", outboundHeader.ID).
+		Find(&outboundBarcodes).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "data": outboundBarcodes})
+}
+
 //======================================================================
 // BEGIN PROCESS UPLOAD OUTBOUND FROM EXCEL
 //======================================================================
@@ -2201,28 +2225,31 @@ func (c *OutboundController) CreateOutboundFromExcelFile(ctx *fiber.Ctx) error {
 		// Get VAS info if VasID is provided
 		var vas models.Vas
 		vasName := ""
-		if detail.VasID > 0 {
-			if err := tx.First(&vas, "id = ?", detail.VasID).Error; err != nil {
-				if errors.Is(err, gorm.ErrRecordNotFound) {
+
+		if inventoryPolicy.UseVAS {
+			if detail.VasID > 0 {
+				if err := tx.First(&vas, "id = ?", detail.VasID).Error; err != nil {
+					if errors.Is(err, gorm.ErrRecordNotFound) {
+						tx.Rollback()
+						return ctx.Status(fiber.StatusNotFound).JSON(ExcelOutboundUploadResponse{
+							Success: false,
+							Message: "VAS not found",
+							Errors: []ExcelRowError{
+								{Row: detail.Row, Message: "VAS Not Found", Detail: fmt.Sprintf("VAS ID: %d", detail.VasID)},
+							},
+						})
+					}
 					tx.Rollback()
-					return ctx.Status(fiber.StatusNotFound).JSON(ExcelOutboundUploadResponse{
+					return ctx.Status(fiber.StatusInternalServerError).JSON(ExcelOutboundUploadResponse{
 						Success: false,
-						Message: "VAS not found",
+						Message: "Failed to validate VAS",
 						Errors: []ExcelRowError{
-							{Row: detail.Row, Message: "VAS Not Found", Detail: fmt.Sprintf("VAS ID: %d", detail.VasID)},
+							{Row: detail.Row, Message: "Database Error", Detail: err.Error()},
 						},
 					})
 				}
-				tx.Rollback()
-				return ctx.Status(fiber.StatusInternalServerError).JSON(ExcelOutboundUploadResponse{
-					Success: false,
-					Message: "Failed to validate VAS",
-					Errors: []ExcelRowError{
-						{Row: detail.Row, Message: "Database Error", Detail: err.Error()},
-					},
-				})
+				vasName = vas.Name
 			}
-			vasName = vas.Name
 		}
 
 		// Create outbound detail
