@@ -183,10 +183,10 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Inventory not found or not available"})
 		}
 
-		if inventory.QtyAllocated > 0 {
-			tx.Rollback()
-			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Inventory already allocated"})
-		}
+		// if inventory.QtyAllocated > 0 {
+		// 	tx.Rollback()
+		// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Inventory already allocated"})
+		// }
 
 		if inventory.Location != input.FromLocation {
 			tx.Rollback()
