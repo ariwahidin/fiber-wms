@@ -207,8 +207,8 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 		newInventory.Pallet = input.ToLocation
 		newInventory.Location = input.ToLocation
 		newInventory.QaStatus = inventory.QaStatus
-		newInventory.QtyOrigin = inventory.QtyOrigin
-		newInventory.QtyOnhand = inventory.QtyOnhand
+		newInventory.QtyOrigin = inventory.QtyAvailable
+		newInventory.QtyOnhand = inventory.QtyAvailable
 		newInventory.QtyAvailable = inventory.QtyAvailable
 		newInventory.Trans = fmt.Sprintf("transfer from inventory_id : %d", inventory.ID)
 		newInventory.IsTransfer = true
