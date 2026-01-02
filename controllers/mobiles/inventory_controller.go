@@ -155,9 +155,9 @@ func (c *MobileInventoryController) GetItemsByLocationAndBarcode(ctx *fiber.Ctx)
 
 	fmt.Println("Total Allocated : ", totalAllocated)
 
-	if totalAllocated > 0 {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Item already allocated"})
-	}
+	// if totalAllocated > 0 {
+	// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Item already allocated"})
+	// }
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "data": inventories})
 }
@@ -218,15 +218,19 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Inventory not found or not available"})
 		}
 
-		if inventory.QtyAllocated > 0 {
-			tx.Rollback()
-			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Inventory already allocated"})
-		}
+		// if inventory.QtyAllocated > 0 {
+		// 	tx.Rollback()
+		// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Inventory already allocated"})
+		// }
 
 		if inventory.Location != input.FromLocation {
 			tx.Rollback()
 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Inventory not found or not available"})
 		}
+
+		// if inventory.QtyAvailable < input.QtyTransfer {
+
+		// }
 
 		var newInventory models.Inventory
 		newInventory.OwnerCode = inventory.OwnerCode
@@ -241,8 +245,8 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 		newInventory.Pallet = input.ToLocation
 		newInventory.Location = input.ToLocation
 		newInventory.QaStatus = inventory.QaStatus
-		newInventory.QtyOrigin = inventory.QtyOrigin
-		newInventory.QtyOnhand = inventory.QtyOnhand
+		newInventory.QtyOrigin = inventory.QtyAvailable
+		newInventory.QtyOnhand = inventory.QtyAvailable
 		newInventory.QtyAvailable = inventory.QtyAvailable
 		newInventory.Trans = fmt.Sprintf("transfer from inventory_id : %d", inventory.ID)
 		newInventory.IsTransfer = true
@@ -268,7 +272,7 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 			RefID:              inventory.ID,
 			ItemID:             newInventory.ItemId,
 			ItemCode:           newInventory.ItemCode,
-			QtyOnhandChange:    newInventory.QtyOnhand,
+			QtyOnhandChange:    newInventory.QtyAvailable,
 			QtyAvailableChange: newInventory.QtyAvailable,
 			QtyAllocatedChange: 0,
 			QtySuspendChange:   0,
@@ -429,9 +433,14 @@ func (c *MobileInventoryController) ConfirmTransferByInventoryID(ctx *fiber.Ctx)
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Inventory not found or not available"})
 	}
 
-	if inventory.QtyAllocated > 0 {
+	// if inventory.QtyAllocated > 0 {
+	// 	tx.Rollback()
+	// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Inventory already allocated"})
+	// }
+
+	if input.QtyTransfer > inventory.QtyAvailable {
 		tx.Rollback()
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Inventory already allocated"})
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Qty Transfer is greater than available quantity"})
 	}
 
 	var newInventory models.Inventory

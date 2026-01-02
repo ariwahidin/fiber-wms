@@ -14,7 +14,7 @@ func SetupOwnerRoutes(app *fiber.App) {
 	ownerController := &OwnerHandler{}
 	api.Use(database.InjectDBMiddleware(ownerController))
 
-	api.Get("/", ownerController.GetAllOwners)
+	// api.Get("/", ownerController.GetAllOwners)
 	// api.Post("/", ownerController.CreateOwner)
 	// api.Get("/:id", ownerController.GetOwnerByID)
 	// api.Put("/:id", ownerController.UpdateOwner)

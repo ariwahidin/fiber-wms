@@ -61,3 +61,12 @@ type LoginLog struct {
 	SessionID     string     `gorm:"column:session_id;size:100"`
 	CreatedAt     time.Time  `gorm:"column:created_at;autoCreateTime"`
 }
+
+// User Owner
+type UserOwner struct {
+	gorm.Model
+	UserID    uint   `json:"user_id"`
+	Username  string `json:"username"`
+	OwnerID   uint   `json:"owner_id"`
+	OwnerCode string `json:"owner_code"`
+}

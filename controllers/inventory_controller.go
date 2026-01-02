@@ -779,6 +779,10 @@ func (c *InventoryController) TransferInventory(ctx *fiber.Ctx) error {
 
 	var destInventoryID uint
 
+	if input.Pallet == sourceInventory.Pallet {
+		input.Pallet = input.ToLocation
+	}
+
 	if isNewDestination {
 		// Create new destination inventory
 		newInventory := models.Inventory{
