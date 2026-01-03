@@ -89,6 +89,15 @@ func (c *OutboundController) CreateOutbound(ctx *fiber.Ctx) error {
 
 	// return nil
 
+	// Validate shipment id
+	if payload.ShipmentID == "" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "Shipment ID / DO Number is required",
+			"error":   "Shipment ID / DO Number is required",
+		})
+	}
+
 	var InventoryPolicy models.InventoryPolicy
 	if err := c.DB.Where("owner_code = ?", payload.OwnerCode).First(&InventoryPolicy).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
@@ -436,6 +445,15 @@ func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
 
 	if err := ctx.BodyParser(&payload); err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	// Validate shipment id
+	if payload.ShipmentID == "" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "Shipment ID / DO Number is required",
+			"error":   "Shipment ID / DO Number is required",
+		})
 	}
 
 	var InventoryPolicy models.InventoryPolicy
@@ -1172,11 +1190,11 @@ func (c *OutboundController) PickingComplete(ctx *fiber.Ctx) error {
 			QtyAllocatedChange: 0,
 			QtySuspendChange:   0,
 			QtyShippedChange:   0,
-			// FromWhsCode:        input.FromWhsCode,
+			FromWhsCode:        pickingSheet.WhsCode,
 			// ToWhsCode:          input.ToWhsCode,
-			// FromLocation:       input.FromLocation,
+			FromLocation: pickingSheet.Location,
 			// ToLocation:         input.ToLocation,
-			// OldQaStatus:        sourceInventory.QaStatus,
+			OldQaStatus: pickingSheet.QaStatus,
 			// NewQaStatus:        newQaStatus,
 			Reason:    outboundHeader.OutboundNo + " COMPLETE",
 			CreatedBy: int(ctx.Locals("userID").(float64)),

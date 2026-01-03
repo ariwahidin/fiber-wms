@@ -4,7 +4,9 @@ import (
 	"fiber-app/models"
 	"fiber-app/repositories"
 	"fmt"
+	"math"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/go-playground/validator"
@@ -938,4 +940,314 @@ func (c *InventoryController) TransferInventory(ctx *fiber.Ctx) error {
 
 //===================================================================
 // END INTERNAL TRANSFER
+//===================================================================
+
+//===================================================================
+// BEGIN GET INVENTORY GROUPED
+//===================================================================
+
+// GetAllInventoryAvailableGrouped returns inventory grouped by location
+func (c *InventoryController) GetAllInventoryAvailableGrouped(ctx *fiber.Ctx) error {
+	type InventoryGrouped struct {
+		Location          string  `json:"location"`
+		ItemCode          string  `json:"item_code"`
+		ItemName          string  `json:"item_name"`
+		Barcode           string  `json:"barcode"`
+		Category          string  `json:"category"`
+		Group             string  `json:"group"`
+		QaStatus          string  `json:"qa_status"`
+		Uom               string  `json:"uom"`
+		TotalQtyAvailable float64 `json:"total_qty_available"`
+		TotalQtyOnhand    float64 `json:"total_qty_onhand"`
+		TotalQtyAllocated float64 `json:"total_qty_allocated"`
+		InventoryCount    int     `json:"inventory_count"`
+	}
+
+	// Get query parameters for filtering
+	location := ctx.Query("location")
+	category := ctx.Query("category")
+	group := ctx.Query("group")
+	qaStatus := ctx.Query("qa_status")
+	search := ctx.Query("search")
+
+	// Build query
+	query := c.DB.Table("inventories").
+		Select(`
+			inventories.location,
+			inventories.item_code,
+			products.item_name as item_name,
+			inventories.barcode,
+			products.category,
+			products.[group],
+			inventories.qa_status,
+			inventories.uom,
+			SUM(inventories.qty_available) as total_qty_available,
+			SUM(inventories.qty_onhand) as total_qty_onhand,
+			SUM(inventories.qty_allocated) as total_qty_allocated,
+			COUNT(*) as inventory_count
+		`).
+		Joins("LEFT JOIN products ON inventories.item_id = products.id").
+		Where("inventories.deleted_at IS NULL").
+		Where("inventories.qty_onhand > ?", 0)
+
+	// Apply filters
+	if location != "" {
+		query = query.Where("inventories.location = ?", location)
+	}
+	if category != "" {
+		query = query.Where("products.category = ?", category)
+	}
+	if group != "" {
+		query = query.Where("products.[group] = ?", group)
+	}
+	if qaStatus != "" {
+		query = query.Where("inventories.qa_status = ?", qaStatus)
+	}
+	if search != "" {
+		query = query.Where(
+			"inventories.item_code LIKE ? OR products.item_name LIKE ? OR inventories.barcode LIKE ?",
+			"%"+search+"%", "%"+search+"%", "%"+search+"%",
+		)
+	}
+
+	var inventories []InventoryGrouped
+	result := query.
+		Group("inventories.location, inventories.item_code, inventories.barcode, inventories.qa_status, inventories.uom, products.item_name, products.category, products.[group]").
+		Order("inventories.location ASC, inventories.item_code ASC").
+		Find(&inventories)
+
+	if result.Error != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to retrieve inventory",
+			"error":   result.Error.Error(),
+		})
+	}
+
+	// Get filter options for frontend
+	var locations []string
+	c.DB.Table("inventories").
+		Where("deleted_at IS NULL AND qty_onhand > 0").
+		Distinct("location").
+		Order("location ASC").
+		Pluck("location", &locations)
+
+	var categories []string
+	c.DB.Table("products").
+		Where("deleted_at IS NULL").
+		Distinct("category").
+		Order("category ASC").
+		Pluck("category", &categories)
+
+	var groups []string
+	c.DB.Table("products").
+		Where("deleted_at IS NULL").
+		Distinct("[group]").
+		Order("[group] ASC").
+		Pluck("[group]", &groups)
+
+	qaStatuses := []string{"A", "R", "Q"}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": "Inventory retrieved successfully",
+		"data":    inventories,
+		"total":   len(inventories),
+		"filters": fiber.Map{
+			"locations":   locations,
+			"categories":  categories,
+			"groups":      groups,
+			"qa_statuses": qaStatuses,
+		},
+	})
+}
+
+//===================================================================
+// END GET INVENTORY GROUPED
+//===================================================================
+
+//===================================================================
+// BEGIN GET INVENTORY MOVEMENT
+//===================================================================
+
+// GetInventoryMovements returns paginated inventory movements with filters
+func (c *InventoryController) GetInventoryMovements(ctx *fiber.Ctx) error {
+	type InventoryMovementResponse struct {
+		ID         uint   `json:"id"`
+		MovementID string `json:"movement_id"`
+		ItemCode   string `json:"item_code"`
+		ItemName   string `json:"item_name"`
+		RefType    string `json:"ref_type"`
+		RefID      uint   `json:"ref_id"`
+
+		QtyOnhandChange    float64 `json:"qty_onhand_change"`
+		QtyAvailableChange float64 `json:"qty_available_change"`
+		QtyAllocatedChange float64 `json:"qty_allocated_change"`
+		QtySuspendChange   float64 `json:"qty_suspend_change"`
+		QtyShippedChange   float64 `json:"qty_shipped_change"`
+
+		FromWhsCode  string `json:"from_whs_code"`
+		ToWhsCode    string `json:"to_whs_code"`
+		FromLocation string `json:"from_location"`
+		ToLocation   string `json:"to_location"`
+		OldQaStatus  string `json:"old_qa_status"`
+		NewQaStatus  string `json:"new_qa_status"`
+
+		Reason    string    `json:"reason"`
+		CreatedBy int       `json:"created_by"`
+		CreatedAt time.Time `json:"created_at"`
+	}
+
+	// Pagination parameters
+	page, _ := strconv.Atoi(ctx.Query("page", "1"))
+	pageSize, _ := strconv.Atoi(ctx.Query("page_size", "50"))
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 10 || pageSize > 100 {
+		pageSize = 50
+	}
+	offset := (page - 1) * pageSize
+
+	// Filter parameters
+	refType := ctx.Query("ref_type")
+	itemCode := ctx.Query("item_code")
+	location := ctx.Query("location")
+	whsCode := ctx.Query("whs_code")
+	qaStatus := ctx.Query("qa_status")
+	search := ctx.Query("search")
+	dateFrom := ctx.Query("date_from")
+	dateTo := ctx.Query("date_to")
+
+	// Build query
+	query := c.DB.Table("inventory_movements").
+		Select(`
+			inventory_movements.id,
+			inventory_movements.movement_id,
+			inventory_movements.item_code,
+			products.item_name,
+			inventory_movements.ref_type,
+			inventory_movements.ref_id,
+			inventory_movements.qty_onhand_change,
+			inventory_movements.qty_available_change,
+			inventory_movements.qty_allocated_change,
+			inventory_movements.qty_suspend_change,
+			inventory_movements.qty_shipped_change,
+			inventory_movements.from_whs_code,
+			inventory_movements.to_whs_code,
+			inventory_movements.from_location,
+			inventory_movements.to_location,
+			inventory_movements.old_qa_status,
+			inventory_movements.new_qa_status,
+			inventory_movements.reason,
+			inventory_movements.created_by,
+			inventory_movements.created_at
+		`).
+		Joins("LEFT JOIN products ON inventory_movements.item_id = products.id")
+
+	// Apply filters
+	if refType != "" {
+		query = query.Where("inventory_movements.ref_type = ?", refType)
+	}
+	if itemCode != "" {
+		query = query.Where("inventory_movements.item_code = ?", itemCode)
+	}
+	if location != "" {
+		query = query.Where(
+			"inventory_movements.from_location = ? OR inventory_movements.to_location = ?",
+			location, location,
+		)
+	}
+	if whsCode != "" {
+		query = query.Where(
+			"inventory_movements.from_whs_code = ? OR inventory_movements.to_whs_code = ?",
+			whsCode, whsCode,
+		)
+	}
+	if qaStatus != "" {
+		query = query.Where(
+			"inventory_movements.old_qa_status = ? OR inventory_movements.new_qa_status = ?",
+			qaStatus, qaStatus,
+		)
+	}
+	if search != "" {
+		query = query.Where(
+			"inventory_movements.movement_id LIKE ? OR inventory_movements.item_code LIKE ? OR products.item_name LIKE ?",
+			"%"+search+"%", "%"+search+"%", "%"+search+"%",
+		)
+	}
+	if dateFrom != "" {
+		query = query.Where("inventory_movements.created_at >= ?", dateFrom)
+	}
+	if dateTo != "" {
+		query = query.Where("inventory_movements.created_at <= ?", dateTo+" 23:59:59")
+	}
+
+	// Count total records (for pagination)
+	var totalRecords int64
+	countQuery := query
+	countQuery.Count(&totalRecords)
+
+	// Get paginated data
+	var movements []InventoryMovementResponse
+	result := query.
+		Order("inventory_movements.created_at DESC").
+		Limit(pageSize).
+		Offset(offset).
+		Find(&movements)
+
+	if result.Error != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to retrieve inventory movements",
+			"error":   result.Error.Error(),
+		})
+	}
+
+	// Get filter options
+	var refTypes []string
+	c.DB.Table("inventory_movements").
+		Distinct("ref_type").
+		Order("ref_type ASC").
+		Pluck("ref_type", &refTypes)
+
+	var locations []string
+	c.DB.Table("inventory_movements").
+		Select("DISTINCT COALESCE(from_location, to_location) as location").
+		Where("COALESCE(from_location, to_location) != ''").
+		Order("location ASC").
+		Pluck("location", &locations)
+
+	var whsCodes []string
+	c.DB.Table("inventory_movements").
+		Select("DISTINCT COALESCE(from_whs_code, to_whs_code) as whs_code").
+		Where("COALESCE(from_whs_code, to_whs_code) != ''").
+		Order("whs_code ASC").
+		Pluck("whs_code", &whsCodes)
+
+	qaStatuses := []string{"A", "R", "Q"}
+
+	totalPages := int(math.Ceil(float64(totalRecords) / float64(pageSize)))
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": "Inventory movements retrieved successfully",
+		"data":    movements,
+		"pagination": fiber.Map{
+			"page":          page,
+			"page_size":     pageSize,
+			"total_records": totalRecords,
+			"total_pages":   totalPages,
+		},
+		"filters": fiber.Map{
+			"ref_types":   refTypes,
+			"locations":   locations,
+			"whs_codes":   whsCodes,
+			"qa_statuses": qaStatuses,
+		},
+	})
+}
+
+//===================================================================
+// END GET INVENTORY MOVEMENT
 //===================================================================

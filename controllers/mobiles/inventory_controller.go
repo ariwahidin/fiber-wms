@@ -318,7 +318,7 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 			MovementID:         movementID,
 			InventoryID:        oldInventory.ID,
 			RefType:            "TRANSFER",
-			RefID:              0, // Will be updated with destination inventory ID
+			RefID:              newInventory.ID,
 			ItemID:             oldInventory.ItemId,
 			ItemCode:           oldInventory.ItemCode,
 			QtyOnhandChange:    -inventory.QtyAvailable,
@@ -529,7 +529,7 @@ func (c *MobileInventoryController) ConfirmTransferByInventoryID(ctx *fiber.Ctx)
 		MovementID:         movementID,
 		InventoryID:        oldInventory.ID,
 		RefType:            "TRANSFER",
-		RefID:              0, // Will be updated with destination inventory ID
+		RefID:              newInventory.ID,
 		ItemID:             oldInventory.ItemId,
 		ItemCode:           oldInventory.ItemCode,
 		QtyOnhandChange:    -input.QtyTransfer,
