@@ -689,7 +689,7 @@ func (r *OutboundRepository) GetOutboundItemByID(outbound_id int) ([]OutboundIte
 						a.barcode,
 						a.uom
 				FROM outbound_details a
-				WHERE a.outbound_id = 630
+				WHERE a.outbound_id = ?
 				GROUP BY a.outbound_id, a.item_id, a.id, a.[status], 
 				a.outbound_no, a.barcode, a.uom, a.item_code
 			),
@@ -773,7 +773,7 @@ func (r *OutboundRepository) GetOutboundItemByID(outbound_id int) ([]OutboundIte
 	//     AND od.outbound_detail_id = kd.outbound_detail_id
 	// WHERE od.outbound_id = ?`
 
-	if err := r.db.Debug().Raw(sql, outbound_id, outbound_id, outbound_id).Scan(&outboundItems).Error; err != nil {
+	if err := r.db.Debug().Raw(sql, outbound_id, outbound_id, outbound_id, outbound_id).Scan(&outboundItems).Error; err != nil {
 		return nil, err
 	}
 

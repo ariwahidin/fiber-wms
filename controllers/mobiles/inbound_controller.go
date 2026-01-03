@@ -214,15 +214,18 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 	queryInboundDetail := tx.Debug().Model(&models.InboundDetail{}).
 		Where("inbound_no = ? AND item_code = ?", scanInbound.InboundNo, product.ItemCode)
 
-	// kalau pakai FEFO, berarti exp_date dan lot_no wajib ikut
-	if inventoryPolicy.UseFEFO && inventoryPolicy.UseLotNo {
-		queryInboundDetail = queryInboundDetail.Where("exp_date = ? AND lot_number = ? AND quantity = ? ", scanInbound.ExpDate, scanInbound.LotNo, scanInbound.QtyScan)
+	if inventoryPolicy.UseLotNo && inventoryPolicy.RequireExpiryDate {
+		// kalau pakai lot number dan exp date
+		queryInboundDetail = queryInboundDetail.Where("lot_number = ? AND exp_date = ?", scanInbound.LotNo, scanInbound.ExpDate)
+	} else if inventoryPolicy.UseLotNo {
+		// kalau hanya pakai lot number
+		queryInboundDetail = queryInboundDetail.Where("lot_number = ? ", scanInbound.LotNo)
 	} else if inventoryPolicy.UseProductionDate {
 		// kalau hanya production date-based
 		queryInboundDetail = queryInboundDetail.Where("prod_date = ?", scanInbound.ProdDate)
-	} else if inventoryPolicy.UseLotNo {
-		// kalau hanya LOT-based
-		queryInboundDetail = queryInboundDetail.Where("lot_number = ? AND quantity = ?", scanInbound.LotNo, scanInbound.QtyScan)
+	} else if inventoryPolicy.RequireExpiryDate {
+		// kalau hanya exp date-based
+		queryInboundDetail = queryInboundDetail.Where("exp_date = ?", scanInbound.ExpDate)
 	}
 
 	var inboundDetail models.InboundDetail

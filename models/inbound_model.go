@@ -68,7 +68,7 @@ type InboundDetail struct {
 	gorm.Model
 	OwnerCode     string  `json:"owner_code" required:"required"`
 	WhsCode       string  `json:"whs_code" required:"required"`
-	DivisionCode  string  `json:"division_code" required:"required"`
+	DivisionCode  string  `json:"division_code" required:"required" gorm:"default:REGULAR"`
 	InboundId     int     `json:"inbound_id" gorm:"default:null"`
 	InboundNo     string  `json:"inbound_no"`
 	ItemId        uint    `json:"item_id" required:"required"`

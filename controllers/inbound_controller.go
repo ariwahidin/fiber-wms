@@ -170,7 +170,7 @@ func (c *InboundController) CreateInbound(ctx *fiber.Ctx) error {
 			}
 		}
 
-		if InventoryPolicy.UseFEFO {
+		if InventoryPolicy.RequireExpiryDate {
 			if item.ExpDate == "" {
 				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 					"success": false,
@@ -385,7 +385,7 @@ func (c *InboundController) CreateInbound(ctx *fiber.Ctx) error {
 		InboundDetail.RefNo = item.RefNo
 		InboundDetail.OwnerCode = payload.OwnerCode
 		InboundDetail.WhsCode = payload.WhsCode
-		InboundDetail.DivisionCode = item.Division
+		// InboundDetail.DivisionCode = item.Division
 		InboundDetail.CreatedBy = userID
 		InboundDetail.UpdatedBy = userID
 
@@ -481,7 +481,7 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 			}
 		}
 
-		if InventoryPolicy.UseFEFO {
+		if InventoryPolicy.RequireExpiryDate {
 			if item.ExpDate == "" {
 				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 					"success": false,
@@ -651,9 +651,9 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 					RefNo:         item.RefNo,
 					RefId:         item.RefId,
 					OwnerCode:     InboundHeader.OwnerCode,
-					DivisionCode:  item.Division,
-					QaStatus:      item.QaStatus,
-					CreatedBy:     int(ctx.Locals("userID").(float64)),
+					// DivisionCode:  item.Division,
+					QaStatus:  item.QaStatus,
+					CreatedBy: int(ctx.Locals("userID").(float64)),
 				}
 				if err := c.DB.Create(&newDetail).Error; err != nil {
 					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
@@ -675,7 +675,7 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 				inboundDetail.RefNo = item.RefNo
 				inboundDetail.RefId = item.RefId
 				inboundDetail.OwnerCode = InboundHeader.OwnerCode
-				inboundDetail.DivisionCode = item.Division
+				// inboundDetail.DivisionCode = item.Division
 				inboundDetail.QaStatus = item.QaStatus
 				inboundDetail.UpdatedBy = int(ctx.Locals("userID").(float64))
 

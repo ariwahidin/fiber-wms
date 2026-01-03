@@ -913,13 +913,31 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 		fmt.Println("Picking Query")
 
 		queryInventory := tx.Debug().
-			Where("item_id = ? AND whs_code = ? AND qty_available > 0 AND uom = ? AND owner_code = ?",
-				outboundDetail.ItemID, outboundDetail.WhsCode, uomConversion.ToUom, outboundHeader.OwnerCode)
+			Where("item_id = ? AND whs_code = ? AND qty_available > 0 AND uom = ? AND owner_code = ? AND qa_status = ?",
+				outboundDetail.ItemID, outboundDetail.WhsCode, uomConversion.ToUom, outboundHeader.OwnerCode, outboundDetail.QaStatus)
 
-		if invetoryPolicy.UseFEFO && invetoryPolicy.UseLotNo && invetoryPolicy.RequireLotNumber {
-			queryInventory = queryInventory.Where("lot_number = ?", outboundDetail.LotNumber).
-				Order("rec_date, pallet, location ASC")
-		} else if invetoryPolicy.UseFEFO {
+		if invetoryPolicy.RequireLotNumber {
+			if outboundDetail.LotNumber == "" {
+				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+					"success": false,
+					"message": "Lot number is required",
+					"error":   "Lot number is required",
+				})
+			}
+			queryInventory = queryInventory.Where("lot_number = ?", outboundDetail.LotNumber)
+		}
+
+		if invetoryPolicy.UseLotNo && !invetoryPolicy.AllowMixedLot {
+			queryInventory = queryInventory.
+				Where("qty_available >= ?", qtyReq).
+				Limit(1)
+		}
+
+		if invetoryPolicy.UseFEFO {
+			queryInventory = queryInventory.Order("exp_date, rec_date, qty_available, pallet, location ASC")
+		} else if invetoryPolicy.UseLotNo {
+			queryInventory = queryInventory.Order("lot_number, exp_date, rec_date, qty_available, pallet, location ASC")
+		} else if invetoryPolicy.RequireExpiryDate {
 			queryInventory = queryInventory.Order("exp_date, rec_date, qty_available, pallet, location ASC")
 		} else {
 			queryInventory = queryInventory.Order("rec_date, qty_available, pallet, location ASC")
@@ -951,21 +969,20 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 		// 	return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		// }
 
+		if len(inventories) == 0 && invetoryPolicy.UseLotNo && !invetoryPolicy.AllowMixedLot {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Insufficient stock available for item " + outboundDetail.ItemCode + " and AllowMixedLot is false"})
+		}
+
+		if len(inventories) == 0 && invetoryPolicy.UseLotNo && outboundDetail.LotNumber != "" {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Insufficient stock available for item " + outboundDetail.ItemCode + " in lot number " + outboundDetail.LotNumber})
+		}
+
 		if len(inventories) == 0 {
 			tx.Rollback()
-			// return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			// 	"error": "Item " + outboundDetail.ItemCode + " not found",
-			// })
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-				"error": fmt.Sprintf(
-					"Failed to fetch inventory for ItemCode: %s (ItemID: %d, Whs: %s, UOM: %s, Owner: %s). Detail: %s",
-					outboundDetail.ItemCode,
-					outboundDetail.ItemID,
-					outboundDetail.WhsCode,
-					uomConversion.ToUom,
-					outboundHeader.OwnerCode,
-					"Insufficient stock available",
-				),
+				"error": "Insufficient stock available",
 			})
 		}
 
@@ -1041,6 +1058,13 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 
 			qtyReq -= qtyPick
 
+		}
+
+		if qtyReq > 0 && invetoryPolicy.UseLotNo && invetoryPolicy.RequireLotNumber && outboundDetail.LotNumber != "" {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": "Insufficient stock for item " + outboundDetail.ItemCode + " in lot number " + outboundDetail.LotNumber,
+			})
 		}
 
 		if qtyReq > 0 {
