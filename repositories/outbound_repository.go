@@ -932,76 +932,85 @@ type PackingItem struct {
 	CustomerName    string    `json:"customer_name"`
 	DelivToName     string    `json:"deliv_to_name"`
 	TransporterCode string    `json:"transporter_code"`
+	UomScan         string    `json:"uom_scan"`
+	QtyScan         int       `json:"qty_scan"`
+	BarcodeScan     string    `json:"barcode_scan"`
 }
 
 func (r *OutboundRepository) GetPackingItems(outboundID int, packingNo string) ([]PackingItem, error) {
 	var result []PackingItem
 
 	sql := `
-	SELECT
-		a.packing_no,
-		c.created_at as packing_date,
-		e.cust_address,
-		e.cust_city,
-		e.deliv_to,
-		e.deliv_address,
-		e.deliv_city,
-		e.qty_koli,
-		e.qty_koli_seal,
-		e.remarks,
-		e.picker_name,
-		e.plan_pickup_date,
-		e.plan_pickup_time,
-		a.item_id, 
-		a.item_code, 
-		sum(a.quantity) as quantity, 
-		b.barcode, 
-		b.item_name, 
-		b.cbm, 
-		a.serial_number,
-		e.outbound_no, 
-		e.customer_code, 
-		e.outbound_date, 
-		e.shipment_id,
-		f.customer_name,
-		g.customer_name as deliv_to_name,
-		h.transporter_code
-	FROM outbound_barcodes a
-	INNER JOIN products b ON a.item_id = b.id
-	INNER JOIN outbound_packings c ON a.packing_id = c.id
-	INNER JOIN outbound_headers e ON a.outbound_id = e.id
-	INNER JOIN customers f ON e.customer_code = f.customer_code
-	INNER JOIN customers g ON e.deliv_to = g.customer_code
-	LEFT JOIN transporters h ON e.transporter_code = h.transporter_code
-	WHERE a.outbound_id = ? AND a.packing_no = ?
-	GROUP BY 
-		a.item_id, 
-		a.item_code,
-		b.barcode, 
-		b.item_name, 
-		b.cbm,
-		e.outbound_no, 
-		e.customer_code, 
-		f.customer_name, 
-		e.outbound_date, 
-		e.shipment_id,
-		e.cust_address,
-		e.cust_city,
-		e.deliv_to,
-		e.deliv_address,
-		e.deliv_city,
-		e.qty_koli,
-		e.qty_koli_seal,
-		e.remarks,
-		e.picker_name,
-		e.plan_pickup_date,
-		e.plan_pickup_time,
-		g.customer_name,
-		h.transporter_code,
-		a.serial_number,
-		a.packing_no,
-		c.created_at
-	ORDER BY a.item_code ASC
+ SELECT         
+				a.packing_no,
+                c.created_at as packing_date,
+                e.cust_address,
+                e.cust_city,
+                e.deliv_to,
+                e.deliv_address,
+                e.deliv_city,
+                e.qty_koli,
+                e.qty_koli_seal,
+                e.remarks,
+                e.picker_name,
+                e.plan_pickup_date,
+                e.plan_pickup_time,
+                a.item_id,
+                a.item_code,
+                sum(a.quantity) as quantity,
+                b.barcode,
+                b.item_name,
+                b.cbm,
+                a.serial_number,
+                e.outbound_no,
+                e.customer_code,
+                e.outbound_date,
+                e.shipment_id,
+                f.customer_name,
+                g.customer_name as deliv_to_name,
+                h.transporter_code,
+				a.uom_scan,
+				a.qty_data_scan as qty_scan,
+				a.barcode_data_scan as barcode_scan
+        FROM outbound_barcodes a
+        INNER JOIN products b ON a.item_id = b.id
+        INNER JOIN outbound_packings c ON a.packing_id = c.id
+        INNER JOIN outbound_headers e ON a.outbound_id = e.id
+        INNER JOIN customers f ON e.customer_code = f.customer_code
+        INNER JOIN customers g ON e.deliv_to = g.customer_code
+        LEFT JOIN transporters h ON e.transporter_code = h.transporter_code
+        WHERE a.outbound_id = ? AND a.packing_no = ?
+        GROUP BY
+                a.item_id,
+                a.item_code,
+                b.barcode,
+                b.item_name,
+                b.cbm,
+                e.outbound_no,
+                e.customer_code,
+                f.customer_name,
+                e.outbound_date,
+                e.shipment_id,
+                e.cust_address,
+                e.cust_city,
+                e.deliv_to,
+                e.deliv_address,
+                e.deliv_city,
+                e.qty_koli,
+                e.qty_koli_seal,
+                e.remarks,
+                e.picker_name,
+                e.plan_pickup_date,
+                e.plan_pickup_time,
+                g.customer_name,
+                h.transporter_code,
+                a.serial_number,
+                a.packing_no,
+                c.created_at,
+				a.uom_scan,
+				a.qty_data_scan,
+				a.barcode_data_scan
+        ORDER BY a.item_code ASC
 	`
 
 	if err := r.db.Debug().Raw(sql, outboundID, packingNo).Scan(&result).Error; err != nil {

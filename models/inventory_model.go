@@ -73,6 +73,7 @@ type InventoryPolicy struct {
 	AllowNegativeStock      bool   `gorm:"default:false" json:"allow_negative_stock"`
 	ValidationSN            bool   `gorm:"default:false" json:"validation_sn"`
 	RequirePickingScan      bool   `gorm:"default:false" json:"require_picking_scan"`
+	RequirePackingScan      bool   `gorm:"default:false" json:"require_packing_scan"`
 	CreatedBy               int
 	UpdatedBy               int
 	DeletedBy               int

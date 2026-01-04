@@ -1717,7 +1717,7 @@ func (c *OutboundController) CreatePacking(ctx *fiber.Ctx) error {
 	var packing models.OutboundPacking
 	packing.PackingNo = packingNo
 	packing.CreatedAt = time.Now()
-	packing.CreatedBy = 1
+	packing.CreatedBy = int(ctx.Locals("userID").(float64))
 	if err := tx.Create(&packing).Error; err != nil {
 		tx.Rollback()
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
@@ -1739,7 +1739,7 @@ func (c *OutboundController) CreatePacking(ctx *fiber.Ctx) error {
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
 		"success": true,
-		"message": "Packcing created successfully",
+		"message": "Packing created successfully",
 		"data":    packing,
 	})
 }

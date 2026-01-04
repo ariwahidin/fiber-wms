@@ -283,12 +283,34 @@ func (c *MobileOutboundController) ScanPicking(ctx *fiber.Ctx) error {
 		}
 	}
 
+	var packings []models.OutboundPacking
 	var packing models.OutboundPacking
 
-	if scanOutbound.PackingNo != "" {
-		if err := c.DB.Debug().Where("packing_no = ?", scanOutbound.PackingNo).First(&packing).Error; err != nil {
-			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Packing No not found", "message": "Packing No not found"})
+	if inventoryPolicy.RequirePackingScan {
+		if scanOutbound.PackingNo != "" {
+
+			if err := c.DB.Debug().Where("packing_no = ?", scanOutbound.PackingNo).Find(&packings).Error; err != nil {
+				return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Packing No not found", "message": "Packing No not found"})
+			}
+
+			if len(packings) == 0 {
+				packing.PackingNo = scanOutbound.PackingNo
+				packing.CreatedAt = time.Now()
+				packing.CreatedBy = int(ctx.Locals("userID").(float64))
+				if err := c.DB.Create(&packing).Error; err != nil {
+					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+						"success": false,
+						"message": "Failed to create packing",
+						"error":   err.Error(),
+					})
+				}
+			} else {
+				packing = packings[0]
+			}
+		} else {
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Packing number is required"})
 		}
+
 	}
 
 	var uomConversion models.UomConversion
