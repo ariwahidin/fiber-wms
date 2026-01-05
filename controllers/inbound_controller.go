@@ -2064,9 +2064,12 @@ func (c *InboundController) parseDetailsFromExcel(rows [][]string, policy models
 
 		detail.Location = strings.TrimSpace(getCell(row, 9))
 		detail.QaStatus = strings.TrimSpace(getCell(row, 10))
-		detail.RecDate = strings.TrimSpace(getCell(row, 11))
-		detail.ProdDate = strings.TrimSpace(getCell(row, 12))
-		detail.ExpDate = strings.TrimSpace(getCell(row, 13))
+		// detail.RecDate = strings.TrimSpace(getCell(row, 11))
+		// detail.ProdDate = strings.TrimSpace(getCell(row, 12))
+		// detail.ExpDate = strings.TrimSpace(getCell(row, 13))
+		detail.RecDate = getCellAsDate(row, 11)
+		detail.ProdDate = getCellAsDate(row, 12)
+		detail.ExpDate = getCellAsDate(row, 13)
 		detail.LotNumber = strings.TrimSpace(getCell(row, 14))
 		detail.Division = strings.TrimSpace(getCell(row, 15))
 
@@ -2202,6 +2205,84 @@ func getCell(row []string, index int) string {
 		return strings.TrimSpace(row[index])
 	}
 	return ""
+}
+
+// func getDateCell(f *excelize.File, sheet string, axis string) string {
+//     cellValue, err := f.GetCellValue(sheet, axis)
+//     if err != nil || cellValue == "" {
+//         return ""
+//     }
+
+//     // Coba parse sebagai angka (Excel serial date)
+//     if days, err := strconv.ParseFloat(cellValue, 64); err == nil {
+//         // Excel menyimpan date sebagai angka sejak 1 Jan 1900
+//         // Tapi ada bug di Excel, jadi pakai 30 Dec 1899
+//         excelEpoch := time.Date(1899, 12, 30, 0, 0, 0, 0, time.UTC)
+//         date := excelEpoch.Add(time.Duration(days * 24 * float64(time.Hour)))
+//         return date.Format("2006-01-02")
+//     }
+
+//     // Jika bukan angka, coba parse sebagai string date
+//     dateFormats := []string{
+//         "2006-01-02",
+//         "02/01/2006",
+//         "01/02/2006",
+//         "2/1/2006",
+//         "1/2/2006",
+//         "2006/01/02",
+//         "02-01-2006",
+//         "01-02-2006",
+//         "2-Jan-06",
+//         "2-January-2006",
+//     }
+
+//     for _, format := range dateFormats {
+//         if t, err := time.Parse(format, cellValue); err == nil {
+//             return t.Format("2006-01-02")
+//         }
+//     }
+
+//     // Kalau semua gagal, return string original
+//     return cellValue
+// }
+
+// Tambahkan fungsi baru untuk parse date
+func getCellAsDate(row []string, index int) string {
+	cellValue := strings.TrimSpace(getCell(row, index))
+	if cellValue == "" {
+		return ""
+	}
+
+	// Coba parse sebagai angka (Excel serial date)
+	if days, err := strconv.ParseFloat(cellValue, 64); err == nil {
+		// Excel epoch: 30 Dec 1899
+		excelEpoch := time.Date(1899, 12, 30, 0, 0, 0, 0, time.UTC)
+		date := excelEpoch.Add(time.Duration(days * 24 * float64(time.Hour)))
+		return date.Format("2006-01-02")
+	}
+
+	// Jika bukan angka, coba parse sebagai string date
+	dateFormats := []string{
+		"2006-01-02",
+		"02/01/2006",
+		"01/02/2006",
+		"2/1/2006",
+		"1/2/2006",
+		"2006/01/02",
+		"02-01-2006",
+		"01-02-2006",
+		"2-Jan-06",
+		"2-January-2006",
+	}
+
+	for _, format := range dateFormats {
+		if t, err := time.Parse(format, cellValue); err == nil {
+			return t.Format("2006-01-02")
+		}
+	}
+
+	// Return original kalau gagal
+	return cellValue
 }
 
 // =======================================
