@@ -935,13 +935,14 @@ type PackingItem struct {
 	UomScan         string    `json:"uom_scan"`
 	QtyScan         int       `json:"qty_scan"`
 	BarcodeScan     string    `json:"barcode_scan"`
+	PackCtnNo       string    `json:"pack_ctn_no"`
 }
 
-func (r *OutboundRepository) GetPackingItems(outboundID int, packingNo string) ([]PackingItem, error) {
+func (r *OutboundRepository) GetPackingItemsList(outboundID int, packingNo string) ([]PackingItem, error) {
 	var result []PackingItem
 
 	sql := `
- SELECT         
+		 SELECT         
 				a.packing_no,
                 c.created_at as packing_date,
                 e.cust_address,
@@ -958,6 +959,7 @@ func (r *OutboundRepository) GetPackingItems(outboundID int, packingNo string) (
                 a.item_id,
                 a.item_code,
                 sum(a.quantity) as quantity,
+				a.pack_ctn_no,
                 b.barcode,
                 b.item_name,
                 b.cbm,
@@ -970,7 +972,7 @@ func (r *OutboundRepository) GetPackingItems(outboundID int, packingNo string) (
                 g.customer_name as deliv_to_name,
                 h.transporter_code,
 				a.uom_scan,
-				a.qty_data_scan as qty_scan,
+				SUM(a.qty_data_scan) as qty_scan,
 				a.barcode_data_scan as barcode_scan
         FROM outbound_barcodes a
         INNER JOIN products b ON a.item_id = b.id
@@ -1008,13 +1010,17 @@ func (r *OutboundRepository) GetPackingItems(outboundID int, packingNo string) (
                 a.packing_no,
                 c.created_at,
 				a.uom_scan,
-				a.qty_data_scan,
-				a.barcode_data_scan
-        ORDER BY a.item_code ASC
+				a.barcode_data_scan,
+				a.pack_ctn_no
+        ORDER BY a.pack_ctn_no ASC
 	`
 
 	if err := r.db.Debug().Raw(sql, outboundID, packingNo).Scan(&result).Error; err != nil {
 		return nil, err
+	}
+
+	if len(result) == 0 {
+		result = []PackingItem{}
 	}
 
 	return result, nil

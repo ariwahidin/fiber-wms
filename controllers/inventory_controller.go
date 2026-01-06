@@ -525,6 +525,7 @@ func (c *InventoryController) UpdateInventoryPolicy(ctx *fiber.Ctx) error {
 	policy.ValidationSN = updateData.ValidationSN
 	policy.RequirePickingScan = updateData.RequirePickingScan
 	policy.RequirePackingScan = updateData.RequirePackingScan
+	policy.PickingSingleScan = updateData.PickingSingleScan
 	policy.UpdatedBy = int(ctx.Locals("userID").(float64))
 
 	if err := c.DB.Save(&policy).Error; err != nil {

@@ -255,6 +255,7 @@ func (c *MobileOutboundController) ScanPicking(ctx *fiber.Ctx) error {
 
 	var scanOutbound struct {
 		PackingNo  string  `json:"packing_no"`
+		PackCtnNo  string  `json:"pack_ctn_no"`
 		Location   string  `json:"location"`
 		OutboundNo string  `json:"outbound_no"`
 		Barcode    string  `json:"barcode"`
@@ -417,6 +418,7 @@ func (c *MobileOutboundController) ScanPicking(ctx *fiber.Ctx) error {
 		OutboundNo:       outboundHeader.OutboundNo,
 		PackingId:        packing.ID,
 		PackingNo:        packing.PackingNo,
+		PackCtnNo:        scanOutbound.PackCtnNo,
 		OutboundDetailId: outboundPicking.OutboundDetailId,
 		ItemID:           int(product.ID),
 		ItemCode:         product.ItemCode,

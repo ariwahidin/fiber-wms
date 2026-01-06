@@ -1780,7 +1780,7 @@ func (c *OutboundController) GetPackingItems(ctx *fiber.Ctx) error {
 
 	// call repository
 	outboundRepo := repositories.NewOutboundRepository(c.DB)
-	items, err := outboundRepo.GetPackingItems(outboundID, packingNo)
+	items, err := outboundRepo.GetPackingItemsList(outboundID, packingNo)
 	if err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -1788,7 +1788,9 @@ func (c *OutboundController) GetPackingItems(ctx *fiber.Ctx) error {
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
 		"success": true,
 		"message": "Packing Items Found",
-		"data":    items,
+		"data": fiber.Map{
+			"list": items,
+		},
 	})
 }
 

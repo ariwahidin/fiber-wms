@@ -183,6 +183,7 @@ type OutboundBarcode struct {
 	ID               uint `json:"ID"`
 	PackingId        uint
 	PackingNo        string  `json:"packing_no" gorm:"size:50"` // sama persis dengan parent
+	PackCtnNo        string  `json:"pack_ctn_no" gorm:"default:0"`
 	InventoryID      int     `json:"inventory_id"`
 	OutboundId       uint    `json:"outbound_id"`
 	OutboundNo       string  `json:"outbound_no"`
