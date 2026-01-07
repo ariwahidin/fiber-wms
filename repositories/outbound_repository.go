@@ -479,6 +479,10 @@ type PaperPickingSheet struct {
 	PlanPickupDate  string  `json:"plan_pickup_date"`
 	PlanPickupTime  string  `json:"plan_pickup_time"`
 	TransporterCode string  `json:"transporter_code"`
+	ProdDate        string  `json:"prod_date"`
+	ExpDate         string  `json:"exp_date"`
+	LotNumber       string  `json:"lot_number"`
+	OwnerCode       string  `json:"owner_code"`
 }
 
 func (r *OutboundRepository) GetPickingSheet(outbound_id int) ([]PaperPickingSheet, error) {
@@ -505,6 +509,10 @@ func (r *OutboundRepository) GetPickingSheet(outbound_id int) ([]PaperPickingShe
 	a.pallet, a.location,
 	b.barcode, b.item_name, b.cbm, 
 	c.rec_date, 
+	c.prod_date,
+	c.exp_date,
+	c.lot_number,
+	c.owner_code,
 	c.whs_code,
 	ROUND(b.cbm * sum(a.quantity), 4) as cbm,
 	b.item_name,
@@ -526,7 +534,13 @@ func (r *OutboundRepository) GetPickingSheet(outbound_id int) ([]PaperPickingShe
 	left join transporters h on e.transporter_code = h.transporter_code
 	where a.outbound_id = ?
 	group by a.location, a.pallet, a.item_id, a.item_code,
-	b.barcode, b.item_name, b.cbm, c.rec_date, c.whs_code,
+	b.barcode, b.item_name, b.cbm, 
+	c.owner_code,
+	c.rec_date, 
+	c.prod_date,
+	c.exp_date,
+	c.lot_number,
+	c.whs_code,
 	e.outbound_no, e.customer_code, f.customer_name, e.outbound_date, e.shipment_id,
 	e.cust_address,
 	e.cust_city,
@@ -545,61 +559,6 @@ func (r *OutboundRepository) GetPickingSheet(outbound_id int) ([]PaperPickingShe
 	uc.conversion_rate,
 	od.uom
 	Order By a.outbound_detail_id ASC`
-
-	// sql := `select
-	// e.cust_address,
-	// e.cust_city,
-	// e.deliv_to,
-	// e.deliv_address,
-	// e.deliv_city,
-	// e.qty_koli,
-	// e.qty_koli_seal,
-	// e.remarks,
-	// e.picker_name,
-	// e.plan_pickup_date,
-	// e.plan_pickup_time,
-	// a.item_id,
-	// a.item_code,
-	// sum(a.quantity) as quantity,
-	// a.pallet, a.location,
-	// b.barcode, b.item_name, b.cbm,
-	// c.rec_date,
-	// c.whs_code,
-	// ROUND(b.cbm * sum(a.quantity), 4) as cbm,
-	// b.item_name,
-	// e.outbound_no,
-	// e.customer_code,
-	// e.outbound_date,
-	// e.shipment_id,
-	// f.customer_name,
-	// g.customer_name as deliv_to_name,
-	// h.transporter_code
-	// from outbound_pickings a
-	// inner join products b on a.item_id = b.id
-	// inner join inventories c on a.inventory_id = c.id
-	// inner join outbound_headers e on a.outbound_id = e.id
-	// inner join customers f on e.customer_code = f.customer_code
-	// inner join customers g on e.deliv_to = g.customer_code
-	// left join transporters h on e.transporter_code = h.transporter_code
-	// where a.outbound_id = ?
-	// group by a.location, a.pallet, a.item_id, a.item_code,
-	// b.barcode, b.item_name, b.cbm, c.rec_date, c.whs_code,
-	// e.outbound_no, e.customer_code, f.customer_name, e.outbound_date, e.shipment_id,
-	// e.cust_address,
-	// e.cust_city,
-	// e.deliv_to,
-	// e.deliv_address,
-	// e.deliv_city,
-	// e.qty_koli,
-	// e.qty_koli_seal,
-	// e.remarks,
-	// e.picker_name,
-	// e.plan_pickup_date,
-	// e.plan_pickup_time,
-	// g.customer_name,
-	// h.transporter_code,
-	// a.outbound_detail_id
-	// Order By a.outbound_detail_id ASC`
 
 	if err := r.db.Debug().Raw(sql, outbound_id).Scan(&outboundList).Error; err != nil {
 		return nil, err

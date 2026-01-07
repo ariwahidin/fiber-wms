@@ -75,6 +75,7 @@ type InventoryPolicy struct {
 	RequirePickingScan      bool   `gorm:"default:false" json:"require_picking_scan"`
 	RequirePackingScan      bool   `gorm:"default:false" json:"require_packing_scan"`
 	PickingSingleScan       bool   `gorm:"default:false" json:"picking_single_scan"`
+	RequireReceiveScan      bool   `gorm:"default:false" json:"require_receive_scan"`
 	CreatedBy               int
 	UpdatedBy               int
 	DeletedBy               int

@@ -430,7 +430,7 @@ func (c *MobileOutboundController) ScanPicking(ctx *fiber.Ctx) error {
 		BarcodeDataScan:  scanOutbound.Barcode,
 		QtyDataScan:      scanOutbound.Qty,
 		LocationScan:     scanOutbound.Location,
-		UomScan:          scanOutbound.Uom,
+		UomScan:          uomConversion.FromUom,
 		IsSerial:         product.HasSerial == "Y",
 		CreatedBy:        int(ctx.Locals("userID").(float64)),
 	}

@@ -62,6 +62,28 @@ type LoginLog struct {
 	CreatedAt     time.Time  `gorm:"column:created_at;autoCreateTime"`
 }
 
+type LoginConflict struct {
+	ID        string
+	UserID    uint64
+	ExpiresAt time.Time
+}
+
+type UserSession struct {
+	ID        uint64 `json:"id" gorm:"primaryKey;autoIncrement"`
+	UserID    uint64 `json:"userId" gorm:"not null;index"`
+	SessionID string `json:"sessionId" gorm:"size:64;not null;uniqueIndex"`
+	DeviceID  string `json:"deviceId" gorm:"size:64"`
+	IPAddress string `json:"ipAddress" gorm:"size:45"`
+	UserAgent string `json:"userAgent" gorm:"size:255"`
+
+	IsActive       bool      `json:"isActive" gorm:"not null;default:true;index"`
+	LastActivityAt time.Time `json:"lastActivityAt" gorm:"not null;index"`
+	ExpiresAt      time.Time `gorm:"not null;index"`
+
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time
+}
+
 // User Owner
 type UserOwner struct {
 	gorm.Model

@@ -66,5 +66,7 @@ func MigrateBusinessUnit(db *gorm.DB) error {
 		&models.LoginLog{},
 		&models.ItemPackaging{},
 		&models.UserOwner{},
+		&models.UserSession{},
+		&models.LoginConflict{},
 	)
 }

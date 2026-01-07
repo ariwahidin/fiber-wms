@@ -113,13 +113,24 @@ func AuthMiddleware(ctx *fiber.Ctx) error {
 		ctx.Locals("userData", claims)
 
 		// 🔑 Panggil GetDBConnection di sini
-		_, err := database.GetDBConnection(unit)
+		db, err := database.GetDBConnection(unit)
 		if err != nil {
 			return ctx.Status(500).JSON(fiber.Map{"message": "Failed to connect database"})
 		} else {
 			fmt.Println("Connected to database:", unit)
 		}
 		database.PrintActiveDBConnections()
+
+		userSession := models.UserSession{}
+		if err := db.Where("session_id = ? AND is_active = ? AND expires_at > ?", sessionID, true, time.Now()).First(&userSession).Error; err != nil && db.Where("session_id = ? AND is_active = ?", sessionID, true).First(&userSession).Error; err != nil {
+			return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				"message": "Unauthorized: Invalid sessionID",
+			})
+		} else {
+			// Update last_activity di user_session
+			userSession.LastActivityAt = time.Now()
+			db.Save(&userSession)
+		}
 
 		return ctx.Next() // Lanjut ke handler berikutnya
 	} else {

@@ -828,9 +828,13 @@ func (c *InboundController) GetPutawaySheet(ctx *fiber.Ctx) error {
 		PoNumber       string  `json:"po_number"`
 		InboundNo      string  `json:"inbound_no"`
 		ItemCode       string  `json:"item_code"`
+		ItemName       string  `json:"item_name"`
 		Barcode        string  `json:"barcode"`
 		SupplierName   string  `json:"supplier_name"`
+		LotNumber      string  `json:"lot_number"`
 		Quantity       int     `json:"quantity"`
+		RecDate        string  `json:"rec_date"`
+		ProdDate       string  `json:"prod_date"`
 		ExpDate        string  `json:"exp_date"`
 		Uom            string  `json:"uom"`
 		Transporter    string  `json:"transporter"`
@@ -849,9 +853,9 @@ func (c *InboundController) GetPutawaySheet(ctx *fiber.Ctx) error {
 	}
 
 	sql := `SELECT b.inbound_date, b.inbound_no, b.receipt_id, tp.transporter_name as transporter,
-	b.no_truck, b.driver, b.truck_size, b.arrival_time, b.start_unloading, b.end_unloading,
+	b.no_truck, b.driver, b.truck_size, b.arrival_time, b.start_unloading, b.end_unloading, p.item_name,
 	a.item_code, a.barcode, p.cbm, b.bl_no, b.remarks, b.koli, b.container, a.whs_code,
-	s.supplier_name, a.quantity, a.uom, b.owner_code, a.exp_date
+	s.supplier_name, a.quantity, a.uom, b.owner_code, a.exp_date, a.prod_date, a.rec_date, a.lot_number
 	FROM inbound_details a
 	INNER JOIN inbound_headers b ON a.inbound_id = b.id
 	LEFT JOIN suppliers s ON b.supplier_id = s.id
@@ -863,6 +867,8 @@ func (c *InboundController) GetPutawaySheet(ctx *fiber.Ctx) error {
 	if err := c.DB.Raw(sql, id).Scan(&putawaySheet).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
+
+	fmt.Println(putawaySheet)
 
 	var inventoryPolicy models.InventoryPolicy
 	if len(putawaySheet) > 0 {
@@ -899,53 +905,61 @@ func (c *InboundController) PutawayByInboundNo(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	var invPolicy models.InventoryPolicy
+	if err := c.DB.Debug().First(&invPolicy, "owner_code = ?", inboundHeader.OwnerCode).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
 	if len(inboundBarcodesCheck01) == 0 {
 		var inboundDetail []models.InboundDetail
 		if err := c.DB.Debug().Where("inbound_id = ?", inboundHeader.ID).Find(&inboundDetail).Error; err != nil {
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
 
-		var allRcvLocationIsFilled bool = true
-		for _, detail := range inboundDetail {
-			if detail.Location == "" {
-				allRcvLocationIsFilled = false
-				break
-			}
-		}
+		if !invPolicy.RequireReceiveScan {
 
-		if !allRcvLocationIsFilled {
-			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Please fill all receiving location before putaway"})
-		}
-
-		for _, detail := range inboundDetail {
-			newInboundBarcode := models.InboundBarcode{
-				InboundId:       int(inboundHeader.ID),
-				InboundDetailId: int(detail.ID),
-				ItemCode:        detail.ItemCode,
-				ItemID:          detail.ItemId,
-				ScanData:        detail.Barcode,
-				Barcode:         detail.Barcode,
-				SerialNumber:    detail.Barcode,
-				Pallet:          detail.Location,
-				Location:        detail.Location,
-				Quantity:        detail.Quantity,
-				WhsCode:         detail.WhsCode,
-				OwnerCode:       detail.OwnerCode,
-				DivisionCode:    detail.DivisionCode,
-				QaStatus:        detail.QaStatus,
-				Status:          "pending",
-				Uom:             detail.Uom,
-				RecDate:         detail.RecDate,
-				ProdDate:        detail.ProdDate,
-				ExpDate:         detail.ExpDate,
-				LotNumber:       detail.LotNumber,
-				// Remarks:        detail.Remarks,
-				CreatedBy: int(ctx.Locals("userID").(float64)),
+			var allRcvLocationIsFilled bool = true
+			for _, detail := range inboundDetail {
+				if detail.Location == "" {
+					allRcvLocationIsFilled = false
+					break
+				}
 			}
 
-			if err := c.DB.Debug().Create(&newInboundBarcode).Error; err != nil {
-				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+			if !allRcvLocationIsFilled {
+				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Please fill all receiving location before putaway"})
 			}
+
+			for _, detail := range inboundDetail {
+				newInboundBarcode := models.InboundBarcode{
+					InboundId:       int(inboundHeader.ID),
+					InboundDetailId: int(detail.ID),
+					ItemCode:        detail.ItemCode,
+					ItemID:          detail.ItemId,
+					ScanData:        detail.Barcode,
+					Barcode:         detail.Barcode,
+					SerialNumber:    detail.Barcode,
+					Pallet:          detail.Location,
+					Location:        detail.Location,
+					Quantity:        detail.Quantity,
+					WhsCode:         detail.WhsCode,
+					OwnerCode:       detail.OwnerCode,
+					DivisionCode:    detail.DivisionCode,
+					QaStatus:        detail.QaStatus,
+					Status:          "pending",
+					Uom:             detail.Uom,
+					RecDate:         detail.RecDate,
+					ProdDate:        detail.ProdDate,
+					ExpDate:         detail.ExpDate,
+					LotNumber:       detail.LotNumber,
+					CreatedBy:       int(ctx.Locals("userID").(float64)),
+				}
+
+				if err := c.DB.Debug().Create(&newInboundBarcode).Error; err != nil {
+					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+				}
+			}
+
 		}
 
 	}
@@ -2062,14 +2076,44 @@ func (c *InboundController) parseDetailsFromExcel(rows [][]string, policy models
 			detail.Quantity = qty
 		}
 
+		RecDate, err := getCellAsDateStrict(row, 11)
+		if err != nil {
+			errors = append(errors, ValidationError{
+				Field:   "RecDate",
+				Message: "Invalid RecDate format: " + RecDate,
+				Row:     rowNum,
+			})
+			continue
+		}
+
+		ProdDate, err := getCellAsDateStrict(row, 12)
+		if err != nil {
+			errors = append(errors, ValidationError{
+				Field:   "ProdDate",
+				Message: "Invalid ProdDate format: " + ProdDate,
+				Row:     rowNum,
+			})
+			continue
+		}
+
+		ExpDate, err := getCellAsDateStrict(row, 13)
+		if err != nil {
+			errors = append(errors, ValidationError{
+				Field:   "ExpDate",
+				Message: "Invalid ExpDate format: " + ExpDate,
+				Row:     rowNum,
+			})
+			continue
+		}
+
 		detail.Location = strings.TrimSpace(getCell(row, 9))
 		detail.QaStatus = strings.TrimSpace(getCell(row, 10))
 		// detail.RecDate = strings.TrimSpace(getCell(row, 11))
 		// detail.ProdDate = strings.TrimSpace(getCell(row, 12))
 		// detail.ExpDate = strings.TrimSpace(getCell(row, 13))
-		detail.RecDate = getCellAsDate(row, 11)
-		detail.ProdDate = getCellAsDate(row, 12)
-		detail.ExpDate = getCellAsDate(row, 13)
+		detail.RecDate = RecDate
+		detail.ProdDate = ProdDate
+		detail.ExpDate = ExpDate
 		detail.LotNumber = strings.TrimSpace(getCell(row, 14))
 		detail.Division = strings.TrimSpace(getCell(row, 15))
 
@@ -2247,21 +2291,58 @@ func getCell(row []string, index int) string {
 // }
 
 // Tambahkan fungsi baru untuk parse date
-func getCellAsDate(row []string, index int) string {
+// func getCellAsDate(row []string, index int) string {
+// 	cellValue := strings.TrimSpace(getCell(row, index))
+// 	if cellValue == "" {
+// 		return ""
+// 	}
+
+// 	// Coba parse sebagai angka (Excel serial date)
+// 	if days, err := strconv.ParseFloat(cellValue, 64); err == nil {
+// 		// Excel epoch: 30 Dec 1899
+// 		excelEpoch := time.Date(1899, 12, 30, 0, 0, 0, 0, time.UTC)
+// 		date := excelEpoch.Add(time.Duration(days * 24 * float64(time.Hour)))
+// 		return date.Format("2006-01-02")
+// 	}
+
+// 	// Jika bukan angka, coba parse sebagai string date
+// 	dateFormats := []string{
+// 		"2006-01-02",
+// 		"02/01/2006",
+// 		"01/02/2006",
+// 		"2/1/2006",
+// 		"1/2/2006",
+// 		"2006/01/02",
+// 		"02-01-2006",
+// 		"01-02-2006",
+// 		"2-Jan-06",
+// 		"2-January-2006",
+// 	}
+
+// 	for _, format := range dateFormats {
+// 		if t, err := time.Parse(format, cellValue); err == nil {
+// 			return t.Format("2006-01-02")
+// 		}
+// 	}
+
+// 	// Return original kalau gagal
+// 	return cellValue
+// }
+
+func getCellAsDateStrict(row []string, index int) (string, error) {
 	cellValue := strings.TrimSpace(getCell(row, index))
 	if cellValue == "" {
-		return ""
+		return "", fmt.Errorf("date value is empty")
 	}
 
-	// Coba parse sebagai angka (Excel serial date)
+	// 1. Excel serial date
 	if days, err := strconv.ParseFloat(cellValue, 64); err == nil {
-		// Excel epoch: 30 Dec 1899
 		excelEpoch := time.Date(1899, 12, 30, 0, 0, 0, 0, time.UTC)
 		date := excelEpoch.Add(time.Duration(days * 24 * float64(time.Hour)))
-		return date.Format("2006-01-02")
+		return date.Format("2006-01-02"), nil
 	}
 
-	// Jika bukan angka, coba parse sebagai string date
+	// 2. String date formats
 	dateFormats := []string{
 		"2006-01-02",
 		"02/01/2006",
@@ -2277,12 +2358,11 @@ func getCellAsDate(row []string, index int) string {
 
 	for _, format := range dateFormats {
 		if t, err := time.Parse(format, cellValue); err == nil {
-			return t.Format("2006-01-02")
+			return t.Format("2006-01-02"), nil
 		}
 	}
 
-	// Return original kalau gagal
-	return cellValue
+	return "", fmt.Errorf("invalid date format: %s", cellValue)
 }
 
 // =======================================
