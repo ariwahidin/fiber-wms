@@ -121,8 +121,26 @@ func AuthMiddleware(ctx *fiber.Ctx) error {
 		}
 		database.PrintActiveDBConnections()
 
-		userSession := models.UserSession{}
-		if err := db.Where("session_id = ? AND is_active = ? AND expires_at > ?", sessionID, true, time.Now()).First(&userSession).Error; err != nil && db.Where("session_id = ? AND is_active = ?", sessionID, true).First(&userSession).Error; err != nil {
+		var userSession models.UserSession
+
+		userSessResult := db.Where("session_id = ? AND is_active = ? AND expires_at > ?", sessionID, true, time.Now()).First(&userSession)
+		if userSessResult.Error != nil {
+
+			if userSessResult.Error == gorm.ErrRecordNotFound {
+				userNotActive := models.UserSession{}
+				if err := db.Where("session_id = ? AND is_active = ?", sessionID, false).First(&userNotActive).Error; err != nil {
+					fmt.Println("Error fetching user session: ", userSessResult.Error)
+					return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+						"message": "Unauthorized: Invalid sessionID",
+					})
+				}
+
+				return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+					"message": "Unauthorized: Your account has been logged out by another device",
+				})
+			}
+
+			fmt.Println("Error fetching user session: ", userSessResult.Error)
 			return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 				"message": "Unauthorized: Invalid sessionID",
 			})

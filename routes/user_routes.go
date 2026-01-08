@@ -41,8 +41,10 @@ func SetupUserRoutes(app *fiber.App) {
 	// Delete all owners from a user
 	api.Delete("/owners/:userId", userController.DeleteAllUserOwners)
 
-	// profile := app.Group("/api/v1/user", middleware.AuthMiddleware)
-	// profile.Get("/profile", userController.GetProfile)
+	profile := app.Group("/api/v1/user", middleware.AuthMiddleware)
+	profile.Use(database.InjectDBMiddleware(userController))
+	profile.Get("/profile", userController.GetProfile)
+	profile.Put("/profile", userController.UpdateUserProfile)
 
 	role := app.Group(config.MAIN_ROUTES+"/roles", middleware.AuthMiddleware)
 	role.Use(database.InjectDBMiddleware(userController))

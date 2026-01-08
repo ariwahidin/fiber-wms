@@ -312,6 +312,10 @@ func (c *MobileOutboundController) ScanPicking(ctx *fiber.Ctx) error {
 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Packing number is required"})
 		}
 
+		if scanOutbound.PackCtnNo == "" {
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Ctn no is required"})
+		}
+
 	}
 
 	var uomConversion models.UomConversion

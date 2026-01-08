@@ -3,7 +3,9 @@ package controllers
 import (
 	"errors"
 	"fiber-app/models"
+	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/go-playground/validator"
 	"github.com/gofiber/fiber/v2"
@@ -245,9 +247,12 @@ func (c *UserController) GetProfile(ctx *fiber.Ctx) error {
 	userID := int(ctx.Locals("userID").(float64))
 
 	var userProfile struct {
-		Username string `json:"username"`
-		Name     string `json:"name"`
-		Email    string `json:"email"`
+		ID        uint   `json:"id"`
+		Username  string `json:"username"`
+		Name      string `json:"name"`
+		Email     string `json:"email"`
+		CreatedAt string `json:"created_at"`
+		UpdatedAt string `json:"updated_at"`
 	}
 
 	var user models.User
@@ -255,9 +260,12 @@ func (c *UserController) GetProfile(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	userProfile.ID = user.ID
 	userProfile.Username = user.Username
 	userProfile.Name = user.Name
 	userProfile.Email = user.Email
+	userProfile.CreatedAt = user.CreatedAt.Format("2006-01-02")
+	userProfile.UpdatedAt = user.UpdatedAt.Format("2006-01-02")
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"data": userProfile, "success": true})
 }
 
@@ -754,4 +762,221 @@ func (c *UserController) GetAvailableOwners(ctx *fiber.Ctx) error {
 
 //================================================================
 // END USER OWNER
+//================================================================
+
+//================================================================
+// BEGIN UPDATE USER PROFILE
+//================================================================
+
+type UpdateUserProfileRequest struct {
+	ID       uint   `json:"id"`
+	Name     string `json:"name" validate:"required,min=2,max=100"`
+	Email    string `json:"email" validate:"required,email"`
+	Username string `json:"username" validate:"required,min=3,max=50,alphanum"`
+	Password string `json:"password" validate:"omitempty,min=8,max=100"`
+}
+
+func (c *UserController) UpdateUserProfile(ctx *fiber.Ctx) error {
+	// Get user ID from JWT/session context
+	userID := ctx.Locals("userID")
+	if userID == nil {
+		return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"success": false,
+			"message": "Unauthorized: User not authenticated",
+		})
+	}
+
+	// Parse request body
+	var req UpdateUserProfileRequest
+	if err := ctx.BodyParser(&req); err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "Invalid request body",
+			"error":   err.Error(),
+		})
+	}
+
+	// Validate request
+
+	validate := validator.New()
+	if err1 := validate.Struct(req); err1 != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error":   err1.Error(),
+			"success": false,
+			"message": "Validation failed",
+		})
+	}
+
+	// if err := c.Validate.Struct(req); err != nil {
+	// 	validationErrors := err.(validator.ValidationErrors)
+	// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+	// 		"success": false,
+	// 		"message": "Validation failed",
+	// 		"errors":  formatValidationErrors(validationErrors),
+	// 	})
+	// }
+
+	// Sanitize inputs
+	req.Name = strings.TrimSpace(req.Name)
+	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
+	req.Username = strings.TrimSpace(strings.ToLower(req.Username))
+
+	// Begin transaction
+	tx := c.DB.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	// Get existing user
+	var user models.User
+	if err := tx.Debug().First(&user, userID).Error; err != nil {
+		tx.Rollback()
+		if err == gorm.ErrRecordNotFound {
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"success": false,
+				"message": "User not found",
+			})
+		}
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to fetch user data",
+			"error":   err.Error(),
+		})
+	}
+
+	fmt.Println("user: ", user)
+
+	// Check if username is taken by another user
+	if req.Username != user.Username {
+		var count int64
+		if err := tx.Model(&models.User{}).Where("username = ? AND id != ?", req.Username, userID).Count(&count).Error; err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"success": false,
+				"message": "Failed to validate username",
+				"error":   err.Error(),
+			})
+		}
+		if count > 0 {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"success": false,
+				"message": "Username already taken",
+			})
+		}
+	}
+
+	// Check if email is taken by another user
+	if req.Email != user.Email {
+		var count int64
+		if err := tx.Model(&models.User{}).Where("email = ? AND id != ?", req.Email, userID).Count(&count).Error; err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"success": false,
+				"message": "Failed to validate email",
+				"error":   err.Error(),
+			})
+		}
+		if count > 0 {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"success": false,
+				"message": "Email already registered",
+			})
+		}
+	}
+
+	// Update user fields
+	user.Name = req.Name
+	user.Email = req.Email
+	user.Username = req.Username
+	user.UpdatedBy = int(userID.(float64))
+
+	// Hash and update password if provided
+	if req.Password != "" {
+		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+		if err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"success": false,
+				"message": "Failed to hash password",
+				"error":   err.Error(),
+			})
+		}
+		user.Password = string(hashedPassword)
+	}
+
+	// Save changes
+	if err := tx.Debug().Save(&user).Error; err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to update user profile",
+			"error":   err.Error(),
+		})
+	}
+
+	// Commit transaction
+	if err := tx.Commit().Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to commit changes",
+			"error":   err.Error(),
+		})
+	}
+
+	// Prepare response (exclude sensitive data)
+	userResponse := fiber.Map{
+		"id":         user.ID,
+		"username":   user.Username,
+		"name":       user.Name,
+		"email":      user.Email,
+		"created_at": user.CreatedAt,
+		"updated_at": user.UpdatedAt,
+	}
+
+	// fmt.Println(userResponse)
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": "Profile updated successfully",
+		"data":    userResponse,
+	})
+}
+
+// Helper function to format validation errors
+// func formatValidationErrors(errors validator.ValidationErrors) []fiber.Map {
+// 	var formattedErrors []fiber.Map
+// 	for _, err := range errors {
+// 		formattedErrors = append(formattedErrors, fiber.Map{
+// 			"field":   strings.ToLower(err.Field()),
+// 			"message": getValidationMessage(err),
+// 		})
+// 	}
+// 	return formattedErrors
+// }
+
+// Helper function to get user-friendly validation messages
+// func getValidationMessage(err validator.FieldError) string {
+// 	field := strings.ToLower(err.Field())
+// 	switch err.Tag() {
+// 	case "required":
+// 		return field + " is required"
+// 	case "email":
+// 		return "Invalid email format"
+// 	case "min":
+// 		return field + " must be at least " + err.Param() + " characters"
+// 	case "max":
+// 		return field + " must not exceed " + err.Param() + " characters"
+// 	case "alphanum":
+// 		return field + " must contain only letters and numbers"
+// 	default:
+// 		return field + " is invalid"
+// 	}
+// }
+
+//================================================================
+// END UPDATE USER PROFILE
 //================================================================

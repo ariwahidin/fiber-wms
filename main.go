@@ -6,7 +6,6 @@ import (
 	"fiber-app/controllers"
 	"fiber-app/controllers/idgen"
 	"fiber-app/database"
-	"fiber-app/migration"
 	"fiber-app/routes"
 	"fiber-app/wms/master/owner"
 	"fmt"
@@ -115,10 +114,10 @@ func main() {
 		fmt.Println("Connected to unit database successfully")
 	}
 
-	err = migration.MigrateBusinessUnit(unitDB)
-	if err != nil {
-		log.Fatalf("Failed to auto migrate unit database: %v", err)
-	}
+	// err = migration.MigrateBusinessUnit(unitDB)
+	// if err != nil {
+	// 	log.Fatalf("Failed to auto migrate unit database: %v", err)
+	// }
 
 	// database.SeedUnit(mainDB)
 
