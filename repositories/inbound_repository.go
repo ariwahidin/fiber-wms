@@ -672,3 +672,82 @@ func (r *InboundRepository) ProcessPutawayItem(ctx *fiber.Ctx, inboundBarcodeID 
 
 	return true, nil
 }
+
+type resultDetail struct {
+	// di isi nanti
+	ID        uint   `json:"id"`
+	ItemCode  string `json:"item_code"`
+	Barcode   string `json:"barcode"`
+	ItemName  string `json:"item_name"`
+	Uom       string `json:"uom"`
+	Quantity  int    `json:"quantity"`
+	QtyScan   int    `json:"qty_scan"`
+	QaStatus  string `json:"qa_status"`
+	ProdDate  string `json:"prod_date"`
+	RecDate   string `json:"rec_date"`
+	ExpDate   string `json:"exp_date"`
+	LotNumber string `json:"lot_number"`
+}
+
+func (r *InboundRepository) GetInboundDetailByInboundID(inboundID uint) ([]resultDetail, error) {
+
+	sql := `with inb_barcode as (
+			select item_id, inbound_id, inbound_detail_id, sum(quantity) as qty_scan  
+			from inbound_barcodes
+			group by item_id, inbound_id, inbound_detail_id
+		)
+		select 
+		a.id,
+		a.item_code,
+		a.barcode,
+		b.item_name,
+		a.uom,
+		a.quantity,
+		coalesce(c.qty_scan, 0) as qty_scan,
+		a.qa_status,
+		a.prod_date,
+		a.rec_date,
+		a.exp_date,
+		a.lot_number
+		from inbound_details a
+		left join products b on a.item_id = b.id 
+		left join inb_barcode c on a.id = c.inbound_detail_id
+		where a.inbound_id = ?
+		order by a.id asc;`
+
+	var result []resultDetail
+	if err := r.db.Raw(sql, inboundID).Scan(&result).Error; err != nil {
+		return nil, err
+	}
+
+	if len(result) == 0 {
+		return []resultDetail{}, nil
+	}
+
+	return result, nil
+}
+
+type resulInboundBarcodeByOutboundDetailID struct {
+	ID        uint   `json:"id"`
+	ItemCode  string `json:"item_code"`
+	ItemID    uint   `json:"item_id"`
+	Status    string `json:"status"`
+	TotalScan int    `json:"total_scan"`
+}
+
+func (r *InboundRepository) GetInboundBarcodeByOutboundDetailID(outboundDetailID uint) (resulInboundBarcodeByOutboundDetailID, error) {
+
+	sql := `select a.inbound_detail_id, a.item_code, a.item_id, a.status, 
+		sum(a.quantity) as total_scan
+		from inbound_barcodes a
+		where inbound_detail_id = ?
+		group by a.inbound_detail_id, a.item_code, a.item_id, a.status
+		order by a.inbound_detail_id asc;`
+
+	var result resulInboundBarcodeByOutboundDetailID
+	if err := r.db.Raw(sql, outboundDetailID).Scan(&result).Error; err != nil {
+		return resulInboundBarcodeByOutboundDetailID{}, err
+	}
+
+	return result, nil
+}

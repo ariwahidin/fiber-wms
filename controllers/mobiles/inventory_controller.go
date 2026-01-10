@@ -564,6 +564,7 @@ func (c *MobileInventoryController) ConfirmTransferByInventoryID(ctx *fiber.Ctx)
 }
 
 type LocationRequest struct {
+	WhsCode     string `json:"whs_code" validate:"required"`
 	NewLocation string `json:"new_location" validate:"required"`
 }
 
@@ -576,9 +577,9 @@ func (lc *MobileInventoryController) CreateLocation(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid input"})
 	}
 
-	// validate location length must 9
-	if len(newLocation.NewLocation) != 9 {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid location length, must be 9 characters"})
+	// validate location length must 8
+	if len(newLocation.NewLocation) != 8 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid location length, must be 8 characters"})
 	}
 
 	// check lokasi sudah ada
@@ -589,14 +590,18 @@ func (lc *MobileInventoryController) CreateLocation(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	// Example YMK49B102
+	warehouse := models.Warehouse{}
+	if err := lc.DB.Where("code = ?", newLocation.WhsCode).First(&warehouse).Error; err != nil {
+		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Warehouse not found"})
+	}
 
-	row := newLocation.NewLocation[0:3]   // "YMK"
-	bay := newLocation.NewLocation[3:5]   // "49"
-	level := newLocation.NewLocation[5:7] // "B1"
-	bin := newLocation.NewLocation[7:]    // "02"
+	row := newLocation.NewLocation[0:2]   // "YM"
+	bay := newLocation.NewLocation[2:4]   // "49"
+	level := newLocation.NewLocation[4:6] // "B1"
+	bin := newLocation.NewLocation[6:8]   // "02"
 
 	var location models.Location
+	location.WhsCode = warehouse.Code
 	location.Row = row
 	location.Bay = bay
 	location.Level = level

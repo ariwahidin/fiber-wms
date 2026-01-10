@@ -32,6 +32,12 @@ func (lc *LocationController) CreateLocation(ctx *fiber.Ctx) error {
 
 	location.LocationCode = location.Row + location.Bay + location.Level + location.Bin
 
+	warehouse := models.Warehouse{}
+	if err := lc.DB.First(&warehouse, "code = ?", location.WhsCode).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	location.WhsCode = warehouse.Code
+
 	bayInt, err := strconv.Atoi(location.Bay)
 	if err != nil {
 		location.Area = "Unknown"
@@ -109,8 +115,8 @@ func (lc *LocationController) UpdateLocation(ctx *fiber.Ctx) error {
 		}
 	}
 
-	// location.LocationCode = input.LocationCode
-	location.LocationCode = location.Row + location.Bay + location.Level + location.Bin
+	location.WhsCode = input.WhsCode
+	location.LocationCode = input.Row + input.Bay + input.Level + input.Bin
 	location.Row = input.Row
 	location.Bay = input.Bay
 	location.Level = input.Level
@@ -338,10 +344,10 @@ func (lc *LocationController) CreateLocationFromExcel(ctx *fiber.Ctx) error {
 		// Level: B1 (positions 5-6)
 		// Bin: 02 (positions 7-8)
 
-		row := detail.LocationCode[0:3]   // "YMK"
-		bay := detail.LocationCode[3:5]   // "49"
-		level := detail.LocationCode[5:7] // "B1"
-		bin := detail.LocationCode[7:]    // "02"
+		row := detail.LocationCode[0:2]   // "YMK"
+		bay := detail.LocationCode[2:4]   // "49"
+		level := detail.LocationCode[4:6] // "B1"
+		bin := detail.LocationCode[6:8]   // "02"
 
 		// Determine area based on bay number (odd/even)
 		area := "Unknown"
@@ -443,11 +449,11 @@ func (lc *LocationController) parseLocationDetailsFromExcel(rows [][]string) ([]
 			continue
 		}
 
-		// Validate location code length (must be exactly 9 characters)
-		if len(detail.LocationCode) != 9 {
+		// Validate location code length (must be exactly 8 characters)
+		if len(detail.LocationCode) != 8 {
 			errors = append(errors, ValidationError{
 				Field:   "LocationCode",
-				Message: fmt.Sprintf("Location code must be exactly 9 characters. Current: %d characters (%s)", len(detail.LocationCode), detail.LocationCode),
+				Message: fmt.Sprintf("Location code must be exactly 8 characters. Current: %d characters (%s)", len(detail.LocationCode), detail.LocationCode),
 				Row:     rowNum,
 			})
 			continue

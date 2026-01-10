@@ -2447,9 +2447,20 @@ func (c *OutboundController) parseOutboundDetailsFromExcel(rows [][]string, poli
 			detail.Quantity = qty
 		}
 
+		ExpDate, err := getCellAsDateStrict(row, 27)
+		if err != nil {
+			errors = append(errors, ValidationError{
+				Field:   "ExpDate",
+				Message: "Invalid ExpDate format: " + ExpDate,
+				Row:     rowNum,
+			})
+			continue
+		}
+
 		detail.Location = strings.TrimSpace(getCell(row, 25))
 		detail.LotNumber = strings.TrimSpace(getCell(row, 26))
-		detail.ExpDate = strings.TrimSpace(getCell(row, 27))
+		// detail.ExpDate = strings.TrimSpace(getCell(row, 27))
+		detail.ExpDate = ExpDate
 		detail.SN = strings.TrimSpace(getCell(row, 28))
 
 		vasIDStr := strings.TrimSpace(getCell(row, 29))
