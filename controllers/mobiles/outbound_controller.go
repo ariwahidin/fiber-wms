@@ -80,11 +80,6 @@ func (c *MobileOutboundController) GetListOutboundDetail(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	// var listOutboundDetails []models.OutboundDetail
-	// if err := c.DB.Debug().Where("outbound_id = ?", outboundHeader.ID).Find(&listOutboundDetails).Error; err != nil {
-	// 	return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-	// }
-
 	type OutboundResult struct {
 		OutboundDetailID int     `json:"outbound_detail_id"`
 		WhsCode          string  `json:"whs_code"`
@@ -140,35 +135,6 @@ func (c *MobileOutboundController) GetListOutboundDetail(ctx *fiber.Ctx) error {
 		opb.owner_code
 		from opb
 		left join uom_conversions oc ON oc.item_code = opb.item_code and oc.ean = opb.barcode and opb.uom = oc.from_uom`
-
-	// query := `
-	// 	WITH ob AS (
-	// 		SELECT a.outbound_id, a.item_code, a.barcode, a.item_id, a.outbound_detail_id,
-	// 		COALESCE(SUM(a.quantity),0) as qty_scan
-	// 		FROM outbound_barcodes a
-	// 		LEFT JOIN outbound_details b ON a.outbound_detail_id = b.id
-	// 		WHERE a.outbound_id = ?
-	// 		GROUP BY a.item_code, a.barcode, a.item_id, a.outbound_id, a.outbound_detail_id
-	// 	),
-	// 	op AS (
-	// 		SELECT a.outbound_detail_id, a.item_code, sum(a.quantity) as qty, a.uom
-	// 		FROM outbound_pickings a
-	// 		WHERE a.outbound_id = ?
-	// 		GROUP BY a.outbound_detail_id, a.item_code, a.uom
-	// 	)
-	// 	SELECT a.id as outbound_detail_id, a.whs_code, a.item_code, a.barcode,
-	// 		op.qty as quantity,
-	// 		b.item_name,
-	// 		b.has_serial,
-	// 		COALESCE(ob.qty_scan, 0) as qty_scan,
-	// 		op.uom,
-	// 		a.owner_code
-	// 	FROM outbound_details a
-	// 	INNER JOIN products b ON a.item_id = b.id
-	// 	LEFT JOIN op ON a.id = op.outbound_detail_id
-	// 	LEFT JOIN ob ON ob.outbound_id = a.outbound_id AND a.item_code = ob.item_code AND a.id = ob.outbound_detail_id
-	// 	WHERE a.outbound_id = ?
-	// 	`
 
 	err := c.DB.Raw(query, outboundHeader.ID, outboundHeader.ID, outboundHeader.ID).Scan(&results).Error
 	if err != nil {

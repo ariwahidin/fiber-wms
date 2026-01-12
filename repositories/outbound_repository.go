@@ -1236,3 +1236,36 @@ func (r *OutboundRepository) InsertIntoOutboundBarcodeFromOutboundPicking(
 
 	return tx.Exec(sql, userID, now, now, outboundID).Error
 }
+
+type OutboundBarcodeSumByOutboundID struct {
+	OutboundDetailID int     `json:"outbound_detail_id"`
+	ItemID           int     `json:"item_id"`
+	ItemCode         string  `json:"item_code"`
+	QtyScan          float64 `json:"scan_qty"`
+}
+
+func (r *OutboundRepository) GetOutboundBarcodeByOutboundID(outboundID uint) ([]OutboundBarcodeSumByOutboundID, error) {
+	sql := `SELECT
+		outbound_detail_id, 
+		item_id, 
+		item_code, 
+		SUM(qty_data_scan) as qty_scan
+		FROM outbound_barcodes
+		where outbound_id = ?
+		GROUP BY
+		outbound_detail_id, 
+		item_id, 
+		item_code`
+
+	var result []OutboundBarcodeSumByOutboundID
+
+	if err := r.db.Debug().Raw(sql, outboundID).Scan(&result).Error; err != nil {
+		return result, err
+	}
+
+	if len(result) == 0 {
+		result = []OutboundBarcodeSumByOutboundID{}
+	}
+
+	return result, nil
+}

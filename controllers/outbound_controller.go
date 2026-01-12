@@ -428,14 +428,20 @@ func (c *OutboundController) GetOutboundByID(ctx *fiber.Ctx) error {
 	outbound_no := ctx.Params("outbound_no")
 	var OutboundHeader models.OutboundHeader
 	if err := c.DB.Debug().
-		Preload("OutboundDetails.Product"). // ✅ ambil product termasuk item_name
+		Preload("OutboundDetails.Product").
 		First(&OutboundHeader, "outbound_no = ?", outbound_no).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Inbound not found"})
 		}
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
-	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "data": OutboundHeader, "message": "Outbound found"})
+
+	outboundRepo := repositories.NewOutboundRepository(c.DB)
+	OutboundBarcodes, err := outboundRepo.GetOutboundBarcodeByOutboundID(OutboundHeader.ID)
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "data": fiber.Map{"outbound": OutboundHeader, "barcodes": OutboundBarcodes}, "message": "Outbound found"})
 }
 
 func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
