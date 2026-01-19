@@ -6,6 +6,7 @@ import (
 	"fiber-app/repositories"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -702,5 +703,96 @@ func (c *MobileInventoryController) GetItemsByBarcode(ctx *fiber.Ctx) error {
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
 		"success": true,
 		"data":    results,
+	})
+}
+
+type RegisterProductRequest struct {
+	OwnerCode string `json:"owner_code"`
+	SKU       string `json:"sku"`
+	UnitModel string `json:"unit_model"`
+	Ean       string `json:"ean"`
+	Uom       string `json:"uom"`
+}
+
+func (c *MobileInventoryController) CreateRegisterProduct(ctx *fiber.Ctx) error {
+	var req RegisterProductRequest
+	if err := ctx.BodyParser(&req); err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "Invalid request body",
+		})
+	}
+
+	// Validasi input
+	if req.OwnerCode == "" || req.SKU == "" || req.UnitModel == "" || req.Ean == "" || req.Uom == "" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "All fields are required",
+		})
+	}
+
+	// Normalize input
+	req.OwnerCode = strings.ToUpper(strings.TrimSpace(req.OwnerCode))
+	req.SKU = strings.ToUpper(strings.TrimSpace(req.SKU))
+	req.UnitModel = strings.ToUpper(strings.TrimSpace(req.UnitModel))
+	req.Ean = strings.ToUpper(strings.TrimSpace(req.Ean))
+	req.Uom = strings.ToUpper(strings.TrimSpace(req.Uom))
+
+	// Validasi owner exists
+	var ownerExists models.Owner
+	if err := c.DB.Where("code = ?", req.OwnerCode).First(&ownerExists).Error; err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "Owner code not found",
+		})
+	}
+
+	// Validasi UOM exists
+	var uomExists models.Uom
+	if err := c.DB.Where("code = ?", req.Uom).First(&uomExists).Error; err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "UOM not found",
+		})
+	}
+
+	// Cek apakah kombinasi sudah ada
+	var existingProduct models.ProductRegister
+	err := c.DB.Where("owner_code = ? AND sku = ? AND unit_model = ? AND ean = ? AND uom = ?",
+		req.OwnerCode, req.SKU, req.UnitModel, req.Ean, req.Uom).
+		First(&existingProduct).Error
+
+	if err == nil {
+		return ctx.Status(fiber.StatusConflict).JSON(fiber.Map{
+			"success": false,
+			"message": "Product with this combination already exists",
+		})
+	}
+
+	// Get user ID from context (sesuaikan dengan auth middleware Anda)
+	userID := int(ctx.Locals("userID").(float64))
+
+	// Create new product
+	newProduct := models.ProductRegister{
+		OwnerCode: req.OwnerCode,
+		SKU:       req.SKU,
+		UnitModel: req.UnitModel,
+		Ean:       req.Ean,
+		Uom:       req.Uom,
+		CreatedBy: userID,
+		CreatedAt: time.Now(),
+	}
+
+	if err := c.DB.Create(&newProduct).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to register product",
+		})
+	}
+
+	return ctx.Status(fiber.StatusCreated).JSON(fiber.Map{
+		"success": true,
+		"message": "Product registered successfully",
+		"data":    newProduct,
 	})
 }

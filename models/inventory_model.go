@@ -18,6 +18,7 @@ type Inventory struct {
 	ProdDate        string  `json:"prod_date" gorm:"default:null"`
 	ExpDate         string  `json:"exp_date" gorm:"default:null"`
 	LotNumber       string  `json:"lot_number" gorm:"default:null"`
+	CaseNumber      string  `json:"case_number" gorm:"default:null"`
 	Pallet          string  `json:"pallet"`
 	Location        string  `json:"location"`
 	ItemId          uint    `json:"item_id"`
@@ -60,6 +61,7 @@ type InventoryPolicy struct {
 	gorm.Model
 	OwnerCode               string `gorm:"not null" validate:"required" json:"owner_code" `
 	UseLotNo                bool   `gorm:"default:false" json:"use_lot_no"`
+	UseCaseNo               bool   `gorm:"default:false" json:"use_case_no"`
 	UseFIFO                 bool   `gorm:"default:false" json:"use_fifo"`
 	UseFEFO                 bool   `gorm:"default:false" json:"use_fefo"`
 	UseVAS                  bool   `gorm:"default:false" json:"use_vas"`
@@ -76,6 +78,9 @@ type InventoryPolicy struct {
 	RequirePackingScan      bool   `gorm:"default:false" json:"require_packing_scan"`
 	PickingSingleScan       bool   `gorm:"default:false" json:"picking_single_scan"`
 	RequireReceiveScan      bool   `gorm:"default:false" json:"require_receive_scan"`
+	ValidateReceiveScan     bool   `gorm:"default:false" json:"validate_receive_scan"`
+	RequirePutawayScan      bool   `gorm:"default:false" json:"require_putaway_scan"`
+	AllocationLotByOrder    bool   `gorm:"default:false" json:"allocation_lot_by_order"`
 	CreatedBy               int
 	UpdatedBy               int
 	DeletedBy               int

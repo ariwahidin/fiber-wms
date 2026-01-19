@@ -89,3 +89,16 @@ type ItemPackaging struct {
 	UpdatedBy int
 	UpdatedAt time.Time
 }
+
+type ProductRegister struct {
+	gorm.Model
+	OwnerCode string `json:"owner_code"`
+	SKU       string `json:"sku"`
+	UnitModel string `json:"unit_model"`
+	Ean       string `json:"ean"`
+	Uom       string `json:"uom"`
+	CreatedBy int
+	CreatedAt time.Time
+	UpdatedBy int
+	UpdatedAt time.Time
+}

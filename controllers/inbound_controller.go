@@ -1263,6 +1263,10 @@ func (c *InboundController) PutawayByInboundNo(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	if invPolicy.RequirePutawayScan {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Cannot putaway from your side, please putaway from scanner"})
+	}
+
 	if len(inboundBarcodesCheck01) == 0 {
 		var inboundDetail []models.InboundDetail
 		if err := c.DB.Debug().Where("inbound_id = ?", inboundHeader.ID).Find(&inboundDetail).Error; err != nil {
@@ -1363,6 +1367,18 @@ func (c *InboundController) servicePutawayPerItem(ctx *fiber.Ctx, idStr string) 
 		return errors.New(err.Error())
 	}
 
+	invPolicy := models.InventoryPolicy{}
+	if err := c.DB.Debug().Where("owner_code = ?", inboundHeader.OwnerCode).First(&invPolicy).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return errors.New("Inventory policy not found")
+		}
+		return errors.New(err.Error())
+	}
+
+	if invPolicy.RequirePutawayScan {
+		return errors.New("Putaway scan required")
+	}
+
 	var warehouse models.Warehouse
 	if err := c.DB.Debug().First(&warehouse, "code = ?", inboundHeader.WhsCode).Error; err != nil {
 		return errors.New("Warehouse not found")
@@ -1379,72 +1395,14 @@ func (c *InboundController) servicePutawayPerItem(ctx *fiber.Ctx, idStr string) 
 
 	_, errs := inboundRepo.ProcessPutawayItem(ctx, id, "")
 	if errs != nil {
-		fmt.Println("ADA NIH", errs.Error())
+		fmt.Println("Error ProcessPutawayItem", errs.Error())
 		return errs
 	}
 
-	type CheckResult struct {
-		InboundNo       string `json:"inbound_no"`
-		InboundDetailId int    `json:"inbound_detail_id"`
-		ItemId          int    `json:"item_id"`
-		Quantity        int    `json:"quantity"`
-		QtyScan         int    `json:"qty_scan"`
-	}
-
-	sqlCheck := `WITH ib AS
-	(
-		SELECT inbound_id, inbound_detail_id, item_id, SUM(quantity) AS qty_scan, status
-		FROM inbound_barcodes WHERE inbound_id = ? AND status = 'in stock'
-		GROUP BY inbound_id, inbound_detail_id, item_id, status
-	)
-
-	SELECT a.id, a.inbound_no, a.inbound_id, a.item_id, a.quantity, COALESCE(ib.qty_scan, 0) AS qty_scan
-	FROM inbound_details a
-	LEFT JOIN ib ON a.id = ib.inbound_detail_id
-	WHERE a.inbound_id = ?`
-
-	var checkResult []CheckResult
-	if err := c.DB.Raw(sqlCheck, inboundHeaderID, inboundHeaderID).Scan(&checkResult).Error; err != nil {
-		return errors.New(err.Error())
-	}
-
-	qtyRequest := 0
-	qtyReceived := 0
-	for _, result := range checkResult {
-		qtyRequest += result.Quantity
-		qtyReceived += result.QtyScan
-	}
-
-	statusInbound := "fully received"
-	if qtyRequest != qtyReceived {
-		statusInbound = "partially received"
-	}
-
-	userID := int(ctx.Locals("userID").(float64))
-
-	now := time.Now()
-	updateData := models.InboundHeader{
-		Status:    statusInbound,
-		PutawayAt: &now,
-		PutawayBy: userID,
-	}
-	if err := c.DB.Debug().Model(&models.InboundHeader{}).
-		Where("id = ?", inboundHeaderID).
-		Updates(updateData).Error; err != nil {
-		return errors.New(err.Error())
-	}
-
-	errHistory := helpers.InsertTransactionHistory(
-		c.DB,
-		inboundHeader.InboundNo,
-		statusInbound,
-		"INBOUND",
-		"",
-		userID,
-	)
-	if errHistory != nil {
-		log.Println("Gagal insert history:", errHistory)
-		return errors.New(errHistory.Error())
+	errs = inboundRepo.UpdateStatusInbound(ctx, inboundHeaderID)
+	if errs != nil {
+		fmt.Println("Error UpdateStatusInbound", errs.Error())
+		return errs
 	}
 
 	return nil
@@ -1469,8 +1427,7 @@ func (c *InboundController) PutawayBulk(ctx *fiber.Ctx) error {
 			fmt.Println("Putaway Error", errPutaway)
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 
-				"error":   fmt.Sprintf("Failed putaway ID %s: %v", id, errPutaway),
-				"message": fmt.Sprintf("Failed putaway ID %s: %v", id, errPutaway),
+				"error": fmt.Sprintf("Failed putaway ID %s: %v", id, errPutaway),
 			})
 		}
 	}
@@ -1566,11 +1523,6 @@ func (r *InboundController) HandleChecking(ctx *fiber.Ctx) error {
 		})
 	}
 
-	// sqlUpdate := `UPDATE inbound_headers SET status = 'checking', updated_at = ?, updated_by = ?, checking_at = ?, checking_by = ? WHERE inbound_no = ?`
-	// if err := r.DB.Exec(sqlUpdate, time.Now(), userID, time.Now(), userID, payload.InboundNo).Error; err != nil {
-	// 	return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-	// }
-
 	errHistory := helpers.InsertTransactionHistory(
 		r.DB,
 		payload.InboundNo, // RefNo
@@ -1581,6 +1533,15 @@ func (r *InboundController) HandleChecking(ctx *fiber.Ctx) error {
 	)
 	if errHistory != nil {
 		log.Println("Gagal insert history:", errHistory)
+	}
+
+	inboundRepo := repositories.NewInboundRepository(r.DB)
+
+	err = inboundRepo.UpdateStatusInbound(ctx, InboundHeader.ID)
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": err.Error(),
+		})
 	}
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Change status inbound " + payload.InboundNo + " to checking successfully"})
@@ -1717,8 +1678,17 @@ func (r *InboundController) HandleOpen(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Inbound " + payload.InboundNo + " is already open", "message": "Inbound " + payload.InboundNo + " already open"})
 	}
 
-	if InboundHeader.Status != "checking" {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Inbound " + payload.InboundNo + " is not checking", "message": "Inbound " + payload.InboundNo + " not checking"})
+	allowed := map[string]bool{
+		"checking":           true,
+		"partially received": true,
+		"fully received":     true,
+	}
+
+	if !allowed[InboundHeader.Status] {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error":   "Cannot open Inbound " + payload.InboundNo + " because it is " + InboundHeader.Status,
+			"message": "Cannot open Inbound " + payload.InboundNo + " because it is " + InboundHeader.Status,
+		})
 	}
 
 	// type CheckResultInbound struct {

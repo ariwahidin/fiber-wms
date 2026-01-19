@@ -70,8 +70,10 @@ type OutboundDetail struct {
 	Quantity     float64 `json:"quantity" required:"required"`
 	Pallet       string  `json:"pallet"`
 	RecDate      string  `json:"rec_date" gorm:"default:null"`
+	ProdDate     string  `json:"prod_date" gorm:"default:null"`
 	ExpDate      string  `json:"exp_date" gorm:"default:null"`
 	LotNumber    string  `json:"lot_number" gorm:"default:null"`
+	CaseNumber   string  `json:"case_number" gorm:"default:null"`
 	ScanQty      int     `json:"scan_qty" gorm:"default:0"`
 	Location     string  `json:"location" required:"required"`
 	Status       string  `json:"status" gorm:"default:'draft'"`
@@ -164,10 +166,11 @@ type OutboundPicking struct {
 	Location         string  `json:"location"`
 	Quantity         float64 `json:"quantity"`
 	QaStatus         string  `json:"qa_status"`
-	RecDate          string  `json:"rec_date"`
-	ExpDate          string  `json:"exp_date"`
-	ProdDate         string  `json:"prod_date"`
-	LotNumber        string  `json:"lot_number"`
+	RecDate          string  `json:"rec_date" gorm:"default:null"`
+	ProdDate         string  `json:"prod_date" gorm:"default:null"`
+	ExpDate          string  `json:"exp_date" gorm:"default:null"`
+	LotNumber        string  `json:"lot_number" gorm:"default:null"`
+	CaseNumber       string  `json:"case_number" gorm:"default:null"`
 	Uom              string  `json:"uom"`
 	Reason           string  `json:"reason"`
 	QtyDisplay       float64 `json:"qty_display"`
@@ -194,6 +197,11 @@ type OutboundBarcode struct {
 	Barcode          string  `json:"barcode"`
 	Uom              string  `json:"uom"`
 	SerialNumber     string  `json:"serial_number"`
+	RecDate          string  `json:"rec_date" gorm:"default:null"`
+	ProdDate         string  `json:"prod_date" gorm:"default:null"`
+	ExpDate          string  `json:"exp_date" gorm:"default:null"`
+	LotNumber        string  `json:"lot_number" gorm:"default:null"`
+	CaseNumber       string  `json:"case_number" gorm:"default:null"`
 	Quantity         float64 `json:"quantity"`
 	Status           string  `json:"status" gorm:"default:'pending'"`
 	BarcodeDataScan  string  `json:"barcode_data_scan"` // data barcode yang di scan
@@ -233,8 +241,3 @@ type OutboundVas struct {
 	UpdatedBy    int
 	DeletedBy    int
 }
-
-// type OrderHeader struct {
-// 	gorm.Model
-// 	ID              types.SnowflakeID `json:"ID"`
-// }

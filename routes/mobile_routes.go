@@ -25,6 +25,8 @@ func SetupMobileInboundRoutes(app *fiber.App) {
 	// api.Post("/inbound/putaway/location/:inbound_no", mobileInboundController.ConfirmPutawayByLocation)
 	api.Put("/inbound/barcode/:id", mobileInboundController.EditInboundBarcode)
 	api.Get("/inbound/barcode/getlocation/:inbound_no", mobileInboundController.GetSequenceLocation)
+	api.Post("/inbound/putaway/scan-pallet", mobileInboundController.CheckItemPutaway)
+	api.Post("/inbound/putaway/all", mobileInboundController.PutawayAll)
 }
 
 func SetupMobileInventoryRoutes(app *fiber.App) {
@@ -39,6 +41,7 @@ func SetupMobileInventoryRoutes(app *fiber.App) {
 	api.Post("/inventory/transfer/location/barcode", mobileInventoryController.ConfirmTransferByLocationAndBarcode)
 	api.Post("/inventory/transfer-by-inventory-id", mobileInventoryController.ConfirmTransferByInventoryID)
 	api.Post("/inventory/add-location", mobileInventoryController.CreateLocation)
+	api.Post("/inventory/add-item", mobileInventoryController.CreateRegisterProduct)
 }
 
 func SetupMobileOutboundRoutes(app *fiber.App) {

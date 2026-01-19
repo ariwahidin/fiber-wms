@@ -14,6 +14,7 @@ type Location struct {
 	Bin          string `json:"bin"`
 	Area         string `json:"area"`
 	IsActive     bool   `json:"is_active" gorm:"default:true"`
+	IsPickable   bool   `json:"is_pickable" gorm:"default:true"`
 	CreatedBy    int
 	UpdatedBy    int
 	DeletedBy    int

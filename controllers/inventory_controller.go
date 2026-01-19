@@ -511,6 +511,7 @@ func (c *InventoryController) UpdateInventoryPolicy(ctx *fiber.Ctx) error {
 	// Update data
 	policy.OwnerCode = updateData.OwnerCode
 	policy.UseLotNo = updateData.UseLotNo
+	policy.UseCaseNo = updateData.UseCaseNo
 	policy.UseFIFO = updateData.UseFIFO
 	policy.UseFEFO = updateData.UseFEFO
 	policy.UseVAS = updateData.UseVAS
@@ -527,6 +528,9 @@ func (c *InventoryController) UpdateInventoryPolicy(ctx *fiber.Ctx) error {
 	policy.RequirePackingScan = updateData.RequirePackingScan
 	policy.PickingSingleScan = updateData.PickingSingleScan
 	policy.RequireReceiveScan = updateData.RequireReceiveScan
+	policy.ValidateReceiveScan = updateData.ValidateReceiveScan
+	policy.RequirePutawayScan = updateData.RequirePutawayScan
+	policy.AllocationLotByOrder = updateData.AllocationLotByOrder
 	policy.UpdatedBy = int(ctx.Locals("userID").(float64))
 
 	if err := c.DB.Save(&policy).Error; err != nil {
@@ -960,6 +964,10 @@ func (c *InventoryController) GetAllInventoryAvailableGrouped(ctx *fiber.Ctx) er
 		Group             string  `json:"group"`
 		QaStatus          string  `json:"qa_status"`
 		Uom               string  `json:"uom"`
+		RecDate           string  `json:"rec_date"`
+		ProdDate          string  `json:"prod_date"`
+		ExpDate           string  `json:"exp_date"`
+		LotNumber         string  `json:"lot_number"`
 		TotalQtyAvailable float64 `json:"total_qty_available"`
 		TotalQtyOnhand    float64 `json:"total_qty_onhand"`
 		TotalQtyAllocated float64 `json:"total_qty_allocated"`
@@ -984,6 +992,10 @@ func (c *InventoryController) GetAllInventoryAvailableGrouped(ctx *fiber.Ctx) er
 			products.[group],
 			inventories.qa_status,
 			inventories.uom,
+			inventories.rec_date,
+			inventories.prod_date,
+			inventories.exp_date,
+			inventories.lot_number,
 			SUM(inventories.qty_available) as total_qty_available,
 			SUM(inventories.qty_onhand) as total_qty_onhand,
 			SUM(inventories.qty_allocated) as total_qty_allocated,
@@ -1015,7 +1027,7 @@ func (c *InventoryController) GetAllInventoryAvailableGrouped(ctx *fiber.Ctx) er
 
 	var inventories []InventoryGrouped
 	result := query.
-		Group("inventories.location, inventories.item_code, inventories.barcode, inventories.qa_status, inventories.uom, products.item_name, products.category, products.[group]").
+		Group("inventories.location, inventories.item_code, inventories.barcode, inventories.qa_status, inventories.uom, products.item_name, products.category, products.[group], inventories.rec_date, inventories.prod_date, inventories.exp_date, inventories.lot_number").
 		Order("inventories.location ASC, inventories.item_code ASC").
 		Find(&inventories)
 
@@ -1049,7 +1061,13 @@ func (c *InventoryController) GetAllInventoryAvailableGrouped(ctx *fiber.Ctx) er
 		Order("[group] ASC").
 		Pluck("[group]", &groups)
 
-	qaStatuses := []string{"A", "R", "Q"}
+	qaStatuses := []string{}
+	c.DB.Table("qa_statuses").
+		Where("deleted_at IS NULL").
+		Order("qa_status ASC").
+		Pluck("qa_status", &qaStatuses)
+
+	// qaStatuses := []string{"A", "R", "Q", "S"}
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
 		"success": true,
@@ -1254,3 +1272,50 @@ func (c *InventoryController) GetInventoryMovements(ctx *fiber.Ctx) error {
 //===================================================================
 // END GET INVENTORY MOVEMENT
 //===================================================================
+
+type InventoryByLocationResponse struct {
+	ID           int    `json:"id"`
+	ItemCode     string `json:"item_code"`
+	ItemName     string `json:"item_name"`
+	LocationCode string `json:"location_code"`
+	Qty          int    `json:"qty"`
+	Unit         string `json:"unit"`
+}
+
+func (c *InventoryController) GetItemByLocation(ctx *fiber.Ctx) error {
+
+	sql := `select
+	b.id,
+	a.item_code,
+	b.item_name,
+	a.location as location_code,
+	sum(a.qty_available) as qty,
+	a.uom as unit
+	from inventories a
+	inner join products b on a.item_id = b.id
+	group by 
+	b.id,
+	a.item_code,
+	b.item_name,
+	a.location,
+	a.uom`
+
+	var inventories []InventoryByLocationResponse
+	if err := c.DB.Raw(sql).Scan(&inventories).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to retrieve inventory by location",
+			"error":   err.Error(),
+		})
+	}
+
+	if len(inventories) == 0 {
+		inventories = []InventoryByLocationResponse{}
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": "Inventory by location retrieved successfully",
+		"data":    inventories,
+	})
+}

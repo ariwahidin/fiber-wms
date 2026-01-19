@@ -84,6 +84,7 @@ type InboundDetail struct {
 	ProdDate      string  `json:"prod_date" gorm:"default:null"`
 	ExpDate       string  `json:"exp_date" gorm:"default:null"`
 	LotNumber     string  `json:"lot_number" gorm:"default:null"`
+	CaseNumber    string  `json:"case_number" gorm:"default:null"`
 	Uom           string  `json:"uom" required:"required"`
 	IsSerial      string  `json:"is_serial"`
 	SN            string  `json:"sn"`
@@ -129,10 +130,13 @@ type InboundBarcode struct {
 	SerialNumber    string         `json:"serial_number"`
 	Pallet          string         `json:"pallet"`
 	Location        string         `json:"location"`
+	PutawayLocation string         `json:"putaway_location"`
+	PutawayQty      int            `json:"putaway_qty"`
 	RecDate         string         `json:"rec_date" gorm:"default:null"`
 	ProdDate        string         `json:"prod_date" gorm:"default:null"`
 	ExpDate         string         `json:"exp_date" gorm:"default:null"`
 	LotNumber       string         `json:"lot_number" gorm:"default:null"`
+	CaseNumber      string         `json:"case_number" gorm:"default:null"`
 	Quantity        float64        `json:"quantity"`
 	Uom             string         `json:"uom"`
 	WhsCode         string         `json:"whs_code"`
@@ -143,6 +147,8 @@ type InboundBarcode struct {
 	CreatedBy       int
 	UpdatedBy       int
 	DeletedBy       int
+	PutawayBy       int       `json:"putaway_by" gorm:"default:null"`
+	PutawayAt       time.Time `json:"putaway_at" gorm:"default:null"`
 }
 
 // func (i *InboundBarcode) BeforeCreate(tx *gorm.DB) (err error) {

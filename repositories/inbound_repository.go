@@ -5,6 +5,7 @@ import (
 	"fiber-app/controllers/helpers"
 	"fiber-app/models"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -656,9 +657,13 @@ func (r *InboundRepository) ProcessPutawayItem(ctx *fiber.Ctx, inboundBarcodeID 
 
 		// Update status barcode ke "in stock"
 		if err := tx.Model(&barcode).Updates(map[string]interface{}{
-			"status":     "in stock",
-			"updated_at": time.Now().UTC(),
-			"updated_by": int(userID),
+			"status":           "in stock",
+			"putaway_location": location,
+			"putaway_qty":      barcode.Quantity,
+			"putaway_at":       time.Now().UTC(),
+			"putaway_by":       int(userID),
+			"updated_at":       time.Now().UTC(),
+			"updated_by":       int(userID),
 		}).Error; err != nil {
 			return err
 		}
@@ -750,4 +755,78 @@ func (r *InboundRepository) GetInboundBarcodeByOutboundDetailID(outboundDetailID
 	}
 
 	return result, nil
+}
+
+func (r *InboundRepository) UpdateStatusInbound(ctx *fiber.Ctx, inboundHeaderID uint) error {
+
+	type CheckResult struct {
+		InboundNo       string `json:"inbound_no"`
+		InboundDetailId int    `json:"inbound_detail_id"`
+		ItemId          int    `json:"item_id"`
+		Quantity        int    `json:"quantity"`
+		QtyScan         int    `json:"qty_scan"`
+	}
+
+	var inboundHeader models.InboundHeader
+	if err := r.db.First(&inboundHeader, inboundHeaderID).Error; err != nil {
+		return errors.New(err.Error())
+	}
+
+	sqlCheck := `WITH ib AS
+	(
+		SELECT inbound_id, inbound_detail_id, item_id, SUM(quantity) AS qty_scan, status
+		FROM inbound_barcodes WHERE inbound_id = ? AND status = 'in stock'
+		GROUP BY inbound_id, inbound_detail_id, item_id, status
+	)
+
+	SELECT a.id, a.inbound_no, a.inbound_id, a.item_id, a.quantity, COALESCE(ib.qty_scan, 0) AS qty_scan
+	FROM inbound_details a
+	LEFT JOIN ib ON a.id = ib.inbound_detail_id
+	WHERE a.inbound_id = ?`
+
+	var checkResult []CheckResult
+	if err := r.db.Raw(sqlCheck, inboundHeaderID, inboundHeaderID).Scan(&checkResult).Error; err != nil {
+		return errors.New(err.Error())
+	}
+
+	qtyRequest := 0
+	qtyReceived := 0
+	for _, result := range checkResult {
+		qtyRequest += result.Quantity
+		qtyReceived += result.QtyScan
+	}
+
+	statusInbound := "fully received"
+	if qtyRequest != qtyReceived {
+		statusInbound = "partially received"
+	}
+
+	userID := int(ctx.Locals("userID").(float64))
+
+	now := time.Now()
+	updateData := models.InboundHeader{
+		Status:    statusInbound,
+		PutawayAt: &now,
+		PutawayBy: userID,
+	}
+	if err := r.db.Debug().Model(&models.InboundHeader{}).
+		Where("id = ?", inboundHeaderID).
+		Updates(updateData).Error; err != nil {
+		return errors.New(err.Error())
+	}
+
+	errHistory := helpers.InsertTransactionHistory(
+		r.db,
+		inboundHeader.InboundNo,
+		statusInbound,
+		"INBOUND",
+		"",
+		userID,
+	)
+	if errHistory != nil {
+		log.Println("Gagal insert history:", errHistory)
+		return errors.New(errHistory.Error())
+	}
+
+	return nil
 }

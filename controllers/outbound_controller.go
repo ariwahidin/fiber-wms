@@ -135,14 +135,27 @@ func (c *OutboundController) CreateOutbound(ctx *fiber.Ctx) error {
 			})
 		}
 
-		key := fmt.Sprintf("%s|%s", item.ItemCode, item.UOM)
+		// key := fmt.Sprintf("%s|%s", item.ItemCode, item.UOM)
+
+		// if itemCodes[key] {
+		// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+		// 		"success": false,
+		// 		"message": "Duplicate item found: " + item.ItemCode,
+		// 		"error": fmt.Sprintf("Duplicate item with code %s,  uom %s",
+		// 			item.ItemCode, item.UOM),
+		// 	})
+		// }
+
+		// itemCodes[key] = true
+
+		key := fmt.Sprintf("%s|%s|%s|%s", item.ItemCode, item.UOM, item.LotNumber, item.ExpDate)
 
 		if itemCodes[key] {
 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 				"success": false,
 				"message": "Duplicate item found: " + item.ItemCode,
-				"error": fmt.Sprintf("Duplicate item with code %s,  uom %s",
-					item.ItemCode, item.UOM),
+				"error": fmt.Sprintf("Duplicate item with code %s,  uom %s, lot number %s, and expiration date %s",
+					item.ItemCode, item.UOM, item.LotNumber, item.ExpDate),
 			})
 		}
 
@@ -549,14 +562,14 @@ func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
 
 		// itemCodes[item.ItemCode] = true // tandai sebagai sudah ditemukan
 
-		key := fmt.Sprintf("%s|%s", item.ItemCode, item.UOM)
+		key := fmt.Sprintf("%s|%s|%s|%s", item.ItemCode, item.UOM, item.LotNumber, item.ExpDate)
 
 		if itemCodes[key] {
 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 				"success": false,
 				"message": "Duplicate item found: " + item.ItemCode,
-				"error": fmt.Sprintf("Duplicate item with code %s,  uom %s",
-					item.ItemCode, item.UOM),
+				"error": fmt.Sprintf("Duplicate item with code %s,  uom %s, lot number %s, and expiration date %s",
+					item.ItemCode, item.UOM, item.LotNumber, item.ExpDate),
 			})
 		}
 
@@ -903,24 +916,39 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 
 	uomRepo := repositories.NewUomRepository(tx)
 
-	// Proses picking by FIFO
 	for _, outboundDetail := range outboundDetails {
 
-		// Convert to base UOM
 		uomConversion, err := uomRepo.ConversionQty(outboundDetail.ItemCode, outboundDetail.Quantity, outboundDetail.Uom)
 		if err != nil {
 			tx.Rollback()
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "UOM Conversion Error: " + err.Error()})
 		}
 
-		// qtyReq := outboundDetail.Quantity
 		qtyReq := uomConversion.QtyConverted
 
 		fmt.Println("Picking Query")
 
 		queryInventory := tx.Debug().
-			Where("item_id = ? AND whs_code = ? AND qty_available > 0 AND uom = ? AND owner_code = ? AND qa_status = ?",
-				outboundDetail.ItemID, outboundDetail.WhsCode, uomConversion.ToUom, outboundHeader.OwnerCode, outboundDetail.QaStatus)
+			Table("inventories as i").
+			Joins("LEFT JOIN locations as l ON i.whs_code = l.whs_code AND i.location = l.location_code").
+			Where(`
+					i.item_id = ?
+					AND i.whs_code = ?
+					AND i.qty_available > 0
+					AND i.uom = ?
+					AND i.owner_code = ?
+					AND i.qa_status = ?
+					AND (
+						l.id IS NULL
+						OR (l.is_active = 1 AND l.is_pickable = 1)
+					)
+				`,
+				outboundDetail.ItemID,
+				outboundDetail.WhsCode,
+				uomConversion.ToUom,
+				outboundHeader.OwnerCode,
+				outboundDetail.QaStatus,
+			)
 
 		if invetoryPolicy.RequireLotNumber {
 			if outboundDetail.LotNumber == "" {
@@ -930,28 +958,52 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 					"error":   "Lot number is required",
 				})
 			}
-			queryInventory = queryInventory.Where("lot_number = ?", outboundDetail.LotNumber)
+			queryInventory = queryInventory.Where("i.lot_number = ?", outboundDetail.LotNumber)
 		}
 
 		if invetoryPolicy.UseLotNo && !invetoryPolicy.AllowMixedLot {
 			queryInventory = queryInventory.
-				Where("qty_available >= ?", qtyReq).
+				Where("i.qty_available >= ?", qtyReq).
 				Limit(1)
 		}
 
-		if invetoryPolicy.UseFEFO {
-			queryInventory = queryInventory.Order("exp_date, rec_date, qty_available, pallet, location ASC")
-		} else if invetoryPolicy.UseLotNo {
-			queryInventory = queryInventory.Order("lot_number, exp_date, rec_date, qty_available, pallet, location ASC")
-		} else if invetoryPolicy.RequireExpiryDate {
-			queryInventory = queryInventory.Order("exp_date, rec_date, qty_available, pallet, location ASC")
-		} else {
-			queryInventory = queryInventory.Order("rec_date, qty_available, pallet, location ASC")
+		if invetoryPolicy.AllocationLotByOrder {
+			if outboundDetail.LotNumber != "" {
+				queryInventory = queryInventory.
+					Where("i.lot_number = ? AND i.qty_available > 0", outboundDetail.LotNumber)
+			}
 		}
 
-		var inventories []models.Inventory
+		if invetoryPolicy.UseFEFO {
+			queryInventory = queryInventory.Order("i.exp_date, i.lot_number, i.rec_date, i.qty_available, i.pallet, i.location ASC")
+		} else {
+			queryInventory = queryInventory.Order("i.rec_date, i.qty_available, i.pallet, i.location ASC")
+		}
 
-		if err := queryInventory.Find(&inventories).Error; err != nil {
+		type InventoryWithLocation struct {
+			models.Inventory
+			LocationCode string
+			Row          string
+			Bay          string
+			Level        string
+			Bin          string
+			Area         string
+		}
+
+		// var inventories []models.Inventory
+		var inventories []InventoryWithLocation
+
+		if err := queryInventory.
+			Select(`
+				i.*,
+				l.location_code as location_code,
+				l.row as row,
+				l.bay as bay,
+				l.level as level,
+				l.bin as bin,
+				l.area as area
+			`).
+			Find(&inventories).Error; err != nil {
 			tx.Rollback()
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 				"error": fmt.Sprintf(
@@ -965,15 +1017,6 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 				),
 			})
 		}
-
-		// if err := tx.Debug().
-		// 	Where("item_id = ? AND whs_code = ? AND qty_available > 0 AND uom = ? AND owner_code = ?",
-		// 		outboundDetail.ItemID, outboundDetail.WhsCode, uomConversion.ToUom, outboundHeader.OwnerCode).
-		// 	Order("rec_date, pallet, location ASC").
-		// 	Find(&inventories).Error; err != nil {
-		// 	tx.Rollback()
-		// 	return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-		// }
 
 		if len(inventories) == 0 && invetoryPolicy.UseLotNo && !invetoryPolicy.AllowMixedLot {
 			tx.Rollback()
@@ -1030,6 +1073,7 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 				RecDate:          inventory.RecDate,
 				ExpDate:          inventory.ExpDate,
 				LotNumber:        inventory.LotNumber,
+				CaseNumber:       inventory.CaseNumber,
 				ProdDate:         inventory.ProdDate,
 				WhsCode:          inventory.WhsCode,
 				QaStatus:         inventory.QaStatus,

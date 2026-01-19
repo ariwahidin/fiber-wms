@@ -123,6 +123,7 @@ func (lc *LocationController) UpdateLocation(ctx *fiber.Ctx) error {
 	location.Bin = input.Bin
 	// location.Area = input.Area
 	location.IsActive = input.IsActive
+	location.IsPickable = input.IsPickable
 	location.UpdatedBy = userID
 
 	if err := lc.DB.Save(&location).Error; err != nil {
@@ -369,6 +370,7 @@ func (lc *LocationController) CreateLocationFromExcel(ctx *fiber.Ctx) error {
 			Bin:          bin,
 			Area:         area,
 			IsActive:     true,
+			IsPickable:   true,
 			CreatedBy:    userID,
 			UpdatedBy:    userID,
 		}
