@@ -341,7 +341,6 @@ func (c *InboundController) CreateInbound(ctx *fiber.Ctx) error {
 		}
 
 		var InboundDetail models.InboundDetail
-
 		var InboundReference models.InboundReference
 
 		if len(payload.References) == 1 {
@@ -364,6 +363,18 @@ func (c *InboundController) CreateInbound(ctx *fiber.Ctx) error {
 			}
 		}
 
+		if !InventoryPolicy.UseLotNo {
+			item.LotNumber = InboundHeader.InboundNo
+		}
+
+		if !InventoryPolicy.RequireExpiryDate {
+			item.ExpDate = item.RecDate
+		}
+
+		if !InventoryPolicy.UseProductionDate {
+			item.ProdDate = item.RecDate
+		}
+
 		InboundDetail.InboundNo = payload.InboundNo
 		InboundDetail.InboundId = int(inboundID)
 		InboundDetail.ItemCode = item.ItemCode
@@ -380,9 +391,10 @@ func (c *InboundController) CreateInbound(ctx *fiber.Ctx) error {
 		InboundDetail.ExpDate = item.ExpDate
 		InboundDetail.LotNumber = item.LotNumber
 		// InboundDetail.Remarks = item.Remarks
+		InboundDetail.RefNo = item.RefNo
 		InboundDetail.IsSerial = product.HasSerial
 		InboundDetail.RefId = int(InboundReference.ID)
-		InboundDetail.RefNo = item.RefNo
+		InboundDetail.RefNo = InboundReference.RefNo
 		InboundDetail.OwnerCode = payload.OwnerCode
 		InboundDetail.WhsCode = payload.WhsCode
 		// InboundDetail.DivisionCode = item.Division
@@ -656,6 +668,18 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 			var inboundDetail models.InboundDetail
 			err := tx.First(&inboundDetail, "id = ?", item.ID).Error
 
+			if !InventoryPolicy.UseLotNo {
+				item.LotNumber = InboundHeader.InboundNo
+			}
+
+			if !InventoryPolicy.RequireExpiryDate {
+				item.ExpDate = item.RecDate
+			}
+
+			if !InventoryPolicy.UseProductionDate {
+				item.ProdDate = item.RecDate
+			}
+
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				// Create new detail
 				newDetail := models.InboundDetail{
@@ -702,6 +726,22 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 						tx.Rollback()
 						return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Item " + inboundDetail.ItemCode + " already scanned, cannot update to " + item.ItemCode})
 					}
+
+					if inboundBarcode.ExpDate != item.ExpDate {
+						tx.Rollback()
+						return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Item " + item.ItemCode + " already scanned, cannot update Expiry Date"})
+					}
+
+					if inboundBarcode.LotNumber != item.LotNumber {
+						tx.Rollback()
+						return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Item " + item.ItemCode + " already scanned, cannot update Lot Number"})
+					}
+
+					if inboundBarcode.ProdDate != item.ProdDate {
+						tx.Rollback()
+						return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Item " + item.ItemCode + " already scanned, cannot update Production Date"})
+					}
+
 				}
 
 				if inboundBarcode.ItemID == product.ID {
@@ -954,6 +994,7 @@ func (c *InboundController) UpdateInboundByID_OLD(ctx *fiber.Ctx) error {
 			err := c.DB.Debug().First(&inboundDetail, "id = ?", item.ID).Error
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				// ❌ Tidak ditemukan → insert baru
+
 				newDetail := models.InboundDetail{
 					InboundId:     int(InboundHeader.ID),
 					InboundNo:     InboundHeader.InboundNo,
@@ -973,9 +1014,8 @@ func (c *InboundController) UpdateInboundByID_OLD(ctx *fiber.Ctx) error {
 					RefNo:         item.RefNo,
 					RefId:         item.RefId,
 					OwnerCode:     InboundHeader.OwnerCode,
-					// DivisionCode:  item.Division,
-					QaStatus:  item.QaStatus,
-					CreatedBy: int(ctx.Locals("userID").(float64)),
+					QaStatus:      item.QaStatus,
+					CreatedBy:     int(ctx.Locals("userID").(float64)),
 				}
 				if err := c.DB.Create(&newDetail).Error; err != nil {
 					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
@@ -997,7 +1037,6 @@ func (c *InboundController) UpdateInboundByID_OLD(ctx *fiber.Ctx) error {
 				inboundDetail.RefNo = item.RefNo
 				inboundDetail.RefId = item.RefId
 				inboundDetail.OwnerCode = InboundHeader.OwnerCode
-				// inboundDetail.DivisionCode = item.Division
 				inboundDetail.QaStatus = item.QaStatus
 				inboundDetail.UpdatedBy = int(ctx.Locals("userID").(float64))
 

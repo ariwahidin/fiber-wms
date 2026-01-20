@@ -160,6 +160,25 @@ func (c *ProductController) UpdateProduct(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	fmt.Println("Existing Product Item Code : ", product.ItemCode)
+	fmt.Println("Incoming Product Item Code : ", productInput.ItemCode)
+
+	if productInput.ItemCode != product.ItemCode || productInput.Uom != product.Uom || productInput.GMC != product.Barcode {
+
+		// Check item id any transaction
+		var inboundHeader models.InboundDetail
+		if err := c.DB.Where("item_id = ?", id).First(&inboundHeader).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				// return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Product not found"})
+			}
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+
+		if inboundHeader.ID > 0 {
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Item already used in transaction"})
+		}
+	}
+
 	Uom := models.Uom{}
 	c.DB.Where("code = ?", productInput.Uom).First(&Uom)
 	if Uom.ID == 0 {
@@ -278,6 +297,18 @@ func (c *ProductController) DeleteProduct(ctx *fiber.Ctx) error {
 			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Product not found"})
 		}
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	// Check item id any transaction
+	var inboundHeader models.InboundDetail
+	if err := c.DB.Where("item_id = ?", id).First(&inboundHeader).Error; err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+	}
+
+	if inboundHeader.ID > 0 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Item already used in transaction"})
 	}
 
 	// Hanya menyimpan field yang dipilih dengan menggunakan Select

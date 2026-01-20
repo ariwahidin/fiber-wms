@@ -43,6 +43,7 @@ type ListInbound struct {
 	TotalLine       int    `json:"total_line"`
 	TotalQty        int    `json:"total_qty"`
 	QtyScan         int    `json:"qty_scan"`
+	QtyPutaway      int    `json:"qty_putaway"`
 	TransporterName string `json:"transporter_name"`
 }
 
@@ -226,14 +227,20 @@ func (r *InboundRepository) GetAllInbound() ([]ListInbound, error) {
 	inbound_barcode AS(
 			select inbound_id, sum(quantity) as qty_scan from inbound_barcodes
 			group by inbound_id
+	),
+	inbound_putaway AS(
+			select inbound_id, sum(quantity) as qty_scan from inbound_barcodes
+			where status = 'in stock'
+			group by inbound_id
 	)
+
 			SELECT a.id, a.inbound_no, a.receipt_id,
 			c.supplier_name, a.owner_code,
 			a.driver, a.truck_id, a.no_truck, a.inbound_date,
 			a.container,
 			a.origin, a.arrival_time, a.start_unloading, a.end_unloading,
 			a.status, a.inbound_date, a.remarks as remarks_header,
-			b.total_line, b.total_qty, COALESCE(ib.qty_scan, 0) as qty_scan,
+			b.total_line, b.total_qty, COALESCE(ib.qty_scan, 0) as qty_scan, COALESCE(ipu.qty_scan, 0) as qty_putaway, 
 			c.supplier_name, a.status, d.transporter_name, a.type
 			FROM 
 			inbound_headers a
@@ -241,6 +248,7 @@ func (r *InboundRepository) GetAllInbound() ([]ListInbound, error) {
 			LEFT JOIN suppliers c ON a.supplier = c.supplier_code
 			LEFT JOIN transporters d ON a.transporter = d.transporter_code
 			LEFT JOIN inbound_barcode ib ON a.id = ib.inbound_id
+			LEFT JOIN inbound_putaway ipu ON a.id = ipu.inbound_id
 			ORDER BY a.created_at DESC`
 
 	if err := r.db.Raw(sql).Scan(&listInbound).Error; err != nil {
@@ -738,15 +746,29 @@ type resulInboundBarcodeByOutboundDetailID struct {
 	ItemID    uint   `json:"item_id"`
 	Status    string `json:"status"`
 	TotalScan int    `json:"total_scan"`
+	QaStatus  string `json:"qa_status"`
+	RecDate   string `json:"rec_date"`
+	ProdDate  string `json:"prod_date"`
+	LotNumber string `json:"lot_number"`
+	ExpDate   string `json:"exp_date"`
 }
 
 func (r *InboundRepository) GetInboundBarcodeByOutboundDetailID(outboundDetailID uint) (resulInboundBarcodeByOutboundDetailID, error) {
 
-	sql := `select a.inbound_detail_id, a.item_code, a.item_id, a.status, 
-		sum(a.quantity) as total_scan
+	// sql := `select a.inbound_detail_id, a.item_code, a.item_id, a.status,
+	// 	sum(a.quantity) as total_scan, a.qa_status, a.rec_date, a.prod_date, a.lot_number, a.exp_date
+	// 	from inbound_barcodes a
+	// 	where inbound_detail_id = ?
+	// 	group by a.inbound_detail_id, a.item_code, a.item_id, a.status, a.qa_status, a.rec_date, a.prod_date, a.lot_number, a.exp_date
+	// 	order by a.inbound_detail_id asc;`
+
+	sql := `select a.inbound_detail_id, a.item_code, a.item_id, a.status,
+		sum(a.quantity) as total_scan, a.qa_status, 
+		a.rec_date, a.prod_date, a.lot_number, a.exp_date
 		from inbound_barcodes a
 		where inbound_detail_id = ?
-		group by a.inbound_detail_id, a.item_code, a.item_id, a.status
+		group by a.inbound_detail_id, a.item_code, a.item_id, a.status, 
+		a.qa_status, a.rec_date, a.prod_date, a.lot_number, a.exp_date
 		order by a.inbound_detail_id asc;`
 
 	var result resulInboundBarcodeByOutboundDetailID
