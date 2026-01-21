@@ -93,6 +93,16 @@ func (c *MobileInboundController) CheckItem(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Item not found in UOM conversion", "message": "Item not found in UOM conversion"})
 	}
 
+	var inventory models.Inventory
+	if err := c.DB.Where("pallet = ?", scanInbound.Location).First(&inventory).Error; err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+	}
+	if inventory.ID > 0 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Pallet " + scanInbound.Location + " already putaway", "message": "Pallet " + scanInbound.Location + " already putaway"})
+	}
+
 	var inboundDetail []models.InboundDetail
 
 	if errID := c.DB.Where("inbound_id = ? AND item_code = ? AND uom = ?", inboundHeader.ID, uomConversion.ItemCode, uomConversion.FromUom).
@@ -656,7 +666,9 @@ func (c *MobileInboundController) CheckItemPutaway(ctx *fiber.Ctx) error {
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
 	case "completed":
-		if err := c.DB.Debug().Where("inbound_id = ? AND status = ?", inboundHeader.ID, "in stock").
+		if err := c.DB.Debug().
+			Where("inbound_id = ? AND status = ?", inboundHeader.ID, "in stock").
+			Order("created_at DESC").
 			Find(&inboundBarcodes).Error; err != nil {
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}

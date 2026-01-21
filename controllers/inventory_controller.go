@@ -609,6 +609,8 @@ func (c *InventoryController) TransferInventory(ctx *fiber.Ctx) error {
 	var input TransferInventoryInput
 	movementID := uuid.NewString()
 
+	isSplit := false
+
 	// Parse body
 	if err := ctx.BodyParser(&input); err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
@@ -655,6 +657,8 @@ func (c *InventoryController) TransferInventory(ctx *fiber.Ctx) error {
 			tx.Rollback()
 		}
 	}()
+
+	inventoryRepo := repositories.NewInventoryRepository(tx)
 
 	// Get source inventory
 	var sourceInventory models.Inventory
@@ -740,6 +744,10 @@ func (c *InventoryController) TransferInventory(ctx *fiber.Ctx) error {
 		})
 	}
 
+	if sourceInventory.QtyAvailable > input.QtyToTransfer {
+		isSplit = true
+	}
+
 	// Update source inventory - deduct quantity
 	sourceInventory.QtyOrigin -= input.QtyToTransfer
 	sourceInventory.QtyOnhand -= input.QtyToTransfer
@@ -822,6 +830,25 @@ func (c *InventoryController) TransferInventory(ctx *fiber.Ctx) error {
 			TransferFrom:    sourceInventory.ID,
 			CreatedBy:       userID,
 			UpdatedBy:       userID,
+		}
+
+		fmt.Println("QTY BEFORE ", sourceInventory.QtyAvailable)
+		fmt.Println("QTY TO TRANSFER ", input.QtyToTransfer)
+
+		if isSplit {
+
+			newPallet, err := inventoryRepo.GeneratePalletID()
+			if err != nil {
+				tx.Rollback()
+				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+					"success": false,
+					"error":   "Failed to generate new pallet ID",
+				})
+			}
+
+			newInventory.Pallet = newPallet
+		} else {
+			newInventory.Pallet = sourceInventory.Pallet
 		}
 
 		if err := tx.Create(&newInventory).Error; err != nil {
@@ -1293,6 +1320,7 @@ func (c *InventoryController) GetItemByLocation(ctx *fiber.Ctx) error {
 	a.uom as unit
 	from inventories a
 	inner join products b on a.item_id = b.id
+	where a.qty_available > 0 or a.qty_onhand > 0
 	group by 
 	b.id,
 	a.item_code,

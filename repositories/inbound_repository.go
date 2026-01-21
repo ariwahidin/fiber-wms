@@ -604,7 +604,7 @@ func (r *InboundRepository) ProcessPutawayItem(ctx *fiber.Ctx, inboundBarcodeID 
 				ExpDate:         barcode.ExpDate,
 				ProdDate:        barcode.ProdDate,
 				LotNumber:       barcode.LotNumber,
-				Trans:           "putaway",
+				Trans:           "INBOUND PUTAWAY",
 				CreatedBy:       int(userID),
 			}
 

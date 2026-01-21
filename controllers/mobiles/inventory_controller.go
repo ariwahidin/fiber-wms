@@ -243,13 +243,13 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 		newInventory.ItemCode = inventory.ItemCode
 		newInventory.Barcode = inventory.Barcode
 		newInventory.WhsCode = inventory.WhsCode
-		newInventory.Pallet = input.ToLocation
+		newInventory.Pallet = inventory.Pallet
 		newInventory.Location = input.ToLocation
 		newInventory.QaStatus = inventory.QaStatus
 		newInventory.QtyOrigin = inventory.QtyAvailable
 		newInventory.QtyOnhand = inventory.QtyAvailable
 		newInventory.QtyAvailable = inventory.QtyAvailable
-		newInventory.Trans = fmt.Sprintf("transfer from inventory_id : %d", inventory.ID)
+		newInventory.Trans = "TRANSFER"
 		newInventory.IsTransfer = true
 		newInventory.TransferFrom = inventory.ID
 		newInventory.RecDate = inventory.RecDate
@@ -399,6 +399,9 @@ func (c *MobileInventoryController) ConfirmTransferByInventoryID(ctx *fiber.Ctx)
 		}
 	}()
 
+	invetoryRepo := repositories.NewInventoryRepository(tx)
+	isSplit := false
+
 	var uomConversion models.UomConversion
 	if err := tx.Where("ean = ?", input.EanTransfer).First(&uomConversion).Error; err != nil {
 		tx.Rollback()
@@ -430,6 +433,10 @@ func (c *MobileInventoryController) ConfirmTransferByInventoryID(ctx *fiber.Ctx)
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Inventory not found or not available"})
 	}
 
+	if inventory.QtyAvailable > input.QtyTransfer {
+		isSplit = true
+	}
+
 	if inventory.Location != input.FromLocation {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Inventory not found or not available"})
 	}
@@ -454,13 +461,13 @@ func (c *MobileInventoryController) ConfirmTransferByInventoryID(ctx *fiber.Ctx)
 	newInventory.ItemCode = inventory.ItemCode
 	newInventory.Barcode = inventory.Barcode
 	newInventory.WhsCode = inventory.WhsCode
-	newInventory.Pallet = input.ToLocation
+	newInventory.Pallet = inventory.Pallet
 	newInventory.Location = input.ToLocation
 	newInventory.QaStatus = inventory.QaStatus
 	newInventory.QtyOrigin = float64(input.QtyTransfer)
 	newInventory.QtyOnhand = float64(input.QtyTransfer)
 	newInventory.QtyAvailable = float64(input.QtyTransfer)
-	newInventory.Trans = fmt.Sprintf("transfer from inventory_id : %d", inventory.ID)
+	newInventory.Trans = "TRANSFER"
 	newInventory.IsTransfer = true
 	newInventory.TransferFrom = inventory.ID
 	newInventory.RecDate = inventory.RecDate
@@ -470,6 +477,16 @@ func (c *MobileInventoryController) ConfirmTransferByInventoryID(ctx *fiber.Ctx)
 	newInventory.InventoryNumber = inventory.InventoryNumber
 	newInventory.CreatedAt = time.Now()
 	newInventory.CreatedBy = int(ctx.Locals("userID").(float64))
+
+	if isSplit {
+		newPallet, err := invetoryRepo.GeneratePalletID()
+		if err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+
+		newInventory.Pallet = newPallet
+	}
 
 	if err := tx.Create(&newInventory).Error; err != nil {
 		tx.Rollback()

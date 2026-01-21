@@ -1,6 +1,12 @@
 package repositories
 
 import (
+	"fiber-app/models"
+	"fmt"
+	"strconv"
+	"strings"
+	"time"
+
 	"gorm.io/gorm"
 )
 
@@ -167,4 +173,38 @@ func (r *InventoryRepository) GetStockByRequest(inbound_id int) ([]ResGetStockBy
 	}
 
 	return stock, nil
+}
+
+func (r *InventoryRepository) GeneratePalletID() (string, error) {
+	var lastPallet models.Inventory
+
+	// Get the last pallet created today to generate sequence number
+	today := time.Now()
+	// startOfDay := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, today.Location())
+
+	err := r.db.Where("pallet LIKE ?", fmt.Sprintf("PLT-%s-%%", today.Format("20060102"))).
+		Order("created_at DESC").
+		First(&lastPallet).Error
+
+	sequence := 1
+	if err == nil {
+		// Extract sequence number from last pallet ID
+		// Format: PLT-YYYYMMDD-XXXX
+		parts := strings.Split(lastPallet.Pallet, "-")
+		if len(parts) == 3 {
+			lastSeq, _ := strconv.Atoi(parts[2])
+			sequence = lastSeq + 1
+		}
+	} else if err != gorm.ErrRecordNotFound {
+		return "", err
+	}
+
+	// Generate new Pallet ID
+	// Format: PLT-YYYYMMDD-XXXX
+	// PLT = Pallet
+	// YYYYMMDD = Date
+	// XXXX = Sequential number (4 digits)
+	palletID := fmt.Sprintf("PLT-%s-%04d", today.Format("20060102"), sequence)
+
+	return palletID, nil
 }
