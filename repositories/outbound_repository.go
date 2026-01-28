@@ -195,7 +195,8 @@ type OutboundList struct {
 	TotalCBM     float64 `json:"total_cbm"`
 }
 
-func (r *OutboundRepository) GetAllOutboundList() ([]OutboundList, error) {
+// GetAllOutboundList retrieves outbound list with optional filters
+func (r *OutboundRepository) GetAllOutboundList(dateFrom, dateTo, status string) ([]OutboundList, error) {
 	var outboundList []OutboundList
 
 	sql := ` WITH od AS 
@@ -245,14 +246,107 @@ func (r *OutboundRepository) GetAllOutboundList() ([]OutboundList, error) {
             LEFT JOIN customers cs ON a.customer_code = cs.customer_code
 			LEFT JOIN customers cd ON a.deliv_to = cd.customer_code
 			LEFT JOIN ord ON a.id = ord.outbound_id
-			order by a.id desc`
+			WHERE 1=1`
 
-	if err := r.db.Raw(sql).Scan(&outboundList).Error; err != nil {
+	// Build dynamic WHERE clause
+	var params []interface{}
+
+	// Date From Filter (default: 7 days ago)
+	if dateFrom != "" {
+		sql += " AND a.outbound_date >= ?"
+		params = append(params, dateFrom)
+	} else {
+		// Default to last 7 days
+		defaultDateFrom := time.Now().AddDate(0, 0, -7).Format("2006-01-02")
+		sql += " AND a.outbound_date >= ?"
+		params = append(params, defaultDateFrom)
+	}
+
+	// Date To Filter (default: today)
+	if dateTo != "" {
+		sql += " AND a.outbound_date <= ?"
+		params = append(params, dateTo)
+	} else {
+		// Default to today
+		defaultDateTo := time.Now().Format("2006-01-02")
+		sql += " AND a.outbound_date <= ?"
+		params = append(params, defaultDateTo)
+	}
+
+	// Status Filter
+	if status != "" && status != "all" {
+		sql += " AND a.status = ?"
+		params = append(params, status)
+	}
+
+	sql += " ORDER BY a.id DESC"
+
+	// Execute query with parameters
+	if err := r.db.Raw(sql, params...).Scan(&outboundList).Error; err != nil {
 		return nil, err
 	}
 
 	return outboundList, nil
 }
+
+// func (r *OutboundRepository) GetAllOutboundList() ([]OutboundList, error) {
+// 	var outboundList []OutboundList
+
+// 	sql := ` WITH od AS
+// 	 (select outbound_id, count(outbound_id) as total_item, sum(p.cbm) as total_cbm,
+//     sum(quantity) as qty_req
+//     from outbound_details od
+// 	inner join products as p on od.item_id = p.id
+//     group by outbound_id),
+//    ps AS(
+// 		SELECT outbound_id, COUNT(item_id) AS total_item,
+// 		SUM(quantity) AS qty_plan
+// 		FROM outbound_pickings
+// 		GROUP BY outbound_id
+// 	),
+// 	kd AS(
+// 		SELECT outbound_id, SUM(quantity) AS qty_pack
+// 		FROM outbound_barcodes
+// 		GROUP BY outbound_id
+// 	),
+// 	ord AS (
+// 		SELECT
+// 		order_no, outbound_id, outbound_no
+// 		FROM
+// 		order_details
+// 	)
+//    select a.id, a.outbound_no,
+// 			a.shipment_id,
+// 			a.status, a.owner_code,
+// 			a.shipment_id,
+//             a.outbound_date,
+// 			ord.order_no,
+// 			a.customer_code,
+//             od.total_item, od.qty_req, COALESCE(ps.qty_plan, 0) AS qty_plan,
+//             COALESCE(kd.qty_pack, 0) AS qty_pack,
+//             cs.customer_name,
+// 			a.deliv_to,
+// 			cd.customer_name as deliv_to_name,
+// 			cd.cust_addr1 as deliv_address,
+// 			cd.cust_city as deliv_city,
+// 			a.qty_koli,
+// 			od.total_cbm,
+// 			od.total_item
+//             from outbound_headers a
+//             left join od on a.id = od.outbound_id
+//             LEFT JOIN ps ON a.id = ps.outbound_id
+//             LEFT JOIN kd ON a.id = kd.outbound_id
+//             LEFT JOIN customers cs ON a.customer_code = cs.customer_code
+// 			LEFT JOIN customers cd ON a.deliv_to = cd.customer_code
+// 			LEFT JOIN ord ON a.id = ord.outbound_id
+// 			order by a.id desc`
+
+// 	if err := r.db.Raw(sql).Scan(&outboundList).Error; err != nil {
+// 		return nil, err
+// 	}
+
+//		return outboundList, nil
+//	}
 func (r *OutboundRepository) GetAllOutboundListComplete() ([]OutboundList, error) {
 	var outboundList []OutboundList
 

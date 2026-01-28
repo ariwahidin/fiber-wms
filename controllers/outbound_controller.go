@@ -266,12 +266,37 @@ func (c *OutboundController) CreateOutbound(ctx *fiber.Ctx) error {
 	})
 }
 
+// func (c *OutboundController) GetOutboundList(ctx *fiber.Ctx) error {
+
+// 	outboundRepo := repositories.NewOutboundRepository(c.DB)
+// 	rawOutboundList, err := outboundRepo.GetAllOutboundList()
+// 	if err != nil {
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+// 	}
+
+// 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+// 		"success": true,
+// 		"message": "Outbound found",
+// 		"data":    rawOutboundList,
+// 	})
+// }
+
 func (c *OutboundController) GetOutboundList(ctx *fiber.Ctx) error {
+	// Get filter parameters from query string
+	dateFrom := ctx.Query("date_from") // Format: YYYY-MM-DD
+	dateTo := ctx.Query("date_to")     // Format: YYYY-MM-DD
+	status := ctx.Query("status")      // Values: all, open, picking, completed, cancel
 
 	outboundRepo := repositories.NewOutboundRepository(c.DB)
-	rawOutboundList, err := outboundRepo.GetAllOutboundList()
+
+	// Pass filter parameters to repository
+	rawOutboundList, err := outboundRepo.GetAllOutboundList(dateFrom, dateTo, status)
 	if err != nil {
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to retrieve outbound list",
+			"error":   err.Error(),
+		})
 	}
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
@@ -280,6 +305,7 @@ func (c *OutboundController) GetOutboundList(ctx *fiber.Ctx) error {
 		"data":    rawOutboundList,
 	})
 }
+
 func (c *OutboundController) GetOutboundListComplete(ctx *fiber.Ctx) error {
 
 	outboundRepo := repositories.NewOutboundRepository(c.DB)
