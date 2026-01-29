@@ -57,6 +57,17 @@ func main() {
 	app := fiber.New()
 	config.SetupCORS(app)
 
+	// ambil MAIN_ROUTES dari .env
+	mainRoutes := os.Getenv("MAIN_ROUTES") // /api/v1
+
+	// healthcheck
+	app.Get(mainRoutes+"/health", func(c *fiber.Ctx) error {
+		return c.Status(fiber.StatusOK).JSON(fiber.Map{
+			"status":  "ok",
+			"message": "Fiber WMS is healthy",
+		})
+	})
+
 	// middleware logger custom
 	app.Use(func(c *fiber.Ctx) error {
 		start := time.Now()
