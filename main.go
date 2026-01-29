@@ -53,7 +53,9 @@ func main() {
 		}
 	}()
 
+	config.LoadConfig()
 	app := fiber.New()
+	config.SetupCORS(app)
 
 	// middleware logger custom
 	app.Use(func(c *fiber.Ctx) error {
