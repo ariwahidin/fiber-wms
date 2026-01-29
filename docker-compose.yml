@@ -1,0 +1,11 @@
+version: "3.9"
+
+services:
+  fiber-wms:
+    build: .
+    container_name: fiber-wms
+    ports:
+      - "9000:9000"
+    env_file:
+      - ./.env
+    restart: unless-stopped
