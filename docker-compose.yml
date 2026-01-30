@@ -9,11 +9,3 @@ services:
     env_file:
       - ./.env
     restart: unless-stopped
-  fiber-wms-2:
-    build: .
-    container_name: fiber-wms-2
-    ports:
-      - "9001:9000"
-    env_file:
-      - ./.env
-    restart: unless-stopped
