@@ -780,7 +780,7 @@ func (c *MobileInventoryController) CreateRegisterProduct(ctx *fiber.Ctx) error 
 		First(&existingProduct).Error
 
 	if err == nil {
-		return ctx.Status(fiber.StatusConflict).JSON(fiber.Map{
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"success": false,
 			"message": "Product with this combination already exists",
 		})
@@ -952,7 +952,7 @@ func (c *MobileInventoryController) UpdateProduct(ctx *fiber.Ctx) error {
 		First(&existingProduct).Error
 
 	if err == nil {
-		return ctx.Status(fiber.StatusConflict).JSON(fiber.Map{
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"success": false,
 			"message": "Product with this combination already exists",
 		})
