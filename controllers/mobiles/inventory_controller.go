@@ -818,20 +818,47 @@ func (c *MobileInventoryController) CreateRegisterProduct(ctx *fiber.Ctx) error 
 func (c *MobileInventoryController) GetAllProducts(ctx *fiber.Ctx) error {
 	var products []models.ProductRegister
 
-	// Query untuk mendapatkan semua produk, diurutkan berdasarkan created_at terbaru
-	if err := c.DB.Order("created_at DESC").Find(&products).Error; err != nil {
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+	err := c.DB.
+		Table("product_registers").
+		Select(`
+			product_registers.*,
+			users.name AS created_by_name
+		`).
+		Joins("LEFT JOIN users ON users.id = product_registers.created_by").
+		Order("product_registers.created_at DESC").
+		Find(&products).Error
+
+	if err != nil {
+		return ctx.Status(500).JSON(fiber.Map{
 			"success": false,
 			"message": "Failed to fetch products",
 		})
 	}
 
-	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+	return ctx.JSON(fiber.Map{
 		"success": true,
 		"message": "Products fetched successfully",
 		"data":    products,
 	})
 }
+
+// func (c *MobileInventoryController) GetAllProducts(ctx *fiber.Ctx) error {
+// 	var products []models.ProductRegister
+
+// 	// Query untuk mendapatkan semua produk, diurutkan berdasarkan created_at terbaru
+// 	if err := c.DB.Order("created_at DESC").Find(&products).Error; err != nil {
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+// 			"success": false,
+// 			"message": "Failed to fetch products",
+// 		})
+// 	}
+
+// 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+// 		"success": true,
+// 		"message": "Products fetched successfully",
+// 		"data":    products,
+// 	})
+// }
 
 // GetProductByID - Endpoint untuk mendapatkan produk berdasarkan ID
 func (c *MobileInventoryController) GetProductByID(ctx *fiber.Ctx) error {

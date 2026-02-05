@@ -92,13 +92,14 @@ type ItemPackaging struct {
 
 type ProductRegister struct {
 	gorm.Model
-	OwnerCode string `json:"owner_code"`
-	SKU       string `json:"sku"`
-	UnitModel string `json:"unit_model"`
-	Ean       string `json:"ean"`
-	Uom       string `json:"uom"`
-	CreatedBy int
-	CreatedAt time.Time
-	UpdatedBy int
-	UpdatedAt time.Time
+	OwnerCode     string `json:"owner_code"`
+	SKU           string `json:"sku"`
+	UnitModel     string `json:"unit_model"`
+	Ean           string `json:"ean"`
+	Uom           string `json:"uom"`
+	CreatedBy     int
+	CreatedByName string `json:"created_by_name" gorm:"column:created_by_name;->"`
+	CreatedAt     time.Time
+	UpdatedBy     int
+	UpdatedAt     time.Time
 }
