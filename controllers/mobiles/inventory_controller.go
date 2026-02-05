@@ -813,3 +813,180 @@ func (c *MobileInventoryController) CreateRegisterProduct(ctx *fiber.Ctx) error 
 		"data":    newProduct,
 	})
 }
+
+// GetAllProducts - Endpoint untuk mendapatkan semua produk
+func (c *MobileInventoryController) GetAllProducts(ctx *fiber.Ctx) error {
+	var products []models.ProductRegister
+
+	// Query untuk mendapatkan semua produk, diurutkan berdasarkan created_at terbaru
+	if err := c.DB.Order("created_at DESC").Find(&products).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to fetch products",
+		})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": "Products fetched successfully",
+		"data":    products,
+	})
+}
+
+// GetProductByID - Endpoint untuk mendapatkan produk berdasarkan ID
+func (c *MobileInventoryController) GetProductByID(ctx *fiber.Ctx) error {
+	id := ctx.Params("id")
+
+	var product models.ProductRegister
+	if err := c.DB.First(&product, id).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"success": false,
+				"message": "Product not found",
+			})
+		}
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to fetch product",
+		})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": "Product fetched successfully",
+		"data":    product,
+	})
+}
+
+// UpdateProduct - Endpoint untuk update produk
+func (c *MobileInventoryController) UpdateProduct(ctx *fiber.Ctx) error {
+	id := ctx.Params("id")
+
+	var req RegisterProductRequest
+	if err := ctx.BodyParser(&req); err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "Invalid request body",
+		})
+	}
+
+	// Validasi input
+	if req.OwnerCode == "" || req.SKU == "" || req.UnitModel == "" || req.Ean == "" || req.Uom == "" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "All fields are required",
+		})
+	}
+
+	// Normalize input
+	req.OwnerCode = strings.ToUpper(strings.TrimSpace(req.OwnerCode))
+	req.SKU = strings.ToUpper(strings.TrimSpace(req.SKU))
+	req.UnitModel = strings.ToUpper(strings.TrimSpace(req.UnitModel))
+	req.Ean = strings.ToUpper(strings.TrimSpace(req.Ean))
+	req.Uom = strings.ToUpper(strings.TrimSpace(req.Uom))
+
+	// Cek apakah produk ada
+	var product models.ProductRegister
+	if err := c.DB.First(&product, id).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"success": false,
+				"message": "Product not found",
+			})
+		}
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to fetch product",
+		})
+	}
+
+	// Validasi owner exists
+	var ownerExists models.Owner
+	if err := c.DB.Where("code = ?", req.OwnerCode).First(&ownerExists).Error; err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "Owner code not found",
+		})
+	}
+
+	// Validasi UOM exists
+	var uomExists models.Uom
+	if err := c.DB.Where("code = ?", req.Uom).First(&uomExists).Error; err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "UOM not found",
+		})
+	}
+
+	// Cek apakah kombinasi sudah ada di produk lain (bukan produk yang sedang diupdate)
+	var existingProduct models.ProductRegister
+	err := c.DB.Where("owner_code = ? AND sku = ? AND unit_model = ? AND ean = ? AND uom = ? AND id != ?",
+		req.OwnerCode, req.SKU, req.UnitModel, req.Ean, req.Uom, id).
+		First(&existingProduct).Error
+
+	if err == nil {
+		return ctx.Status(fiber.StatusConflict).JSON(fiber.Map{
+			"success": false,
+			"message": "Product with this combination already exists",
+		})
+	}
+
+	// Get user ID from context
+	userID := int(ctx.Locals("userID").(float64))
+
+	// Update product
+	product.OwnerCode = req.OwnerCode
+	product.SKU = req.SKU
+	product.UnitModel = req.UnitModel
+	product.Ean = req.Ean
+	product.Uom = req.Uom
+	product.UpdatedBy = userID
+	product.UpdatedAt = time.Now()
+
+	if err := c.DB.Save(&product).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to update product",
+		})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": "Product updated successfully",
+		"data":    product,
+	})
+}
+
+// DeleteProduct - Endpoint untuk hapus produk
+func (c *MobileInventoryController) DeleteProduct(ctx *fiber.Ctx) error {
+	id := ctx.Params("id")
+
+	// Cek apakah produk ada
+	var product models.ProductRegister
+	if err := c.DB.First(&product, id).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"success": false,
+				"message": "Product not found",
+			})
+		}
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to fetch product",
+		})
+	}
+
+	// Hapus produk
+	if err := c.DB.Delete(&product).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to delete product",
+		})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": "Product deleted successfully",
+		"data":    product,
+	})
+}
