@@ -588,3 +588,48 @@ func (c *MobileOutboundController) DeleteOutboundBarcode(ctx *fiber.Ctx) error {
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Item deleted successfully"})
 }
+
+func (c *MobileOutboundController) GetCartonNoByOutboundNo(ctx *fiber.Ctx) error {
+	outboundNo := ctx.Params("outbound_no")
+
+	// Validasi parameter
+	if outboundNo == "" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "Outbound number is required",
+		})
+	}
+
+	var cartons []struct {
+		PackCtnNo string  `json:"pack_ctn_no"`
+		Quantity  float64 `json:"qty"`
+		Count     int64   `json:"count"`
+	}
+
+	// Query untuk mendapatkan PackCtnNo yang di-group by
+	err := c.DB.Model(&models.OutboundBarcode{}).
+		Select("pack_ctn_no, SUM(quantity) as quantity, COUNT(*) as count").
+		Where("outbound_no = ? AND pack_ctn_no != ? AND pack_ctn_no != ?", outboundNo, "", "0").
+		Group("pack_ctn_no").
+		Order("pack_ctn_no ASC").
+		Find(&cartons).Error
+
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to fetch carton data",
+			"error":   err.Error(),
+		})
+	}
+
+	// Return response
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": "Carton data retrieved successfully",
+		"data": fiber.Map{
+			"outbound_no": outboundNo,
+			"cartons":     cartons,
+			"total":       len(cartons),
+		},
+	})
+}

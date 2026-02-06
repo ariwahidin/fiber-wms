@@ -71,6 +71,7 @@ func SetupMobileOutboundRoutes(app *fiber.App) {
 	api.Delete("/outbound/picking/scan/:id", mobileOutboundController.DeleteOutboundBarcode)
 	api.Get("/outbound/picking/list/:outbound_no", mobileOutboundController.GetPickingList)
 	api.Post("/outbound/picking/override/:id", mobileOutboundController.OverridePicking)
+	api.Get("/outbound/:outbound_no/cartons", mobileOutboundController.GetCartonNoByOutboundNo)
 }
 
 func SetupMobileShippingGuestRoutes(app *fiber.App, shippingGuestController *mobiles.ShippingGuestController) {
