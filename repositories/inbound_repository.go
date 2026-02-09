@@ -820,10 +820,15 @@ func (r *InboundRepository) UpdateStatusInbound(ctx *fiber.Ctx, inboundHeaderID 
 
 	statusInbound := "fully received"
 	if qtyRequest != qtyReceived {
-		if qtyReceived == 0 {
+
+		if inboundHeader.Status == "open" {
 			statusInbound = "checking"
 		} else {
-			statusInbound = "partially received"
+			if qtyReceived == 0 {
+				statusInbound = "checking"
+			} else {
+				statusInbound = "partially received"
+			}
 		}
 	}
 

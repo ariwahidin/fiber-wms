@@ -2450,6 +2450,27 @@ func (c *InboundController) parseDetailsFromExcel(rows [][]string, policy models
 		detail.ItemCode = strings.TrimSpace(getCell(row, 6))
 		detail.UOM = strings.TrimSpace(getCell(row, 7))
 
+		// Validate ItemCode and UomConverison is Exists
+		var product models.Product
+		if err := c.DB.First(&product, "item_code = ? AND owner_code = ?", detail.ItemCode, policy.OwnerCode).Error; err != nil {
+			errors = append(errors, ValidationError{
+				Field:   "ItemCode",
+				Message: "Product not found for item code: " + detail.ItemCode,
+				Row:     rowNum,
+			})
+			continue
+		}
+
+		var uomConversion models.UomConversion
+		if err := c.DB.First(&uomConversion, "item_code = ? AND from_uom = ?", product.ItemCode, detail.UOM).Error; err != nil {
+			errors = append(errors, ValidationError{
+				Field:   "UOM",
+				Message: "UOM Conversion not found for item code: " + detail.ItemCode,
+				Row:     rowNum,
+			})
+			continue
+		}
+
 		qtyStr := strings.TrimSpace(getCell(row, 8))
 		if qtyStr != "" {
 			qty, err := strconv.ParseFloat(qtyStr, 64)
