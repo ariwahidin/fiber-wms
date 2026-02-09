@@ -2476,22 +2476,31 @@ func (c *InboundController) parseDetailsFromExcel(rows [][]string, policy models
 
 		ProdDate, err := getCellAsDateStrict(row, 12)
 		if err != nil {
-			errors = append(errors, ValidationError{
-				Field:   "ProdDate",
-				Message: "Invalid ProdDate format: " + ProdDate,
-				Row:     rowNum,
-			})
-			continue
+			if !policy.UseProductionDate {
+				ProdDate = ""
+			} else {
+				errors = append(errors, ValidationError{
+					Field:   "ProdDate",
+					Message: "Invalid ProdDate format: " + ProdDate,
+					Row:     rowNum,
+				})
+				continue
+			}
 		}
 
 		ExpDate, err := getCellAsDateStrict(row, 13)
 		if err != nil {
-			errors = append(errors, ValidationError{
-				Field:   "ExpDate",
-				Message: "Invalid ExpDate format: " + ExpDate,
-				Row:     rowNum,
-			})
-			continue
+
+			if !policy.UseFEFO {
+				ExpDate = ""
+			} else {
+				errors = append(errors, ValidationError{
+					Field:   "ExpDate",
+					Message: "Invalid ExpDate format: " + ExpDate,
+					Row:     rowNum,
+				})
+				continue
+			}
 		}
 
 		detail.Location = strings.TrimSpace(getCell(row, 9))
