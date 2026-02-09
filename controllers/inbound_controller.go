@@ -1542,41 +1542,40 @@ func (r *InboundController) HandleChecking(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Inbound " + payload.InboundNo + " is not open", "message": "Inbound not open"})
 	}
 
-	userID := int(ctx.Locals("userID").(float64))
-	now := time.Now()
+	// userID := int(ctx.Locals("userID").(float64))
+	// now := time.Now()
 
-	err := r.DB.Model(&InboundHeader).Updates(map[string]interface{}{
-		"status":       "checking",
-		"raw_status":   "CONFIRMED",
-		"confirm_time": now,
-		"confirm_by":   userID,
-		"updated_at":   now,
-		"updated_by":   userID,
-		"checking_at":  now,
-		"checking_by":  userID,
-	}).Error
+	// err := r.DB.Model(&InboundHeader).Updates(map[string]interface{}{
+	// 	"status":       "checking",
+	// 	"raw_status":   "CONFIRMED",
+	// 	"confirm_time": now,
+	// 	"confirm_by":   userID,
+	// 	"updated_at":   now,
+	// 	"updated_by":   userID,
+	// 	"checking_at":  now,
+	// 	"checking_by":  userID,
+	// }).Error
 
-	if err != nil {
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": err.Error(),
-		})
-	}
+	// if err != nil {
+	// 	return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+	// 		"error": err.Error(),
+	// 	})
+	// }
 
-	errHistory := helpers.InsertTransactionHistory(
-		r.DB,
-		payload.InboundNo, // RefNo
-		"checking",        // Status
-		"INBOUND",         // Type
-		"",                // Detail
-		userID,            // CreatedBy / UpdatedBy
-	)
-	if errHistory != nil {
-		log.Println("Gagal insert history:", errHistory)
-	}
+	// errHistory := helpers.InsertTransactionHistory(
+	// 	r.DB,
+	// 	payload.InboundNo, // RefNo
+	// 	"checking",        // Status
+	// 	"INBOUND",         // Type
+	// 	"",                // Detail
+	// 	userID,            // CreatedBy / UpdatedBy
+	// )
+	// if errHistory != nil {
+	// 	log.Println("Gagal insert history:", errHistory)
+	// }
 
 	inboundRepo := repositories.NewInboundRepository(r.DB)
-
-	err = inboundRepo.UpdateStatusInbound(ctx, InboundHeader.ID)
+	err := inboundRepo.UpdateStatusInbound(ctx, InboundHeader.ID)
 	if err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": err.Error(),
