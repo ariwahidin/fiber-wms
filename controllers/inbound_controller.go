@@ -673,11 +673,11 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 			}
 
 			if !InventoryPolicy.RequireExpiryDate {
-				item.ExpDate = item.RecDate
+				// item.ExpDate = item.RecDate
 			}
 
 			if !InventoryPolicy.UseProductionDate {
-				item.ProdDate = item.RecDate
+				// item.ProdDate = item.RecDate
 			}
 
 			if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -1327,6 +1327,7 @@ func (c *InboundController) PutawayByInboundNo(ctx *fiber.Ctx) error {
 			}
 
 			for _, detail := range inboundDetail {
+
 				newInboundBarcode := models.InboundBarcode{
 					InboundId:       int(inboundHeader.ID),
 					InboundDetailId: int(detail.ID),
