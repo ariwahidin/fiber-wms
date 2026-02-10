@@ -2171,7 +2171,17 @@ func (c *InboundController) CreateInboundFromExcelFile(ctx *fiber.Ctx) error {
 	userID := int(ctx.Locals("userID").(float64))
 
 	// Validate inbound date format
-	// headerInfo.InboundDate, err =
+	inboundDate, err := getValidDate(headerInfo.InboundDate)
+	if err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(ExcelUploadResponse{
+			Success: false,
+			Message: "Invalid inbound date format",
+			ValidationErrors: []ValidationError{
+				{Field: "InboundDate", Message: err.Error(), Row: 1},
+			},
+		})
+	}
+	headerInfo.InboundDate = inboundDate
 
 	// Validate inventory policy
 	var inventoryPolicy models.InventoryPolicy
@@ -2802,11 +2812,36 @@ func getCellAsDateStrict(row []string, index int) (string, error) {
 	return "", fmt.Errorf("invalid date format: %s", cellValue)
 }
 
-// func getCellAsDate(stringValue string) (string, error) {
-// 	stringValue = strings.TrimSpace(stringValue)
-// 	if stringValue == "" {
-// 		return "",
-// 	}
+func getValidDate(stringValue string) (string, error) {
+	if stringValue == "" {
+		return "", fmt.Errorf("date value is empty")
+	}
+	// Try parsing as Excel serial date
+	if days, err := strconv.ParseFloat(stringValue, 64); err == nil {
+		excelEpoch := time.Date(1899, 12, 30, 0, 0, 0, 0, time.UTC)
+		date := excelEpoch.Add(time.Duration(days * 24 * float64(time.Hour)))
+		return date.Format("2006-01-02"), nil
+	}
+	// Try parsing as string date
+	dateFormats := []string{
+		"2006-01-02",
+		"02/01/2006",
+		"01/02/2006",
+		"2/1/2006",
+		"1/2/2006",
+		"2006/01/02",
+		"02-01-2006",
+		"01-02-2006",
+		"2-Jan-06",
+		"2-January-2006",
+	}
+	for _, format := range dateFormats {
+		if t, err := time.Parse(format, stringValue); err == nil {
+			return t.Format("2006-01-02"), nil
+		}
+	}
+	return "", fmt.Errorf("invalid date format: %s", stringValue)
+}
 
 // =======================================
 // END IMPORT FROM EXCEL FILE
