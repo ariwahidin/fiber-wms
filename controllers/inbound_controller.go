@@ -1287,10 +1287,10 @@ func (c *InboundController) PutawayByInboundNo(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	var inboundBarcodesCheck01 []models.InboundBarcode
-	if err := c.DB.Debug().Where("inbound_id = ?", inboundHeader.ID).Find(&inboundBarcodesCheck01).Error; err != nil {
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-	}
+	// var inboundBarcodesCheck01 []models.InboundBarcode
+	// if err := c.DB.Debug().Where("inbound_id = ?", inboundHeader.ID).Find(&inboundBarcodesCheck01).Error; err != nil {
+	// 	return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	// }
 
 	var invPolicy models.InventoryPolicy
 	if err := c.DB.Debug().First(&invPolicy, "owner_code = ?", inboundHeader.OwnerCode).Error; err != nil {
@@ -1306,28 +1306,43 @@ func (c *InboundController) PutawayByInboundNo(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Cannot putaway from your side, please putaway from scanner"})
 	}
 
-	if len(inboundBarcodesCheck01) == 0 {
-		var inboundDetail []models.InboundDetail
-		if err := c.DB.Debug().Where("inbound_id = ?", inboundHeader.ID).Find(&inboundDetail).Error; err != nil {
-			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	var inboundDetail []models.InboundDetail
+	if err := c.DB.Debug().Where("inbound_id = ?", inboundHeader.ID).Find(&inboundDetail).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	if !invPolicy.RequireReceiveScan {
+
+		var allRcvLocationIsFilled bool = true
+		for _, detail := range inboundDetail {
+			if detail.Location == "" {
+				allRcvLocationIsFilled = false
+				break
+			}
 		}
 
-		if !invPolicy.RequireReceiveScan {
+		if !allRcvLocationIsFilled {
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Please fill all receiving location before putaway"})
+		}
 
-			var allRcvLocationIsFilled bool = true
-			for _, detail := range inboundDetail {
-				if detail.Location == "" {
-					allRcvLocationIsFilled = false
-					break
-				}
+		for _, detail := range inboundDetail {
+
+			var inboundBarcodesCheck []models.InboundBarcode
+			if err := c.DB.Debug().Where("inbound_detail_id = ?", detail.ID).Find(&inboundBarcodesCheck).Error; err != nil {
+				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 			}
 
-			if !allRcvLocationIsFilled {
-				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Please fill all receiving location before putaway"})
+			totalQtyReq := detail.Quantity
+			totalQtyScanned := float64(0)
+			newQtyScanned := float64(0)
+
+			for _, inboundBarcode := range inboundBarcodesCheck {
+				totalQtyScanned += inboundBarcode.Quantity
 			}
 
-			for _, detail := range inboundDetail {
+			newQtyScanned = totalQtyReq - totalQtyScanned
 
+			if newQtyScanned > 0 {
 				newInboundBarcode := models.InboundBarcode{
 					InboundId:       int(inboundHeader.ID),
 					InboundDetailId: int(detail.ID),
@@ -1338,7 +1353,7 @@ func (c *InboundController) PutawayByInboundNo(ctx *fiber.Ctx) error {
 					SerialNumber:    detail.Barcode,
 					Pallet:          detail.Location,
 					Location:        detail.Location,
-					Quantity:        detail.Quantity,
+					Quantity:        newQtyScanned,
 					WhsCode:         detail.WhsCode,
 					OwnerCode:       detail.OwnerCode,
 					DivisionCode:    detail.DivisionCode,
@@ -1357,9 +1372,91 @@ func (c *InboundController) PutawayByInboundNo(ctx *fiber.Ctx) error {
 				}
 			}
 
+			// newInboundBarcode := models.InboundBarcode{
+			// 	InboundId:       int(inboundHeader.ID),
+			// 	InboundDetailId: int(detail.ID),
+			// 	ItemCode:        detail.ItemCode,
+			// 	ItemID:          detail.ItemId,
+			// 	ScanData:        detail.Barcode,
+			// 	Barcode:         detail.Barcode,
+			// 	SerialNumber:    detail.Barcode,
+			// 	Pallet:          detail.Location,
+			// 	Location:        detail.Location,
+			// 	Quantity:        detail.Quantity,
+			// 	WhsCode:         detail.WhsCode,
+			// 	OwnerCode:       detail.OwnerCode,
+			// 	DivisionCode:    detail.DivisionCode,
+			// 	QaStatus:        detail.QaStatus,
+			// 	Status:          "pending",
+			// 	Uom:             detail.Uom,
+			// 	RecDate:         detail.RecDate,
+			// 	ProdDate:        detail.ProdDate,
+			// 	ExpDate:         detail.ExpDate,
+			// 	LotNumber:       detail.LotNumber,
+			// 	CreatedBy:       int(ctx.Locals("userID").(float64)),
+			// }
+
+			// if err := c.DB.Debug().Create(&newInboundBarcode).Error; err != nil {
+			// 	return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+			// }
 		}
 
 	}
+
+	// if len(inboundBarcodesCheck01) == 0 {
+	// 	var inboundDetail []models.InboundDetail
+	// 	if err := c.DB.Debug().Where("inbound_id = ?", inboundHeader.ID).Find(&inboundDetail).Error; err != nil {
+	// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	// 	}
+
+	// 	if !invPolicy.RequireReceiveScan {
+
+	// 		var allRcvLocationIsFilled bool = true
+	// 		for _, detail := range inboundDetail {
+	// 			if detail.Location == "" {
+	// 				allRcvLocationIsFilled = false
+	// 				break
+	// 			}
+	// 		}
+
+	// 		if !allRcvLocationIsFilled {
+	// 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Please fill all receiving location before putaway"})
+	// 		}
+
+	// 		for _, detail := range inboundDetail {
+
+	// 			newInboundBarcode := models.InboundBarcode{
+	// 				InboundId:       int(inboundHeader.ID),
+	// 				InboundDetailId: int(detail.ID),
+	// 				ItemCode:        detail.ItemCode,
+	// 				ItemID:          detail.ItemId,
+	// 				ScanData:        detail.Barcode,
+	// 				Barcode:         detail.Barcode,
+	// 				SerialNumber:    detail.Barcode,
+	// 				Pallet:          detail.Location,
+	// 				Location:        detail.Location,
+	// 				Quantity:        detail.Quantity,
+	// 				WhsCode:         detail.WhsCode,
+	// 				OwnerCode:       detail.OwnerCode,
+	// 				DivisionCode:    detail.DivisionCode,
+	// 				QaStatus:        detail.QaStatus,
+	// 				Status:          "pending",
+	// 				Uom:             detail.Uom,
+	// 				RecDate:         detail.RecDate,
+	// 				ProdDate:        detail.ProdDate,
+	// 				ExpDate:         detail.ExpDate,
+	// 				LotNumber:       detail.LotNumber,
+	// 				CreatedBy:       int(ctx.Locals("userID").(float64)),
+	// 			}
+
+	// 			if err := c.DB.Debug().Create(&newInboundBarcode).Error; err != nil {
+	// 				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	// 			}
+	// 		}
+
+	// 	}
+
+	// }
 
 	var inboundBarcodes []models.InboundBarcode
 	if err := c.DB.Debug().Where("inbound_id = ? AND status = ?", inboundHeader.ID, "pending").Find(&inboundBarcodes).Error; err != nil {
@@ -2073,6 +2170,9 @@ func (c *InboundController) CreateInboundFromExcelFile(ctx *fiber.Ctx) error {
 	// Get user ID
 	userID := int(ctx.Locals("userID").(float64))
 
+	// Validate inbound date format
+	// headerInfo.InboundDate, err =
+
 	// Validate inventory policy
 	var inventoryPolicy models.InventoryPolicy
 	if err := c.DB.Where("owner_code = ?", headerInfo.OwnerCode).First(&inventoryPolicy).Error; err != nil {
@@ -2701,6 +2801,12 @@ func getCellAsDateStrict(row []string, index int) (string, error) {
 
 	return "", fmt.Errorf("invalid date format: %s", cellValue)
 }
+
+// func getCellAsDate(stringValue string) (string, error) {
+// 	stringValue = strings.TrimSpace(stringValue)
+// 	if stringValue == "" {
+// 		return "",
+// 	}
 
 // =======================================
 // END IMPORT FROM EXCEL FILE
