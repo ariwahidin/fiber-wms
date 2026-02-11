@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"encoding/json"
 	"errors"
 	"fiber-app/controllers/helpers"
 	"fiber-app/models"
@@ -8,6 +9,9 @@ import (
 	"fiber-app/types"
 	"fmt"
 	"log"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -2673,4 +2677,538 @@ func (c *OutboundController) validateOutboundProducts(tx *gorm.DB, details []Exc
 
 //======================================================================
 // END PROCESS UPLOAD OUTBOUND FROM EXCEL
+//======================================================================
+
+//======================================================================
+// BEGIN PROCESS OUTBOUND FROM PDF
+//======================================================================
+
+// ParseResult represents the response from Python parser
+type ParseResult struct {
+	Success bool                `json:"success"`
+	Data    *ParsedOutboundData `json:"data,omitempty"`
+	Error   string              `json:"error,omitempty"`
+}
+
+// ParsedOutboundData represents the extracted data from PDF
+type ParsedOutboundData struct {
+	DocNo             string `json:"docNo"`
+	Vendor            string `json:"vendor"`
+	ItemName          string `json:"itemName"`
+	SKU               string `json:"sku"`
+	BatchNo           string `json:"batchNo"`
+	Qty               string `json:"qty"`
+	Location          string `json:"location"`
+	ConsignmentPeriod string `json:"consignmentPeriod"`
+}
+
+// OutboundCreateRequest represents the final request to create outbound
+type OutboundCreateRequest struct {
+	DocNo             string `json:"docNo" validate:"required"`
+	Vendor            string `json:"vendor" validate:"required"`
+	ItemName          string `json:"itemName" validate:"required"`
+	SKU               string `json:"sku" validate:"required"`
+	BatchNo           string `json:"batchNo" validate:"required"`
+	Qty               int    `json:"qty" validate:"required,min=1"`
+	Location          string `json:"location" validate:"required"`
+	ConsignmentPeriod string `json:"consignmentPeriod,omitempty"`
+}
+
+// ParseOutboundFromPDFFile parses PDF file and extracts outbound data
+func (c *OutboundController) ParseOutboundFromPDFFile(ctx *fiber.Ctx) error {
+	// Get uploaded file
+	file, err := ctx.FormFile("pdf")
+	if err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"error":   "No PDF file provided",
+		})
+	}
+
+	// Validate file type
+	if filepath.Ext(file.Filename) != ".pdf" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"error":   "Only PDF files are allowed",
+		})
+	}
+
+	// Create temp directory if not exists
+	tempDir := "./temp"
+	if err := os.MkdirAll(tempDir, 0755); err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"error":   "Failed to create temp directory",
+		})
+	}
+
+	// Save file to temp location
+	timestamp := time.Now().UnixNano()
+	tempFilePath := filepath.Join(tempDir, fmt.Sprintf("upload_%d.pdf", timestamp))
+
+	if err := ctx.SaveFile(file, tempFilePath); err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"error":   "Failed to save uploaded file",
+		})
+	}
+
+	// Clean up temp file after processing
+	defer os.Remove(tempFilePath)
+
+	// Call Python parser
+	result, err := c.callPythonParser(tempFilePath)
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"error":   fmt.Sprintf("Failed to parse PDF: %s", err.Error()),
+		})
+	}
+
+	// Return parsed result
+	return ctx.JSON(result)
+}
+
+// callPythonParser executes Python script and returns parsed data
+func (c *OutboundController) callPythonParser(pdfPath string) (*ParseResult, error) {
+	// Path to Python script (adjust this path according to your setup)
+	pythonScript := "./scripts/parse_consignment_pdf.py"
+
+	// Check if Python script exists
+	if _, err := os.Stat(pythonScript); os.IsNotExist(err) {
+		return nil, fmt.Errorf("Python parser script not found at %s", pythonScript)
+	}
+
+	// Execute Python script
+	cmd := exec.Command("python", pythonScript, pdfPath)
+	// cmd := exec.Command("python --version")
+
+	// Capture output
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("Python execution failed: %s, output: %s", err.Error(), string(output))
+	}
+
+	// Parse JSON result
+	var result ParseResult
+	if err := json.Unmarshal(output, &result); err != nil {
+		return nil, fmt.Errorf("Failed to parse Python output: %s, raw output: %s", err.Error(), string(output))
+	}
+
+	return &result, nil
+}
+
+// CreateOutbound creates a new outbound order (example implementation)
+// func (c *OutboundController) CreateOutboundFromPDF(ctx *fiber.Ctx) error {
+// 	var req OutboundCreateRequest
+
+// 	if err := ctx.BodyParser(&req); err != nil {
+// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+// 			"success": false,
+// 			"error":   "Invalid request body",
+// 		})
+// 	}
+
+// 	// Validate request
+// 	// You can use a validation library like go-playground/validator
+// 	// if err := validate.Struct(req); err != nil {
+// 	//     return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+// 	//         "success": false,
+// 	//         "error":   err.Error(),
+// 	//     })
+// 	// }
+
+// 	// TODO: Implement your business logic here
+// 	// - Save to database
+// 	// - Create inventory transactions
+// 	// - Send notifications, etc.
+
+// 	return ctx.JSON(fiber.Map{
+// 		"success": true,
+// 		"message": "Outbound order created successfully",
+// 		"data": fiber.Map{
+// 			"docNo":  req.DocNo,
+// 			"vendor": req.Vendor,
+// 			"qty":    req.Qty,
+// 		},
+// 	})
+// }
+
+// ValidationError represents a single validation error
+// type ValidationError struct {
+// 	Field   string `json:"field"`
+// 	Message string `json:"message"`
+// }
+
+// OutboundFromPdfPayload represents the data from PDF upload
+type OutboundFromPdfPayload struct {
+	DocNo             string `form:"docNo"`
+	Vendor            string `form:"vendor"`
+	ItemName          string `form:"itemName"`
+	SKU               string `form:"sku"`
+	BatchNo           string `form:"batchNo"`
+	Qty               string `form:"qty"`
+	Location          string `form:"location"`
+	ConsignmentPeriod string `form:"consignmentPeriod"`
+}
+
+// CreateOutboundFromPdf handles PDF-based outbound order creation with comprehensive validation
+func (c *OutboundController) CreateOutboundFromPdf(ctx *fiber.Ctx) error {
+	var payload OutboundFromPdfPayload
+	var validationErrors []ValidationError
+
+	// Parse form data
+	if err := ctx.BodyParser(&payload); err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "Invalid payload",
+			"error":   err.Error(),
+		})
+	}
+
+	fmt.Println("Create Outbound From PDF Payload:", payload)
+
+	// Collect all validation errors before returning
+	validationErrors = c.validateOutboundFromPdf(payload)
+
+	// If there are validation errors, return them all at once
+	if len(validationErrors) > 0 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": fmt.Sprintf("Validation failed with %d error(s)", len(validationErrors)),
+			"errors":  validationErrors,
+		})
+	}
+
+	// Convert quantity to integer
+	qty, err := strconv.Atoi(payload.Qty)
+	if err != nil {
+		validationErrors = append(validationErrors, ValidationError{
+			Field:   "qty",
+			Message: "Quantity must be a valid number",
+		})
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "Invalid quantity format",
+			"errors":  validationErrors,
+		})
+	}
+
+	// Start database transaction
+	tx := c.DB.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	fmt.Println("Start DB Transaction for PDF Outbound")
+
+	ownerCode := "YUWELL" // Assuming owner code is fixed for this example
+	// Validate and get inventory policy
+	var inventoryPolicy models.InventoryPolicy
+	if err := tx.Where("owner_code = ?", ownerCode).First(&inventoryPolicy).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			validationErrors = append(validationErrors, ValidationError{
+				Field:   "vendor",
+				Message: fmt.Sprintf("Vendor/Owner '%s' not found in inventory policy", ownerCode),
+			})
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"success": false,
+				"message": "Inventory Policy not found",
+				"errors":  validationErrors,
+			})
+		}
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to get inventory policy",
+			"error":   err.Error(),
+		})
+	}
+
+	// Validate product/item exists
+	var product models.Product
+	if err := tx.Where("item_code = ?", payload.SKU).First(&product).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			validationErrors = append(validationErrors, ValidationError{
+				Field:   "sku",
+				Message: fmt.Sprintf("Product with SKU '%s' not found", payload.SKU),
+			})
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"success": false,
+				"message": "Product not found",
+				"errors":  validationErrors,
+			})
+		}
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to get product",
+			"error":   err.Error(),
+		})
+	}
+
+	// Validate item name matches product
+	if product.ItemName != payload.ItemName {
+		validationErrors = append(validationErrors, ValidationError{
+			Field: "itemName",
+			Message: fmt.Sprintf("Item name '%s' does not match product name '%s' for SKU '%s'",
+				payload.ItemName, product.ItemName, payload.SKU),
+		})
+	}
+
+	// Validate vendor matches customer
+	var customer models.Customer
+	if err := tx.Where("customer_code = ?", payload.Vendor).First(&customer).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			validationErrors = append(validationErrors, ValidationError{
+				Field:   "vendor",
+				Message: fmt.Sprintf("Vendor/Customer '%s' not found", payload.Vendor),
+			})
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"success": false,
+				"message": "Vendor/Customer not found",
+				"errors":  validationErrors,
+			})
+		}
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to get customer",
+			"error":   err.Error(),
+		})
+	}
+
+	// Check lot number requirement
+	// if inventoryPolicy.RequireLotNumber && payload.BatchNo == "" {
+	// 	validationErrors = append(validationErrors, ValidationError{
+	// 		Field:   "batchNo",
+	// 		Message: "Batch/Lot number is required for this vendor",
+	// 	})
+	// }
+
+	// If there are validation errors after all checks, return them
+	if len(validationErrors) > 0 {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": fmt.Sprintf("Validation failed with %d error(s)", len(validationErrors)),
+			"errors":  validationErrors,
+		})
+	}
+
+	// Generate outbound number
+	repositories := repositories.NewOutboundRepository(tx)
+	outboundNo, err := repositories.GenerateOutboundNumber()
+	if err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to generate outbound number",
+			"error":   err.Error(),
+		})
+	}
+
+	fmt.Println("Generated Outbound No:", outboundNo)
+
+	// Get user ID from context
+	userID := int(ctx.Locals("userID").(float64))
+
+	// Create outbound header
+	var outboundHeader models.OutboundHeader
+	outboundHeader.OutboundNo = outboundNo
+	outboundHeader.OutboundDate = time.Now().Format("2006-01-02")
+	outboundHeader.ShipmentID = payload.DocNo // Using DocNo as ShipmentID
+	outboundHeader.WhsCode = "WH-B"           // You may need to adjust this based on your requirements
+	outboundHeader.OwnerCode = ownerCode
+	outboundHeader.CustomerCode = customer.CustomerCode
+	outboundHeader.CustAddress = customer.CustAddr1
+	outboundHeader.CustCity = customer.CustCity
+	outboundHeader.DelivTo = customer.CustomerCode
+	outboundHeader.DelivAddress = customer.CustAddr1
+	outboundHeader.DelivCity = customer.CustCity
+	outboundHeader.Remarks = fmt.Sprintf("Created from PDF - Consignment Period: %s", payload.ConsignmentPeriod)
+	outboundHeader.CreatedBy = userID
+	outboundHeader.UpdatedBy = userID
+	outboundHeader.Status = "open"
+	outboundHeader.RawStatus = "DRAFT"
+	outboundHeader.DraftTime = time.Now()
+	outboundHeader.DelivAddress = payload.Location
+	outboundHeader.CreatedAt = time.Now()
+	outboundHeader.UpdatedAt = time.Now()
+
+	// Insert outbound header
+	if err := tx.Create(&outboundHeader).Error; err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to create outbound header",
+			"error":   err.Error(),
+		})
+	}
+
+	// Get the default UOM for the product
+	var uomConversion models.UomConversion
+	if err := tx.Where("item_code = ?", product.ItemCode).First(&uomConversion).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			validationErrors = append(validationErrors, ValidationError{
+				Field:   "sku",
+				Message: fmt.Sprintf("UOM conversion not found for product SKU '%s'", payload.SKU),
+			})
+			tx.Rollback()
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"success": false,
+				"message": "UOM conversion not found",
+				"errors":  validationErrors,
+			})
+		}
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to get UOM conversion",
+			"error":   err.Error(),
+		})
+	}
+
+	// Create outbound detail
+	var outboundDetail models.OutboundDetail
+	outboundDetail.OutboundNo = outboundNo
+	outboundDetail.OutboundID = outboundHeader.ID
+	outboundDetail.ItemCode = product.ItemCode
+	outboundDetail.ItemID = int(product.ID)
+	outboundDetail.Barcode = uomConversion.Ean
+	outboundDetail.Uom = uomConversion.FromUom
+	outboundDetail.Quantity = float64(qty)
+	outboundDetail.LotNumber = payload.BatchNo
+	outboundDetail.WhsCode = outboundHeader.WhsCode
+	outboundDetail.DivisionCode = "REGULAR"
+	outboundDetail.Location = payload.Location
+	outboundDetail.QaStatus = "A"
+	outboundDetail.SNCheck = "N"
+	outboundDetail.OwnerCode = "YUWELL"
+	outboundDetail.Remarks = fmt.Sprintf("From PDF: %s", payload.DocNo)
+	outboundDetail.CreatedBy = userID
+	outboundDetail.UpdatedBy = userID
+
+	// Insert outbound detail
+	if err := tx.Create(&outboundDetail).Error; err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to create outbound detail",
+			"error":   err.Error(),
+		})
+	}
+
+	fmt.Println("Outbound created successfully, ID:", outboundHeader.ID)
+
+	// Commit transaction
+	if err := tx.Commit().Error; err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to commit transaction",
+			"error":   err.Error(),
+		})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": "Outbound order created successfully from PDF",
+		"data": fiber.Map{
+			"outbound_id": outboundHeader.ID,
+			"outbound_no": outboundNo,
+		},
+	})
+}
+
+// validateOutboundFromPdf performs comprehensive validation and returns all errors at once
+func (c *OutboundController) validateOutboundFromPdf(payload OutboundFromPdfPayload) []ValidationError {
+	var errors []ValidationError
+
+	// Validate Document Number
+	if payload.DocNo == "" {
+		errors = append(errors, ValidationError{
+			Field:   "docNo",
+			Message: "Document number is required",
+		})
+	} else if len(payload.DocNo) < 3 {
+		errors = append(errors, ValidationError{
+			Field:   "docNo",
+			Message: "Document number must be at least 3 characters",
+		})
+	}
+
+	// Validate Vendor
+	if payload.Vendor == "" {
+		errors = append(errors, ValidationError{
+			Field:   "vendor",
+			Message: "Vendor/Goods Owner is required",
+		})
+	}
+
+	// Validate Item Name
+	if payload.ItemName == "" {
+		errors = append(errors, ValidationError{
+			Field:   "itemName",
+			Message: "Item name is required",
+		})
+	}
+
+	// Validate SKU
+	if payload.SKU == "" {
+		errors = append(errors, ValidationError{
+			Field:   "sku",
+			Message: "SKU is required",
+		})
+	}
+
+	// Validate Batch Number
+	if payload.BatchNo == "" {
+		errors = append(errors, ValidationError{
+			Field:   "batchNo",
+			Message: "Batch number is required",
+		})
+	}
+
+	// Validate Quantity
+	if payload.Qty == "" {
+		errors = append(errors, ValidationError{
+			Field:   "qty",
+			Message: "Quantity is required",
+		})
+	} else {
+		qty, err := strconv.Atoi(payload.Qty)
+		if err != nil {
+			errors = append(errors, ValidationError{
+				Field:   "qty",
+				Message: "Quantity must be a valid number",
+			})
+		} else if qty <= 0 {
+			errors = append(errors, ValidationError{
+				Field:   "qty",
+				Message: "Quantity must be greater than zero",
+			})
+		}
+	}
+
+	// Validate Location
+	if payload.Location == "" {
+		errors = append(errors, ValidationError{
+			Field:   "location",
+			Message: "Storage location is required",
+		})
+	} else if len(payload.Location) < 10 {
+		errors = append(errors, ValidationError{
+			Field:   "location",
+			Message: "Storage location must be at least 10 characters",
+		})
+	}
+
+	return errors
+}
+
+//======================================================================
+// END PROCESS OUTBOUND FROM PDF
 //======================================================================

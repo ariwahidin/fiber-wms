@@ -48,6 +48,10 @@ func SetupOutboundRoutes(app *fiber.App) {
 	api.Get("/packing/all/", outboundController.GetAllPacking)
 	api.Get("/:id/packing/:packing_no", outboundController.GetPackingItems)
 
+	// Parse PDF endpoint
+	api.Post("/parse-pdf", outboundController.ParseOutboundFromPDFFile)
+	api.Post("/create-from-pdf", outboundController.CreateOutboundFromPdf)
+
 	// api.Post("/order", outboundController.CreateOrder)
 
 	// api.Put("/:id", outboundController.SaveOutbound)
