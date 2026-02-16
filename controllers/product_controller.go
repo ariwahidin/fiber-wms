@@ -41,6 +41,7 @@ var productInput struct {
 	ManualBook string  `json:"manual_book" validate:"required,min=1"`
 	Uom        string  `json:"uom" validate:"required,min=3"`
 	OwnerCode  string  `json:"owner_code" validate:"required,min=3"`
+	UserDef1   string  `json:"user_def1" gorm:"default:null"`
 }
 
 func (c *ProductController) CreateProduct(ctx *fiber.Ctx) error {
@@ -207,6 +208,7 @@ func (c *ProductController) UpdateProduct(ctx *fiber.Ctx) error {
 			"manual_book": productInput.ManualBook,
 			"uom":         productInput.Uom,
 			"owner_code":  productInput.OwnerCode,
+			"user_def1":   productInput.UserDef1,
 			"updated_at":  time.Now(),
 			"updated_by":  int(ctx.Locals("userID").(float64)),
 		}).Error; err != nil {

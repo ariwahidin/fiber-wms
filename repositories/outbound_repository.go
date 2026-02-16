@@ -895,6 +895,7 @@ type PackingItem struct {
 	QtyScan         int       `json:"qty_scan"`
 	BarcodeScan     string    `json:"barcode_scan"`
 	PackCtnNo       string    `json:"pack_ctn_no"`
+	UserDef1        string    `json:"user_def1"`
 }
 
 func (r *OutboundRepository) GetPackingItemsList(outboundID int, packingNo string) ([]PackingItem, error) {
@@ -932,7 +933,8 @@ func (r *OutboundRepository) GetPackingItemsList(outboundID int, packingNo strin
                 h.transporter_code,
 				a.uom_scan,
 				SUM(a.qty_data_scan) as qty_scan,
-				a.barcode_data_scan as barcode_scan
+				a.barcode_data_scan as barcode_scan,
+				b.user_def1
         FROM outbound_barcodes a
         INNER JOIN products b ON a.item_id = b.id
         INNER JOIN outbound_packings c ON a.packing_id = c.id
@@ -970,7 +972,8 @@ func (r *OutboundRepository) GetPackingItemsList(outboundID int, packingNo strin
                 c.created_at,
 				a.uom_scan,
 				a.barcode_data_scan,
-				a.pack_ctn_no
+				a.pack_ctn_no,
+				b.user_def1
         ORDER BY a.pack_ctn_no ASC
 	`
 

@@ -58,18 +58,33 @@ def parse_consignment_memo(pdf_path):
             data['sku'] = sku
             
             # Batch Number
-            batch_pattern = r'Batch\s+No\s*/\s*SKU\s*[:：]\s*(RE202\d+)'
-            batch = extract_field(full_text, batch_pattern)
-            # Try to handle OCR errors
-            if not batch:
-                alt_batch_pattern = r'Batch\s+No\s*/\s*SKU\s*[:：]\s*([RE0-9OIl\s]+?)\s*[/I]'
-                batch_raw = extract_field(full_text, alt_batch_pattern)
-                if batch_raw:
-                    # Clean OCR errors
-                    batch = batch_raw.replace('O', '0').replace('I', '1').replace('l', '1').replace(' ', '')
-                    # Ensure it starts with RE
-                    if not batch.startswith('RE'):
-                        batch = 'RE' + ''.join(c for c in batch if c.isdigit())
+            # batch_pattern = r'Batch\s+No\s*/\s*SKU\s*[:：]\s*(RE202\d+)'
+            # batch = extract_field(full_text, batch_pattern)
+            # # Try to handle OCR errors
+            # if not batch:
+            #     alt_batch_pattern = r'Batch\s+No\s*/\s*SKU\s*[:：]\s*\d+\s*/\s*([RE0-9OIl\s]+?)\s*[/I]'
+            #     batch_raw = extract_field(full_text, alt_batch_pattern)
+            #     if batch_raw:
+            #         # Clean OCR errors
+            #         batch = batch_raw.replace('O', '0').replace('I', '1').replace('l', '1').replace(' ', '')
+            #         # Ensure it starts with RE
+            #         if not batch.startswith('RE'):
+            #             batch = 'RE' + ''.join(c for c in batch if c.isdigit())
+            # data['batchNo'] = batch
+            
+            # 1. Cari batch number langsung (posisi bebas)
+            batch_pattern = r'\bRE202[0-9OIl]{3,}\b'
+            match = re.search(batch_pattern, full_text)
+
+            if match:
+                # 2. Bersihin hasil OCR
+                batch = (
+                    match.group()
+                    .replace('O', '0')
+                    .replace('I', '1')
+                    .replace('l', '1')
+                )
+
             data['batchNo'] = batch
             
             # Quantity (extract number from "180 Box (1 Carton)" or "360 Box (2 Carton)")
