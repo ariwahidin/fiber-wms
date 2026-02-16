@@ -19,6 +19,7 @@ func RunSeeders(db *gorm.DB) {
 	SeedUserMaster(db)
 	SeedCategory(db)
 	// SeedDivision(db)
+	SeedMasterCartons(db)
 }
 
 func SeedUnit(db *gorm.DB) {
@@ -77,39 +78,6 @@ func SeedUoms(db *gorm.DB) {
 		}
 	}
 }
-
-// func SeedWarehouse(db *gorm.DB) {
-// 	warehouses := []models.Warehouse{
-// 		{Code: "CKY", Name: "Warehouse 1", Description: "Warehouse Cakung"},
-// 		{Code: "NGK", Name: "Warehouse 2", Description: "Warehouse Nagrak"},
-// 	}
-
-// 	for _, w := range warehouses {
-// 		var existing models.Warehouse
-// 		if err := db.Where("code = ?", w.Code).First(&existing).Error; err != nil {
-// 			if err == gorm.ErrRecordNotFound {
-// 				w.ID = types.SnowflakeID(idgen.GenerateID())
-// 				db.Create(&w)
-// 			}
-// 		}
-// 	}
-// }
-
-// func SeedDivision(db *gorm.DB) {
-// 	divisions := []models.Division{
-// 		{Code: "REGULAR", Name: "REGULAR", Description: "REGULAR"},
-// 	}
-
-// 	for _, d := range divisions {
-// 		var existing models.Division
-// 		if err := db.Where("code = ?", d.Code).First(&existing).Error; err != nil {
-// 			if err == gorm.ErrRecordNotFound {
-// 				d.ID = types.SnowflakeID(idgen.GenerateID())
-// 				db.Create(&d)
-// 			}
-// 		}
-// 	}
-// }
 
 func SeedMenus(db *gorm.DB) error {
 	menus := []models.Menu{
@@ -191,3 +159,101 @@ func getMenuIDByName(db *gorm.DB, name string) *uint {
 	}
 	return nil
 }
+
+func SeedMasterCartons(db *gorm.DB) error {
+	masterCartons := []models.MasterCarton{
+		{
+			CartonCode:  "CTN-01",
+			CartonName:  "Carton 01",
+			Description: "Small carton for lightweight items",
+			Length:      30,
+			Width:       20,
+			Height:      15,
+			MaxWeight:   5,
+			TareWeight:  0.5,
+			IsActive:    true,
+			IsDefault:   false,
+			Material:    "Cardboard",
+			Color:       "Brown",
+		},
+		// {
+		// 	CartonCode:  "CTN-MEDIUM",
+		// 	CartonName:  "Medium Box",
+		// 	Description: "Standard medium-sized carton",
+		// 	Length:      40,
+		// 	Width:       30,
+		// 	Height:      25,
+		// 	MaxWeight:   10,
+		// 	TareWeight:  0.8,
+		// 	IsActive:    true,
+		// 	IsDefault:   true, // Default carton
+		// 	Material:    "Cardboard",
+		// 	Color:       "Brown",
+		// },
+		// {
+		// 	CartonCode:  "CTN-LARGE",
+		// 	CartonName:  "Large Box",
+		// 	Description: "Large carton for bulky items",
+		// 	Length:      60,
+		// 	Width:       40,
+		// 	Height:      40,
+		// 	MaxWeight:   20,
+		// 	TareWeight:  1.2,
+		// 	IsActive:    true,
+		// 	IsDefault:   false,
+		// 	Material:    "Cardboard",
+		// 	Color:       "Brown",
+		// },
+		// {
+		// 	CartonCode:  "CTN-XLARGE",
+		// 	CartonName:  "Extra Large Box",
+		// 	Description: "Extra large carton for very bulky items",
+		// 	Length:      80,
+		// 	Width:       60,
+		// 	Height:      50,
+		// 	MaxWeight:   30,
+		// 	TareWeight:  2.0,
+		// 	IsActive:    true,
+		// 	IsDefault:   false,
+		// 	Material:    "Cardboard",
+		// 	Color:       "Brown",
+		// },
+		// {
+		// 	CartonCode:  "CTN-CUSTOM",
+		// 	CartonName:  "Custom Box",
+		// 	Description: "Custom sized carton",
+		// 	Length:      50,
+		// 	Width:       35,
+		// 	Height:      30,
+		// 	MaxWeight:   15,
+		// 	TareWeight:  1.0,
+		// 	IsActive:    true,
+		// 	IsDefault:   false,
+		// 	Material:    "Cardboard",
+		// 	Color:       "White",
+		// },
+	}
+
+	for _, carton := range masterCartons {
+		// Check if carton already exists
+		var existing models.MasterCarton
+		err := db.Where("carton_code = ?", carton.CartonCode).First(&existing).Error
+
+		if err == gorm.ErrRecordNotFound {
+			// Create new carton
+			if err := db.Create(&carton).Error; err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// RunSeeders - Run all seeders
+// func RunSeeders(db *gorm.DB) error {
+// 	if err := SeedMasterCartons(db); err != nil {
+// 		return err
+// 	}
+// 	return nil
+// }

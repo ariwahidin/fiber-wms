@@ -70,5 +70,6 @@ func MigrateBusinessUnit(db *gorm.DB) error {
 		&models.LoginConflict{},
 
 		&models.ProductRegister{},
+		&models.MasterCarton{},
 	)
 }

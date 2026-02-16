@@ -228,6 +228,8 @@ func (c *MobileOutboundController) ScanPicking(ctx *fiber.Ctx) error {
 		SerialNo   string  `json:"serial_no"`
 		Qty        float64 `json:"qty"`
 		Uom        string  `json:"uom"`
+		CartonID   uint    `json:"carton_id"`
+		CartonCode string  `json:"carton_code"`
 	}
 
 	if err := ctx.BodyParser(&scanOutbound); err != nil {
@@ -383,6 +385,15 @@ func (c *MobileOutboundController) ScanPicking(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Quantity exceeds the limit"})
 	}
 
+	var carton models.MasterCarton
+	errCarton := c.DB.Where("id = ?", scanOutbound.CartonID).First(&carton).Error
+	if errCarton != nil {
+		if errors.Is(errCarton, gorm.ErrRecordNotFound) {
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Carton not found"})
+		}
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": errCarton.Error()})
+	}
+
 	outboundBarcode := models.OutboundBarcode{
 		OutboundId:       outboundHeader.ID,
 		OutboundNo:       outboundHeader.OutboundNo,
@@ -402,6 +413,14 @@ func (c *MobileOutboundController) ScanPicking(ctx *fiber.Ctx) error {
 		LocationScan:     scanOutbound.Location,
 		UomScan:          uomConversion.FromUom,
 		IsSerial:         product.HasSerial == "Y",
+		CartonID:         scanOutbound.CartonID,
+		CartonCode:       scanOutbound.CartonCode,
+		CtnLength:        carton.Length,
+		CtnWidth:         carton.Width,
+		CtnHeight:        carton.Height,
+		CtnVolume:        carton.Volume,
+		CtnMaxWeight:     carton.MaxWeight,
+		CtnTareWeight:    carton.TareWeight,
 		CreatedBy:        int(ctx.Locals("userID").(float64)),
 	}
 
@@ -604,13 +623,14 @@ func (c *MobileOutboundController) GetCartonNoByOutboundNo(ctx *fiber.Ctx) error
 		PackCtnNo string  `json:"pack_ctn_no"`
 		Quantity  float64 `json:"qty"`
 		Count     int64   `json:"count"`
+		CartonID  uint    `json:"carton_id"`
 	}
 
 	// Query untuk mendapatkan PackCtnNo yang di-group by
 	err := c.DB.Model(&models.OutboundBarcode{}).
-		Select("pack_ctn_no, SUM(quantity) as quantity, COUNT(*) as count").
+		Select("pack_ctn_no, SUM(quantity) as quantity, COUNT(*) as count, carton_id").
 		Where("outbound_no = ? AND pack_ctn_no != ? AND pack_ctn_no != ?", outboundNo, "", "0").
-		Group("pack_ctn_no").
+		Group("pack_ctn_no, carton_id").
 		Order("pack_ctn_no ASC").
 		Find(&cartons).Error
 
@@ -631,5 +651,192 @@ func (c *MobileOutboundController) GetCartonNoByOutboundNo(ctx *fiber.Ctx) error
 			"cartons":     cartons,
 			"total":       len(cartons),
 		},
+	})
+}
+
+// GetCarton - Get cartons for specific outbound
+func (c *MobileOutboundController) GetCarton(ctx *fiber.Ctx) error {
+	outboundNo := ctx.Params("outbound_no")
+
+	if outboundNo == "" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "Outbound number is required",
+		})
+	}
+
+	var cartons []struct {
+		PackCtnNo string `json:"pack_ctn_no"`
+		Qty       int    `json:"qty"`
+		Count     int    `json:"count"`
+	}
+
+	// Query untuk mendapatkan list karton berdasarkan outbound_no
+	// Sesuaikan dengan struktur tabel Anda
+	err := c.DB.Table("outbound_details").
+		Select("pack_ctn_no, SUM(qty) as qty, COUNT(DISTINCT item_id) as count").
+		Where("outbound_no = ? AND pack_ctn_no IS NOT NULL AND pack_ctn_no != ''", outboundNo).
+		Group("pack_ctn_no").
+		Order("pack_ctn_no ASC").
+		Scan(&cartons).Error
+
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to fetch carton data",
+			"error":   err.Error(),
+		})
+	}
+
+	total := 0
+	for _, carton := range cartons {
+		total += carton.Qty
+	}
+
+	return ctx.JSON(fiber.Map{
+		"success": true,
+		"message": "Carton data retrieved successfully",
+		"data": fiber.Map{
+			"outbound_no": outboundNo,
+			"cartons":     cartons,
+			"total":       total,
+		},
+	})
+}
+
+// GetMasterCartons - Get list of active master cartons
+func (c *MobileOutboundController) GetMasterCartons(ctx *fiber.Ctx) error {
+	var masterCartons []models.MasterCarton
+
+	// Query master cartons yang aktif, diurutkan berdasarkan default dan nama
+	err := c.DB.Where("is_active = ?", true).
+		Order("is_default DESC, carton_name ASC").
+		Find(&masterCartons).Error
+
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to fetch master cartons",
+			"error":   err.Error(),
+		})
+	}
+
+	// Convert to response format
+	responses := make([]models.MasterCartonResponse, len(masterCartons))
+	for i, mc := range masterCartons {
+		responses[i] = mc.ToResponse()
+	}
+
+	return ctx.JSON(fiber.Map{
+		"success": true,
+		"message": "Master cartons retrieved successfully",
+		"data":    responses,
+	})
+}
+
+// GetMasterCartonByID - Get specific master carton by ID
+func (c *MobileOutboundController) GetMasterCartonByID(ctx *fiber.Ctx) error {
+	id := ctx.Params("id")
+
+	var masterCarton models.MasterCarton
+
+	err := c.DB.Where("id = ? AND is_active = ?", id, true).
+		First(&masterCarton).Error
+
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"success": false,
+				"message": "Master carton not found",
+			})
+		}
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to fetch master carton",
+			"error":   err.Error(),
+		})
+	}
+
+	return ctx.JSON(fiber.Map{
+		"success": true,
+		"message": "Master carton retrieved successfully",
+		"data":    masterCarton.ToResponse(),
+	})
+}
+
+// UpdateCartonTypeRequest - Request body untuk update carton type
+type UpdateCartonTypeRequest struct {
+	OutboundNo  string `json:"outbound_no" validate:"required"`
+	PackCtnNo   string `json:"pack_ctn_no" validate:"required"`
+	NewCartonID uint   `json:"new_carton_id" validate:"required"`
+}
+
+// EditCartonTypeByOrderNoAndPackNo - Update carton type untuk semua item dalam carton tertentu
+func (c *MobileOutboundController) EditCartonTypeByOrderNoAndPackNo(ctx *fiber.Ctx) error {
+	var req UpdateCartonTypeRequest
+
+	// Parse request body
+	if err := ctx.BodyParser(&req); err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "Invalid request body",
+			"error":   err.Error(),
+		})
+	}
+
+	// Validasi required fields
+	if req.OutboundNo == "" || req.PackCtnNo == "" || req.NewCartonID == 0 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "outbound_no, pack_ctn_no, and new_carton_id are required",
+		})
+	}
+
+	var carton models.MasterCarton
+	err := c.DB.Where("id = ?", req.NewCartonID).
+		First(&carton).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"success": false,
+				"message": "Master carton not found",
+			})
+		}
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to fetch master carton",
+			"error":   err.Error(),
+		})
+	}
+
+	var outboundBarcode models.OutboundBarcode
+	err = c.DB.Where("outbound_no = ? AND pack_ctn_no = ?", req.OutboundNo, req.PackCtnNo).
+		First(&outboundBarcode).Error
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to fetch outbound barcodes",
+			"error":   err.Error(),
+		})
+	}
+
+	err = c.DB.Model(&models.OutboundBarcode{}).
+		Where("outbound_id = ? AND pack_ctn_no = ?", outboundBarcode.OutboundId, outboundBarcode.PackCtnNo).
+		Updates(map[string]interface{}{
+			"carton_id":       req.NewCartonID,
+			"carton_code":     carton.CartonCode,
+			"ctn_length":      carton.Length,
+			"ctn_width":       carton.Width,
+			"ctn_height":      carton.Height,
+			"ctn_volume":      carton.Volume,
+			"ctn_max_weight":  carton.MaxWeight,
+			"ctn_tare_weight": carton.TareWeight,
+			"updated_at":      time.Now(),
+			"updated_by":      int(ctx.Locals("userID").(float64)),
+		}).Error
+
+	return ctx.JSON(fiber.Map{
+		"success": true,
+		"message": "Carton type updated successfully",
 	})
 }

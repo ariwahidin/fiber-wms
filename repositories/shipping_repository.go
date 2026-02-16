@@ -50,7 +50,7 @@ func (r *ShippingRepository) GetAllOutboundList() ([]OutboundList, error) {
 		GROUP BY outbound_id
 	),
 	kd AS(
-		SELECT outbound_id, SUM(quantity) AS qty_pack
+		SELECT outbound_id, SUM(quantity) AS qty_pack, count( distinct pack_ctn_no) as total_ctn
 		FROM outbound_barcodes
 		GROUP BY outbound_id
 	)
@@ -67,7 +67,7 @@ func (r *ShippingRepository) GetAllOutboundList() ([]OutboundList, error) {
 			cd.customer_name as deliv_to_name,
 			cd.cust_addr1 as deliv_address,
 			cd.cust_city as deliv_city,
-			a.qty_koli,
+			COALESCE(kd.total_ctn, 0) as qty_koli,
 			ROUND(od.total_cbm, 4) as total_cbm,
 			od.total_item,
 			ps.qty_plan as total_qty,

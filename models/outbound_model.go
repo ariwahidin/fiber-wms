@@ -209,6 +209,14 @@ type OutboundBarcode struct {
 	LocationScan     string  `json:"location_scan"`
 	UomScan          string  `json:"uom_scan"`
 	IsSerial         bool    `json:"is_serial"`
+	CartonID         uint    `json:"carton_id" gorm:"default:0"`
+	CartonCode       string  `json:"carton_code"`
+	CtnLength        float64 `json:"ctn_length"`
+	CtnWidth         float64 `json:"ctn_width"`
+	CtnHeight        float64 `json:"ctn_height"`
+	CtnMaxWeight     float64 `json:"ctn_max_weight"`
+	CtnTareWeight    float64 `json:"ctn_tare_weight"`
+	CtnVolume        float64 `json:"ctn_volume"`
 	CreatedBy        int
 	UpdatedBy        int
 	DeletedBy        int

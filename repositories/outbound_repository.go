@@ -837,7 +837,7 @@ func (r *OutboundRepository) GetPackingSummary() ([]PackingSummary, error) {
 	var result []PackingSummary
 
 	sql := `WITH ob AS (
-			SELECT count(item_id) as tot_item, sum(quantity) as tot_qty, outbound_no, outbound_id, 
+			SELECT COUNT(DISTINCT item_id) as tot_item, sum(quantity) as tot_qty, outbound_no, outbound_id, 
 			packing_id, packing_no
 			FROM outbound_barcodes
 			WHERE packing_id <> 0
@@ -896,6 +896,12 @@ type PackingItem struct {
 	BarcodeScan     string    `json:"barcode_scan"`
 	PackCtnNo       string    `json:"pack_ctn_no"`
 	UserDef1        string    `json:"user_def1"`
+	CtnLength       float64   `json:"ctn_length"`
+	CtnWidth        float64   `json:"ctn_width"`
+	CtnHeight       float64   `json:"ctn_height"`
+	CtnMaxWeight    float64   `json:"ctn_max_weight"`
+	CtnTareWeight   float64   `json:"ctn_tare_weight"`
+	CtnVolume       float64   `json:"ctn_volume"`
 }
 
 func (r *OutboundRepository) GetPackingItemsList(outboundID int, packingNo string) ([]PackingItem, error) {
@@ -934,7 +940,13 @@ func (r *OutboundRepository) GetPackingItemsList(outboundID int, packingNo strin
 				a.uom_scan,
 				SUM(a.qty_data_scan) as qty_scan,
 				a.barcode_data_scan as barcode_scan,
-				b.user_def1
+				b.user_def1,
+				a.ctn_length,
+				a.ctn_width,
+				a.ctn_height,
+				a.ctn_max_weight,
+				a.ctn_tare_weight,
+				a.ctn_volume
         FROM outbound_barcodes a
         INNER JOIN products b ON a.item_id = b.id
         INNER JOIN outbound_packings c ON a.packing_id = c.id
@@ -973,7 +985,13 @@ func (r *OutboundRepository) GetPackingItemsList(outboundID int, packingNo strin
 				a.uom_scan,
 				a.barcode_data_scan,
 				a.pack_ctn_no,
-				b.user_def1
+				b.user_def1,
+				a.ctn_length,
+				a.ctn_width,
+				a.ctn_height,
+				a.ctn_max_weight,
+				a.ctn_tare_weight,
+				a.ctn_volume
         ORDER BY a.pack_ctn_no ASC
 	`
 

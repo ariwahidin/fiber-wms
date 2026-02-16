@@ -185,6 +185,7 @@ func main() {
 	routes.SetupLocationRoutes(app)
 	routes.SetupVasRoutes(app)
 	routes.SetupIntegrationRoutes(app)
+	routes.SetupMasterCartonRoutes(app)
 
 	// Setup controller
 	itemPackagingCtrl := controllers.NewItemPackagingController(unitDB)
