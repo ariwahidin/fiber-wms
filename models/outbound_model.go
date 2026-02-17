@@ -217,6 +217,8 @@ type OutboundBarcode struct {
 	CtnMaxWeight     float64 `json:"ctn_max_weight"`
 	CtnTareWeight    float64 `json:"ctn_tare_weight"`
 	CtnVolume        float64 `json:"ctn_volume"`
+	CtnActualWeight  float64 `json:"ctn_actual_weight" gorm:"default:0"`
+	CtnStatus        string  `json:"ctn_status" gorm:"default:'open'"`
 	CreatedBy        int
 	UpdatedBy        int
 	DeletedBy        int

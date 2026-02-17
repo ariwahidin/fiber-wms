@@ -72,6 +72,7 @@ func SetupMobileOutboundRoutes(app *fiber.App) {
 	api.Get("/outbound/picking/list/:outbound_no", mobileOutboundController.GetPickingList)
 	api.Post("/outbound/picking/override/:id", mobileOutboundController.OverridePicking)
 	api.Get("/outbound/:outbound_no/cartons", mobileOutboundController.GetCartonNoByOutboundNo)
+	api.Get("/outbound/:outbound_no/cartons/items", mobileOutboundController.GetItemInCartonByOutbound)
 
 	// Get all active master cartons
 	api.Get("/outbound/master-cartons", mobileOutboundController.GetMasterCartons)
@@ -81,6 +82,9 @@ func SetupMobileOutboundRoutes(app *fiber.App) {
 
 	// Update Carton Type By Outbound No and Carton No
 	api.Put("/outbound/picking/update-carton/:outbound_no", mobileOutboundController.EditCartonTypeByOrderNoAndPackNo)
+
+	// SealCarton
+	api.Post("/outbound/picking/seal-container/:outbound_no", mobileOutboundController.SealCarton)
 }
 
 func SetupMobileShippingGuestRoutes(app *fiber.App, shippingGuestController *mobiles.ShippingGuestController) {

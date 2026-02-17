@@ -1215,7 +1215,7 @@ func (c *OutboundController) PickingComplete(ctx *fiber.Ctx) error {
 		for _, outboundItem := range outboundItems {
 			if outboundItem.QtyReq != outboundItem.QtyScan {
 				tx.Rollback()
-				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Scan picking not complete"})
+				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Scan not complete"})
 			}
 		}
 	} else {

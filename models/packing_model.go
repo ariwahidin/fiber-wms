@@ -85,18 +85,19 @@ func (mc *MasterCarton) BeforeSave(tx *gorm.DB) error {
 
 // MasterCartonResponse for API responses
 type MasterCartonResponse struct {
-	ID          uint    `json:"id"`
-	CartonCode  string  `json:"carton_code"`
-	CartonName  string  `json:"carton_name"`
-	Description string  `json:"description"`
-	Length      float64 `json:"length"`
-	Width       float64 `json:"width"`
-	Height      float64 `json:"height"`
-	MaxWeight   float64 `json:"max_weight"`
-	TareWeight  float64 `json:"tare_weight"`
-	Volume      float64 `json:"volume"`
-	IsDefault   bool    `json:"is_default"`
-	Material    string  `json:"material"`
+	ID          uint      `json:"id"`
+	CartonCode  string    `json:"carton_code"`
+	CartonName  string    `json:"carton_name"`
+	Description string    `json:"description"`
+	Length      float64   `json:"length"`
+	Width       float64   `json:"width"`
+	Height      float64   `json:"height"`
+	MaxWeight   float64   `json:"max_weight"`
+	TareWeight  float64   `json:"tare_weight"`
+	Volume      float64   `json:"volume"`
+	IsDefault   bool      `json:"is_default"`
+	Material    string    `json:"material"`
+	CreatedAt   time.Time `json:"created_at"`
 
 	// Formatted display
 	Dimensions  string `json:"dimensions"`   // "L x W x H cm"
@@ -120,6 +121,7 @@ func (mc *MasterCarton) ToResponse() MasterCartonResponse {
 		Material:    mc.Material,
 		Dimensions:  formatDimensions(mc.Length, mc.Width, mc.Height),
 		DisplayName: formatDisplayName(mc.CartonName, mc.Length, mc.Width, mc.Height),
+		CreatedAt:   mc.CreatedAt,
 	}
 }
 

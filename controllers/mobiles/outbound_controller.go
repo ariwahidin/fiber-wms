@@ -50,7 +50,7 @@ func (c *MobileOutboundController) GetListOutbound(ctx *fiber.Ctx) error {
 	LEFT JOIN od ON a.id = od.outbound_id	
 	LEFT JOIN kd ON a.id = kd.outbound_id
 	LEFT JOIN inventory_policies ipo ON a.owner_code = ipo.owner_code
-	WHERE a.status = 'picking' and ipo.require_picking_scan <> 0
+	WHERE a.status IN ('picking', 'packing') and ipo.require_picking_scan <> 0
 	ORDER BY a.id DESC;`
 	var listOutbound []listOutboundResponse
 	if err := c.DB.Raw(sql).Scan(&listOutbound).Error; err != nil {
@@ -281,7 +281,7 @@ func (c *MobileOutboundController) ScanPicking(ctx *fiber.Ctx) error {
 		}
 
 		if scanOutbound.PackCtnNo == "" {
-			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Ctn no is required"})
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "CTN is required"})
 		}
 
 	}
@@ -426,6 +426,16 @@ func (c *MobileOutboundController) ScanPicking(ctx *fiber.Ctx) error {
 
 	if err := c.DB.Create(&outboundBarcode).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	outboundHeader.Status = "packing"
+	outboundHeader.RawStatus = "PACKING"
+	outboundHeader.ConfirmTime = time.Now()
+	outboundHeader.ConfirmBy = int(ctx.Locals("userID").(float64))
+	outboundHeader.UpdatedBy = int(ctx.Locals("userID").(float64))
+
+	if err := c.DB.Save(&outboundHeader).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to update outbound header: " + err.Error()})
 	}
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Item scanned successfully"})
@@ -620,17 +630,19 @@ func (c *MobileOutboundController) GetCartonNoByOutboundNo(ctx *fiber.Ctx) error
 	}
 
 	var cartons []struct {
-		PackCtnNo string  `json:"pack_ctn_no"`
-		Quantity  float64 `json:"qty"`
-		Count     int64   `json:"count"`
-		CartonID  uint    `json:"carton_id"`
+		PackCtnNo       string  `json:"pack_ctn_no"`
+		Quantity        float64 `json:"qty"`
+		Count           int64   `json:"count"`
+		CartonID        uint    `json:"carton_id"`
+		CtnActualWeight float64 `json:"ctn_actual_weight"`
+		CtnStatus       string  `json:"ctn_status"`
 	}
 
 	// Query untuk mendapatkan PackCtnNo yang di-group by
 	err := c.DB.Model(&models.OutboundBarcode{}).
-		Select("pack_ctn_no, SUM(quantity) as quantity, COUNT(*) as count, carton_id").
+		Select("pack_ctn_no, SUM(quantity) as quantity, COUNT(*) as count, carton_id, ctn_actual_weight, ctn_status").
 		Where("outbound_no = ? AND pack_ctn_no != ? AND pack_ctn_no != ?", outboundNo, "", "0").
-		Group("pack_ctn_no, carton_id").
+		Group("pack_ctn_no, carton_id, ctn_actual_weight, ctn_status").
 		Order("pack_ctn_no ASC").
 		Find(&cartons).Error
 
@@ -838,5 +850,117 @@ func (c *MobileOutboundController) EditCartonTypeByOrderNoAndPackNo(ctx *fiber.C
 	return ctx.JSON(fiber.Map{
 		"success": true,
 		"message": "Carton type updated successfully",
+	})
+}
+
+type SealCartonTypeRequest struct {
+	OutboundNo string  `json:"outbound_no" validate:"required"`
+	PackCtnNo  string  `json:"ctn_no" validate:"required"`
+	PackingNo  string  `json:"packing_no" validate:"required"`
+	Weight     float64 `json:"weight" validate:"required"`
+}
+
+func (c *MobileOutboundController) SealCarton(ctx *fiber.Ctx) error {
+	var req SealCartonTypeRequest
+
+	// Parse request body
+	if err := ctx.BodyParser(&req); err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "Invalid request body",
+			"error":   err.Error(),
+		})
+	}
+
+	// Validasi required fields
+	if req.OutboundNo == "" || req.PackCtnNo == "" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "outbound_no, pack_ctn_no, and packing_no are required",
+		})
+	}
+
+	var outboundBarcode models.OutboundBarcode
+	err := c.DB.Where("outbound_no = ? AND pack_ctn_no = ?", req.OutboundNo, req.PackCtnNo).
+		First(&outboundBarcode).Error
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to fetch outbound barcodes",
+			"error":   err.Error(),
+		})
+	}
+
+	err = c.DB.Model(&models.OutboundBarcode{}).
+		Where("outbound_id = ? AND pack_ctn_no = ? AND packing_no = ?", outboundBarcode.OutboundId, outboundBarcode.PackCtnNo, req.PackingNo).
+		Updates(map[string]interface{}{
+			"ctn_status":        "sealed",
+			"ctn_actual_weight": req.Weight,
+			"updated_at":        time.Now(),
+			"updated_by":        int(ctx.Locals("userID").(float64)),
+		}).Error
+
+	return ctx.JSON(fiber.Map{
+		"success": true,
+		"message": "Carton sealed successfully",
+	})
+}
+
+func (c *MobileOutboundController) GetItemInCartonByOutbound(ctx *fiber.Ctx) error {
+	outboundNo := ctx.Params("outbound_no")
+
+	if outboundNo == "" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "Outbound number is required",
+		})
+	}
+
+	var cartons []struct {
+		PackCtnNo string `json:"pack_ctn_no" gorm:"pack_ctn_no"`
+		ItemCode  string `json:"item_code" gorm:"item_code"`
+		Barcode   string `json:"barcode" gorm:"barcode"`
+		TotalQty  int    `json:"total_qty" gorm:"total_qty"`
+	}
+
+	// Query untuk mendapatkan list karton berdasarkan outbound_no
+	err := c.DB.Table("outbound_barcodes").
+		Select(`
+        pack_ctn_no,
+        SUM(quantity) AS total_qty,
+		item_code,
+		barcode,
+        COUNT(DISTINCT item_id) AS total_item
+    `).
+		Where(`
+        outbound_no = ?
+        AND pack_ctn_no IS NOT NULL
+        AND pack_ctn_no <> ''
+    `, outboundNo).
+		Group("pack_ctn_no, item_code, barcode").
+		Order("pack_ctn_no ASC").
+		Scan(&cartons).Error
+
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to fetch carton data",
+			"error":   err.Error(),
+		})
+	}
+
+	total := 0
+	for _, carton := range cartons {
+		total += carton.TotalQty
+	}
+
+	return ctx.JSON(fiber.Map{
+		"success": true,
+		"message": "Carton item data retrieved successfully",
+		"data": fiber.Map{
+			"outbound_no": outboundNo,
+			"cartons":     cartons,
+			"total":       total,
+		},
 	})
 }
