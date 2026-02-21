@@ -15,6 +15,9 @@ import (
 	"os"
 	"time"
 
+	reportmailer "fiber-app/controllers/report_mailer"
+	rm_services "fiber-app/services/report_mailer"
+
 	"github.com/gofiber/fiber/v2"
 )
 
@@ -128,6 +131,16 @@ func main() {
 		fmt.Println("Connected to unit database successfully")
 	}
 
+	// ── Read-Only DB untuk Report Mailer ──────────────────────────────
+	reportDB, err := database.OpenReadOnlyDB()
+	if err != nil {
+		log.Printf("⚠️  Read-only DB tidak tersedia: %v", err)
+		log.Printf("⚠️  Report Mailer akan menggunakan koneksi utama (kurang aman)")
+		reportDB = unitDB // fallback ke koneksi utama
+	} else {
+		fmt.Println("✅ Connected to read-only report database")
+	}
+
 	err = migration.MigrateBusinessUnit(unitDB)
 	if err != nil {
 		log.Fatalf("Failed to auto migrate unit database: %v", err)
@@ -195,6 +208,16 @@ func main() {
 	mainCtrl := controllers.NewController(unitDB)
 	mainCtrl.SetupRoutes(app)
 	mainCtrl.SetupOwnerRoutes(app)
+
+	// rm_services.InitScheduler(reportDB)
+	rm_services.InitScheduler(unitDB, reportDB)
+	reportmailer.SetupEmailConfigRoutes(app, unitDB)
+	// reportmailer.SetupReportRoutes(app, unitDB)
+	reportmailer.SetupReportRoutes(app, unitDB, reportDB)
+	// reportmailer.SetupScheduleRoutes(app, unitDB)
+	reportmailer.SetupScheduleRoutes(app, unitDB, reportDB)
+	reportmailer.SetupSendHistoryRoutes(app, unitDB)
+	reportmailer.SetupReportQueryRoutes(app, unitDB, reportDB)
 
 	// routes.SetupRfInboundRoutes(app, RfInboundController)
 	// routes.SetupOutboundRoutes(app, db)

@@ -3306,6 +3306,14 @@ func (c *OutboundController) CreateOutboundFromEcommerceExcel(ctx *fiber.Ctx) er
 		})
 	}
 
+	customerCode := ctx.FormValue("customer")
+	if customerCode == "" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(EcommerceUploadResponse{
+			Success: false,
+			Message: "Customer code is required",
+		})
+	}
+
 	platformConfig, ok := ecommercePlatformConfigs[platform]
 	if !ok {
 		return ctx.Status(fiber.StatusBadRequest).JSON(EcommerceUploadResponse{
@@ -3448,12 +3456,13 @@ func (c *OutboundController) CreateOutboundFromEcommerceExcel(ctx *fiber.Ctx) er
 	}
 
 	var customer models.Customer
-	if err := tx.First(&customer, "customer_code = ?", platformConfig.CustomerCode).Error; err != nil {
+	// if err := tx.First(&customer, "customer_code = ?", platformConfig.CustomerCode).Error; err != nil {
+	if err := tx.First(&customer, "customer_code = ?", customerCode).Error; err != nil {
 		tx.Rollback()
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ctx.Status(fiber.StatusNotFound).JSON(EcommerceUploadResponse{
 				Success: false,
-				Message: "Customer not found for platform: " + platform + " (code: " + platformConfig.CustomerCode + ")",
+				Message: "Customer not found for platform: " + platform + " (code: " + customerCode + ")",
 			})
 		}
 		return ctx.Status(fiber.StatusInternalServerError).JSON(EcommerceUploadResponse{
@@ -3463,7 +3472,8 @@ func (c *OutboundController) CreateOutboundFromEcommerceExcel(ctx *fiber.Ctx) er
 	}
 
 	var customerTo models.Customer
-	if err := tx.First(&customerTo, "customer_code = ?", platformConfig.DelivTo).Error; err != nil {
+	// if err := tx.First(&customerTo, "customer_code = ?", platformConfig.DelivTo).Error; err != nil {
+	if err := tx.First(&customerTo, "customer_code = ?", customerCode).Error; err != nil {
 		tx.Rollback()
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ctx.Status(fiber.StatusNotFound).JSON(EcommerceUploadResponse{
@@ -3477,20 +3487,20 @@ func (c *OutboundController) CreateOutboundFromEcommerceExcel(ctx *fiber.Ctx) er
 		})
 	}
 
-	var transporter models.Transporter
-	if err := tx.First(&transporter, "transporter_code = ?", platformConfig.TransporterCode).Error; err != nil {
-		tx.Rollback()
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ctx.Status(fiber.StatusNotFound).JSON(EcommerceUploadResponse{
-				Success: false,
-				Message: "Transporter not found for platform: " + platform + " (code: " + platformConfig.TransporterCode + ")",
-			})
-		}
-		return ctx.Status(fiber.StatusInternalServerError).JSON(EcommerceUploadResponse{
-			Success: false,
-			Message: "Failed to validate transporter: " + err.Error(),
-		})
-	}
+	// var transporter models.Transporter
+	// if err := tx.First(&transporter, "transporter_code = ?", platformConfig.TransporterCode).Error; err != nil {
+	// 	tx.Rollback()
+	// 	if errors.Is(err, gorm.ErrRecordNotFound) {
+	// 		return ctx.Status(fiber.StatusNotFound).JSON(EcommerceUploadResponse{
+	// 			Success: false,
+	// 			Message: "Transporter not found for platform: " + platform + " (code: " + platformConfig.TransporterCode + ")",
+	// 		})
+	// 	}
+	// 	return ctx.Status(fiber.StatusInternalServerError).JSON(EcommerceUploadResponse{
+	// 		Success: false,
+	// 		Message: "Failed to validate transporter: " + err.Error(),
+	// 	})
+	// }
 
 	var warehouse models.Warehouse
 	if err := tx.First(&warehouse, "code = ?", platformConfig.WhsCode).Error; err != nil {
@@ -3550,24 +3560,25 @@ func (c *OutboundController) CreateOutboundFromEcommerceExcel(ctx *fiber.Ctx) er
 
 		// Create outbound header
 		outboundHeader := models.OutboundHeader{
-			OutboundNo:      outboundNo,
-			OutboundDate:    outboundDate,
-			CustomerCode:    customer.CustomerCode,
-			ShipmentID:      orderNumber, // Order Number as ShipmentID
-			WhsCode:         platformConfig.WhsCode,
-			OwnerCode:       platformConfig.OwnerCode,
-			Remarks:         fmt.Sprintf("%s Order - %s", platform, orderNumber),
-			Status:          "open",
-			RawStatus:       "DRAFT",
-			DraftTime:       time.Now(),
-			TransporterCode: transporter.TransporterCode,
-			CustAddress:     customer.CustAddr1,
-			CustCity:        customer.CustCity,
-			DelivTo:         customerTo.CustomerCode,
-			DelivAddress:    customerTo.CustAddr1,
-			DelivCity:       customerTo.CustCity,
-			CreatedBy:       userID,
-			UpdatedBy:       userID,
+			OutboundNo:   outboundNo,
+			OutboundDate: outboundDate,
+			CustomerCode: customer.CustomerCode,
+			ShipmentID:   orderNumber, // Order Number as ShipmentID
+			WhsCode:      platformConfig.WhsCode,
+			OwnerCode:    platformConfig.OwnerCode,
+			Remarks:      fmt.Sprintf("%s Order - %s", platform, orderNumber),
+			Status:       "open",
+			RawStatus:    "DRAFT",
+			DraftTime:    time.Now(),
+			// TransporterCode: transporter.TransporterCode,
+			Source:       platformConfig.CustomerCode,
+			CustAddress:  customer.CustAddr1,
+			CustCity:     customer.CustCity,
+			DelivTo:      customerTo.CustomerCode,
+			DelivAddress: customerTo.CustAddr1,
+			DelivCity:    customerTo.CustCity,
+			CreatedBy:    userID,
+			UpdatedBy:    userID,
 		}
 
 		if err := tx.Create(&outboundHeader).Error; err != nil {

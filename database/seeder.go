@@ -6,8 +6,11 @@ import (
 	"fiber-app/config"
 	"fiber-app/controllers/idgen"
 	"fiber-app/models"
+	"fiber-app/models/report_mailer"
 	"fiber-app/types"
+	"fmt"
 	"log"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -250,10 +253,85 @@ func SeedMasterCartons(db *gorm.DB) error {
 	return nil
 }
 
-// RunSeeders - Run all seeders
-// func RunSeeders(db *gorm.DB) error {
-// 	if err := SeedMasterCartons(db); err != nil {
-// 		return err
-// 	}
-// 	return nil
-// }
+func SeedReportMailer(db *gorm.DB) error {
+	// Cek apakah sudah ada data (hindari double seed)
+	var count int64
+	db.Model(&report_mailer.Report{}).Count(&count)
+	if count > 0 {
+		fmt.Println("✅ Report mailer seed sudah ada, skip.")
+		return nil
+	}
+
+	// 1. Seed Email Config dummy
+	emailConfig := report_mailer.EmailConfig{
+		Name:      "SMTP Default",
+		Host:      "smtp.example.com",
+		Port:      587,
+		Username:  "noreply@example.com",
+		Password:  "password123",
+		FromName:  "WMS Report",
+		FromEmail: "noreply@example.com",
+		UseTLS:    true,
+		IsActive:  true,
+		CreatedBy: 1,
+	}
+	if err := db.Create(&emailConfig).Error; err != nil {
+		return fmt.Errorf("seed email config error: %w", err)
+	}
+
+	// 2. Seed Report dummy
+	// Query ini pakai tabel yang hampir pasti ada di SQL Server
+	// Ganti dengan query sesuai kebutuhan Anda nanti dari UI
+	report := report_mailer.Report{
+		Name:        "Dummy Report - Stock Summary",
+		Description: "Report dummy untuk testing. Silakan ganti query sesuai kebutuhan.",
+		// Query:         "SELECT TOP 10 TABLE_NAME, TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES ORDER BY TABLE_NAME",
+		OutputMode:    report_mailer.OutputModeSingleFile,
+		EmailConfigID: emailConfig.ID,
+		ExcelTitle:    "Stock Summary Report",
+		ExcelSubtitle: "Data ringkasan stok warehouse",
+		IsActive:      true,
+		CreatedBy:     1,
+	}
+	if err := db.Create(&report).Error; err != nil {
+		return fmt.Errorf("seed report error: %w", err)
+	}
+
+	// 3. Seed Recipient dummy
+	recipients := []report_mailer.ReportRecipient{
+		{
+			ReportID: report.ID,
+			Email:    "manager@example.com",
+			Name:     "Manager",
+			Type:     report_mailer.RecipientTO,
+		},
+		{
+			ReportID: report.ID,
+			Email:    "supervisor@example.com",
+			Name:     "Supervisor",
+			Type:     report_mailer.RecipientCC,
+		},
+	}
+	if err := db.Create(&recipients).Error; err != nil {
+		return fmt.Errorf("seed recipients error: %w", err)
+	}
+
+	// 4. Seed Schedule dummy - Daily jam 08:00
+	hour := 8
+	minute := 0
+	nextRun := time.Now().Truncate(24 * time.Hour).Add(time.Duration(hour) * time.Hour)
+	schedule := report_mailer.ReportSchedule{
+		ReportID:  report.ID,
+		Frequency: report_mailer.FrequencyDaily,
+		Hour:      hour,
+		Minute:    minute,
+		IsActive:  false, // default nonaktif dulu sampai email config diisi yang benar
+		NextRunAt: &nextRun,
+	}
+	if err := db.Create(&schedule).Error; err != nil {
+		return fmt.Errorf("seed schedule error: %w", err)
+	}
+
+	fmt.Println("✅ Report mailer seed berhasil.")
+	return nil
+}

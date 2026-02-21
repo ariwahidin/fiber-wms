@@ -50,6 +50,8 @@ type OutboundHeader struct {
 	TruckNo           string    `json:"truck_no"`
 	TransporterCode   string    `json:"transporter_code"`
 	Integration       bool      `json:"integration" gorm:"default:false"`
+	Source            string    `json:"source" gorm:"default:'MANUAL'"`
+	AwbNo             string    `json:"awb_no"`
 	CreatedBy         int
 	UpdatedBy         int
 	DeletedBy         int

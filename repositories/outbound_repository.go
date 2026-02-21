@@ -821,8 +821,10 @@ type PackingSummary struct {
 	PackingNo        string    `json:"packing_no"`
 	TotItem          int       `json:"tot_item"`
 	TotQty           int       `json:"tot_qty"`
+	TotalContainer   int       `json:"total_container"`
 	OutboundNo       string    `json:"outbound_no"`
 	OutboundID       int       `json:"outbound_id"`
+	ShipmentID       string    `json:"shipment_id"`
 	CustomerCode     string    `json:"customer_code"`
 	CustAddress      string    `json:"cust_address"`
 	CustCity         string    `json:"cust_city"`
@@ -838,6 +840,7 @@ func (r *OutboundRepository) GetPackingSummary() ([]PackingSummary, error) {
 
 	sql := `WITH ob AS (
 			SELECT COUNT(DISTINCT item_id) as tot_item, sum(quantity) as tot_qty, outbound_no, outbound_id, 
+			COUNT(distinct pack_ctn_no) AS total_container,
 			packing_id, packing_no
 			FROM outbound_barcodes
 			WHERE packing_id <> 0
@@ -845,8 +848,9 @@ func (r *OutboundRepository) GetPackingSummary() ([]PackingSummary, error) {
 		)
 
 		SELECT op.id, op.created_at, op.packing_no, ob.tot_item, ob.tot_qty, ob.outbound_no, ob.outbound_id,
-		oh.customer_code, oh.cust_address, oh.cust_city,
-		oh.deliv_to, oh.deliv_address, oh.deliv_city, cs.customer_name, cd.customer_name as customer_delivery
+		oh.customer_code, oh.cust_address, oh.cust_city,oh.shipment_id,
+		oh.deliv_to, oh.deliv_address, oh.deliv_city, cs.customer_name, cd.customer_name as customer_delivery,
+		ob.total_container
 		FROM 
 		outbound_packings op
 		LEFT JOIN ob on op.id = ob.packing_id
