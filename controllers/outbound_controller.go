@@ -17,6 +17,8 @@ import (
 	"strings"
 	"time"
 
+	notification_service "fiber-app/services/notification_service"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"github.com/xuri/excelize/v2"
@@ -1290,6 +1292,7 @@ func (c *OutboundController) PickingComplete(ctx *fiber.Ctx) error {
 
 	}
 
+	completeTime := time.Now()
 	// UPDATE OUTBOUND STATUS
 	if err := tx.Debug().
 		Model(&models.OutboundHeader{}).
@@ -1297,7 +1300,7 @@ func (c *OutboundController) PickingComplete(ctx *fiber.Ctx) error {
 		Updates(map[string]interface{}{
 			"status":        "complete",
 			"raw_status":    "COMPLETED",
-			"complete_time": time.Now(),
+			"complete_time": completeTime,
 			"complete_by":   int(ctx.Locals("userID").(float64)),
 			"updated_by":    int(ctx.Locals("userID").(float64)),
 		}).Error; err != nil {
@@ -1322,6 +1325,24 @@ func (c *OutboundController) PickingComplete(ctx *fiber.Ctx) error {
 		tx.Rollback()
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
+
+	// Trigger email notification (async, tidak memblok response)
+	go notification_service.SendNotification(c.DB, "outbound.completed", map[string]interface{}{
+		"outbound_no":   outboundHeader.OutboundNo,
+		"shipment_id":   outboundHeader.ShipmentID,
+		"owner_code":    outboundHeader.OwnerCode,
+		"customer_code": outboundHeader.CustomerCode,
+		"whs_code":      outboundHeader.WhsCode,
+		"picker_name":   outboundHeader.PickerName,
+		"deliv_to":      outboundHeader.DelivTo,
+		"deliv_address": outboundHeader.DelivAddress,
+		"deliv_city":    outboundHeader.DelivCity,
+		"driver":        outboundHeader.Driver,
+		"truck_no":      outboundHeader.TruckNo,
+		"awb_no":        outboundHeader.AwbNo,
+		"remarks":       outboundHeader.Remarks,
+		"complete_time": completeTime.Format("2006-01-02 15:04:05"),
+	})
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Picking complete successfully"})
 }

@@ -38,6 +38,7 @@ func SetupReportRoutes(app *fiber.App, db *gorm.DB, queryDB *gorm.DB) {
 	api.Post("/", ctrl.Create)
 	api.Put("/:id", ctrl.Update)
 	api.Delete("/:id", ctrl.Delete)
+	api.Put("/:id/email-template", ctrl.SaveEmailTemplate)
 
 	// Recipient management
 	api.Get("/:id/recipients", ctrl.GetRecipients)

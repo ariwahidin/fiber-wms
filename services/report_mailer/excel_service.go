@@ -532,6 +532,9 @@ func GenerateMultiFileExcel(db *gorm.DB, report report_mailer.Report) ([]ExcelFi
 			return nil, err
 		}
 
+		// Hapus Sheet1 SETELAH sheet kita berhasil dibuat
+		f.DeleteSheet("Sheet1")
+
 		f.SetDocProps(&excelize.DocProperties{
 			Title:   rq.Name,
 			Creator: "WMS Report Mailer",

@@ -322,7 +322,8 @@ func SendReport(db *gorm.DB, queryDB *gorm.DB, report report_mailer.Report) erro
 		return fmt.Errorf("tidak ada penerima TO")
 	}
 
-	subject := fmt.Sprintf("[WMS Report] %s - %s", report.Name, time.Now().Format("02 Jan 2006"))
+	// subject := fmt.Sprintf("[WMS Report] %s - %s", report.Name, time.Now().Format("02 Jan 2006"))
+	subject := buildEmailSubject(report)
 	body := buildEmailBody(report)
 
 	// Generate Excel sesuai output mode
@@ -361,42 +362,42 @@ type Attachment struct {
 
 // ─── Email Body ───────────────────────────────────────────────────────────────
 
-func buildEmailBody(report report_mailer.Report) string {
-	now := time.Now()
+// func buildEmailBody(report report_mailer.Report) string {
+// 	now := time.Now()
 
-	// Daftar query / sheet
-	queryList := ""
-	for i, rq := range report.Queries {
-		queryList += fmt.Sprintf("<tr><td style='color:#6B7280;padding:2px 12px 2px 0'>%d.</td><td>%s</td></tr>", i+1, rq.Name)
-	}
+// 	// Daftar query / sheet
+// 	queryList := ""
+// 	for i, rq := range report.Queries {
+// 		queryList += fmt.Sprintf("<tr><td style='color:#6B7280;padding:2px 12px 2px 0'>%d.</td><td>%s</td></tr>", i+1, rq.Name)
+// 	}
 
-	outputLabel := "1 file Excel (multi-sheet)"
-	if report.OutputMode == report_mailer.OutputModeMultiFile {
-		outputLabel = fmt.Sprintf("%d file Excel terpisah", len(report.Queries))
-	}
+// 	outputLabel := "1 file Excel (multi-sheet)"
+// 	if report.OutputMode == report_mailer.OutputModeMultiFile {
+// 		outputLabel = fmt.Sprintf("%d file Excel terpisah", len(report.Queries))
+// 	}
 
-	return fmt.Sprintf(`Halo,
+// 	return fmt.Sprintf(`Halo,
 
-Terlampir adalah laporan <b>%s</b> yang digenerate otomatis oleh sistem WMS.
+// Terlampir adalah laporan <b>%s</b> yang digenerate otomatis oleh sistem WMS.
 
-<table style="border-collapse:collapse;font-size:13px;margin-top:8px;">
-  <tr><td style="color:#6b7280;padding:2px 12px 2px 0">Nama Report</td><td><b>%s</b></td></tr>
-  <tr><td style="color:#6b7280;padding:2px 12px 2px 0">Output</td><td>%s</td></tr>
-  <tr><td style="color:#6b7280;padding:2px 12px 2px 0">Generated</td><td>%s</td></tr>
-  <tr><td style="color:#6b7280;padding:2px 12px 2px 0;vertical-align:top">Sheet / File</td>
-    <td><table>%s</table></td>
-  </tr>
-</table>
+// <table style="border-collapse:collapse;font-size:13px;margin-top:8px;">
+//   <tr><td style="color:#6b7280;padding:2px 12px 2px 0">Nama Report</td><td><b>%s</b></td></tr>
+//   <tr><td style="color:#6b7280;padding:2px 12px 2px 0">Output</td><td>%s</td></tr>
+//   <tr><td style="color:#6b7280;padding:2px 12px 2px 0">Generated</td><td>%s</td></tr>
+//   <tr><td style="color:#6b7280;padding:2px 12px 2px 0;vertical-align:top">Sheet / File</td>
+//     <td><table>%s</table></td>
+//   </tr>
+// </table>
 
-<br>
-<span style="color:#9ca3af;font-size:12px">Email ini dikirim otomatis oleh WMS Report Mailer. Mohon tidak membalas email ini.</span>`,
-		report.Name,
-		report.Name,
-		outputLabel,
-		now.Format("02 January 2006, 15:04 WIB"),
-		queryList,
-	)
-}
+// <br>
+// <span style="color:#9ca3af;font-size:12px">Email ini dikirim otomatis oleh WMS Report Mailer. Mohon tidak membalas email ini.</span>`,
+// 		report.Name,
+// 		report.Name,
+// 		outputLabel,
+// 		now.Format("02 January 2006, 15:04 WIB"),
+// 		queryList,
+// 	)
+// }
 
 // ─── Core Send Function ───────────────────────────────────────────────────────
 

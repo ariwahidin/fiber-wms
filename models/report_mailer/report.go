@@ -50,17 +50,24 @@ type Report struct {
 	Name        string `json:"name" gorm:"not null"`
 	Description string `json:"description"`
 	// Query         string         `json:"query" gorm:"type:text;not null"` // raw SQL query
-	OutputMode    OutputMode     `json:"output_mode" gorm:"type:varchar(20);default:'single_file'"`
-	EmailConfigID uint           `json:"email_config_id" gorm:"not null"`
-	ExcelTitle    string         `json:"excel_title" gorm:"not null"`
-	ExcelSubtitle string         `json:"excel_subtitle"`
-	AlertEmail    string         `json:"alert_email" gorm:"default:null"`
-	IsActive      bool           `json:"is_active" gorm:"default:true"`
-	CreatedBy     int            `json:"created_by"`
-	UpdatedBy     int            `json:"updated_by"`
-	CreatedAt     time.Time      `json:"created_at"`
-	UpdatedAt     time.Time      `json:"updated_at"`
-	DeletedAt     gorm.DeletedAt `json:"-" gorm:"index"`
+	OutputMode    OutputMode `json:"output_mode" gorm:"type:varchar(20);default:'single_file'"`
+	EmailConfigID uint       `json:"email_config_id" gorm:"not null"`
+	ExcelTitle    string     `json:"excel_title" gorm:"not null"`
+	ExcelSubtitle string     `json:"excel_subtitle"`
+
+	EmailSubject string `json:"email_subject" gorm:"default:null"`
+	EmailHeader  string `json:"email_header" gorm:"type:text;default:null"`
+	EmailBody    string `json:"email_body" gorm:"type:text;default:null"`
+	EmailFooter  string `json:"email_footer" gorm:"type:text;default:null"`
+	HeaderColor  string `json:"header_color" gorm:"default:'#1E40AF'"`
+
+	AlertEmail string         `json:"alert_email" gorm:"default:null"`
+	IsActive   bool           `json:"is_active" gorm:"default:true"`
+	CreatedBy  int            `json:"created_by"`
+	UpdatedBy  int            `json:"updated_by"`
+	CreatedAt  time.Time      `json:"created_at"`
+	UpdatedAt  time.Time      `json:"updated_at"`
+	DeletedAt  gorm.DeletedAt `json:"-" gorm:"index"`
 
 	// Relasi
 	EmailConfig EmailConfig       `json:"email_config" gorm:"foreignKey:EmailConfigID"`

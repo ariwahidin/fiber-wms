@@ -6,6 +6,7 @@ import (
 	"fiber-app/config"
 	"fiber-app/controllers/idgen"
 	"fiber-app/models"
+	"fiber-app/models/notification"
 	"fiber-app/models/report_mailer"
 	"fiber-app/types"
 	"fmt"
@@ -23,6 +24,7 @@ func RunSeeders(db *gorm.DB) {
 	SeedCategory(db)
 	// SeedDivision(db)
 	SeedMasterCartons(db)
+	SeedEmailNotification(db)
 }
 
 func SeedUnit(db *gorm.DB) {
@@ -333,5 +335,134 @@ func SeedReportMailer(db *gorm.DB) error {
 	}
 
 	fmt.Println("✅ Report mailer seed berhasil.")
+	return nil
+}
+
+func SeedEmailNotification(db *gorm.DB) error {
+	// Cek apakah sudah ada seed
+	var count int64
+	db.Model(&notification.EmailNotification{}).Count(&count)
+	if count > 0 {
+		return nil
+	}
+
+	// Ambil email config pertama yang aktif
+	var configID uint = 1 // sesuaikan kalau perlu
+
+	// Seed notifikasi outbound completed
+	outboundNotif := notification.EmailNotification{
+		Name:          "Outbound Completed",
+		EventKey:      "outbound.completed",
+		Description:   "Notifikasi dikirim ketika proses picking outbound selesai",
+		EmailConfigID: configID,
+		EmailSubject:  "[WMS] Outbound {{outbound_no}} Has Been Completed",
+		EmailHeader:   "Outbound Completion Notice",
+		EmailBody: `Dear Team,
+
+<p>We would like to inform you that the following outbound order has been successfully completed.</p>
+
+<table style="border-collapse:collapse;width:100%;font-size:13px;margin:16px 0;border:1px solid #E5E7EB;border-radius:8px;overflow:hidden;">
+  <thead>
+    <tr style="background:#F8FAFC;">
+      <th style="text-align:left;padding:10px 16px;color:#6B7280;font-weight:600;border-bottom:1px solid #E5E7EB;width:40%;">Detail</th>
+      <th style="text-align:left;padding:10px 16px;color:#6B7280;font-weight:600;border-bottom:1px solid #E5E7EB;">Information</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td style="padding:10px 16px;color:#6B7280;border-bottom:1px solid #F3F4F6;">Outbound No</td>
+      <td style="padding:10px 16px;font-weight:600;color:#111827;border-bottom:1px solid #F3F4F6;">{{outbound_no}}</td>
+    </tr>
+    <tr style="background:#FAFAFA;">
+      <td style="padding:10px 16px;color:#6B7280;border-bottom:1px solid #F3F4F6;">Owner</td>
+      <td style="padding:10px 16px;color:#374151;border-bottom:1px solid #F3F4F6;">{{owner_code}}</td>
+    </tr>
+    <tr>
+      <td style="padding:10px 16px;color:#6B7280;border-bottom:1px solid #F3F4F6;">Customer</td>
+      <td style="padding:10px 16px;color:#374151;border-bottom:1px solid #F3F4F6;">{{customer_code}}</td>
+    </tr>
+    <tr style="background:#FAFAFA;">
+      <td style="padding:10px 16px;color:#6B7280;border-bottom:1px solid #F3F4F6;">Deliver To</td>
+      <td style="padding:10px 16px;color:#374151;border-bottom:1px solid #F3F4F6;">{{deliv_to}}</td>
+    </tr>
+    <tr>
+      <td style="padding:10px 16px;color:#6B7280;border-bottom:1px solid #F3F4F6;">Picker</td>
+      <td style="padding:10px 16px;color:#374151;border-bottom:1px solid #F3F4F6;">{{picker_name}}</td>
+    </tr>
+    <tr style="background:#FAFAFA;">
+      <td style="padding:10px 16px;color:#6B7280;border-bottom:1px solid #F3F4F6;">Truck No</td>
+      <td style="padding:10px 16px;color:#374151;border-bottom:1px solid #F3F4F6;">{{truck_no}}</td>
+    </tr>
+    <tr>
+      <td style="padding:10px 16px;color:#6B7280;border-bottom:1px solid #F3F4F6;">Driver</td>
+      <td style="padding:10px 16px;color:#374151;border-bottom:1px solid #F3F4F6;">{{driver}}</td>
+    </tr>
+    <tr style="background:#FAFAFA;">
+      <td style="padding:10px 16px;color:#6B7280;">Completed At</td>
+      <td style="padding:10px 16px;color:#374151;">{{complete_time}}</td>
+    </tr>
+  </tbody>
+</table>
+
+<p style="color:#374151;">Please ensure all post-completion procedures are followed accordingly.</p>
+<p style="color:#374151;">Thank you.</p>`,
+		EmailFooter: `© {{year}} Warehouse Management System. This is an automated message — please do not reply directly to this email.`,
+		HeaderColor: "#1E3A5F",
+		IsActive:    false, // default nonaktif, user aktifkan manual
+	}
+
+	if err := db.Create(&outboundNotif).Error; err != nil {
+		return err
+	}
+
+	// Seed notifikasi inbound completed
+	inboundNotif := notification.EmailNotification{
+		Name:          "Inbound Completed",
+		EventKey:      "inbound.completed",
+		Description:   "Notifikasi dikirim ketika proses penerimaan inbound selesai",
+		EmailConfigID: configID,
+		EmailSubject:  "[WMS] Inbound {{inbound_no}} Has Been Completed",
+		EmailHeader:   "Inbound Completion Notice",
+		EmailBody: `Dear Team,
+
+<p>The following inbound receipt has been successfully completed and inventory has been updated accordingly.</p>
+
+<table style="border-collapse:collapse;width:100%;font-size:13px;margin:16px 0;border:1px solid #E5E7EB;border-radius:8px;overflow:hidden;">
+  <thead>
+    <tr style="background:#F8FAFC;">
+      <th style="text-align:left;padding:10px 16px;color:#6B7280;font-weight:600;border-bottom:1px solid #E5E7EB;width:40%;">Detail</th>
+      <th style="text-align:left;padding:10px 16px;color:#6B7280;font-weight:600;border-bottom:1px solid #E5E7EB;">Information</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td style="padding:10px 16px;color:#6B7280;border-bottom:1px solid #F3F4F6;">Inbound No</td>
+      <td style="padding:10px 16px;font-weight:600;color:#111827;border-bottom:1px solid #F3F4F6;">{{inbound_no}}</td>
+    </tr>
+    <tr style="background:#FAFAFA;">
+      <td style="padding:10px 16px;color:#6B7280;border-bottom:1px solid #F3F4F6;">Owner</td>
+      <td style="padding:10px 16px;color:#374151;border-bottom:1px solid #F3F4F6;">{{owner_code}}</td>
+    </tr>
+    <tr>
+      <td style="padding:10px 16px;color:#6B7280;border-bottom:1px solid #F3F4F6;">Warehouse</td>
+      <td style="padding:10px 16px;color:#374151;border-bottom:1px solid #F3F4F6;">{{whs_code}}</td>
+    </tr>
+    <tr style="background:#FAFAFA;">
+      <td style="padding:10px 16px;color:#6B7280;">Completed At</td>
+      <td style="padding:10px 16px;color:#374151;">{{complete_time}}</td>
+    </tr>
+  </tbody>
+</table>
+
+<p style="color:#374151;">Thank you.</p>`,
+		EmailFooter: `© {{year}} Warehouse Management System. This is an automated message — please do not reply directly to this email.`,
+		HeaderColor: "#065F46",
+		IsActive:    false,
+	}
+
+	if err := db.Create(&inboundNotif).Error; err != nil {
+		return err
+	}
+
 	return nil
 }

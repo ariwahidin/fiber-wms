@@ -15,6 +15,7 @@ import (
 	"os"
 	"time"
 
+	notification_ctrl "fiber-app/controllers/notification_ctrl"
 	reportmailer "fiber-app/controllers/report_mailer"
 	rm_services "fiber-app/services/report_mailer"
 
@@ -218,6 +219,7 @@ func main() {
 	reportmailer.SetupScheduleRoutes(app, unitDB, reportDB)
 	reportmailer.SetupSendHistoryRoutes(app, unitDB)
 	reportmailer.SetupReportQueryRoutes(app, unitDB, reportDB)
+	notification_ctrl.SetupNotificationRoutes(app, unitDB)
 
 	// routes.SetupRfInboundRoutes(app, RfInboundController)
 	// routes.SetupOutboundRoutes(app, db)
