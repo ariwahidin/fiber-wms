@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fiber-app/models/integration"
 	integration_service "fiber-app/services/integration_service"
+	"io"
 	"strconv"
 
 	"github.com/go-playground/validator"
@@ -325,5 +326,188 @@ func (c *IntegrationController) Retrigger(ctx *fiber.Ctx) error {
 	return ctx.JSON(fiber.Map{
 		"success": true,
 		"message": "Retrigger dimulai, cek history untuk hasilnya",
+	})
+}
+
+// ─── Push Endpoint (eksternal POST ke WMS) ────────────────────────────────────
+
+// POST /api/v1/integrations/inbound/:eventKey
+// Endpoint ini dipanggil oleh sistem eksternal (SAP, Shopee, dll)
+// Tidak perlu auth middleware — atau pakai API key tersendiri
+func (c *IntegrationController) InboundPush(ctx *fiber.Ctx) error {
+	eventKey := ctx.Params("eventKey")
+	if eventKey == "" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "eventKey wajib diisi"})
+	}
+
+	// Parse body JSON
+	var data map[string]interface{}
+	if err := ctx.BodyParser(&data); err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Body harus berupa JSON: " + err.Error(),
+		})
+	}
+
+	// Default userID untuk integrasi eksternal
+	userID := 0
+	if uid, ok := ctx.Locals("userID").(float64); ok {
+		userID = int(uid)
+	}
+
+	// Proses async — langsung balas 202 Accepted
+	go func() {
+		integration_service.DispatchInboundPush(c.DB, eventKey, data, userID)
+	}()
+
+	return ctx.Status(fiber.StatusAccepted).JSON(fiber.Map{
+		"success": true,
+		"message": "Data diterima dan sedang diproses",
+	})
+}
+
+// ─── Manual Pull Trigger ──────────────────────────────────────────────────────
+
+// POST /api/v1/integrations/:id/pull
+// Dipanggil dari UI untuk trigger pull secara manual
+func (c *IntegrationController) ManualPull(ctx *fiber.Ctx) error {
+	id, err := strconv.Atoi(ctx.Params("id"))
+	if err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "ID tidak valid"})
+	}
+
+	userID := int(ctx.Locals("userID").(float64))
+
+	// Jalankan async
+	go integration_service.DispatchInboundPull(c.DB, uint(id), userID)
+
+	return ctx.JSON(fiber.Map{
+		"success": true,
+		"message": "Pull dimulai, cek history untuk hasilnya",
+	})
+}
+
+// ─── Retrigger Inbound dari History ──────────────────────────────────────────
+
+// POST /api/v1/integrations/:id/history/:historyId/retrigger
+// Sudah ada untuk outbound, sekarang handle inbound juga
+func (c *IntegrationController) RetriggerUnified(ctx *fiber.Ctx) error {
+	id, err := strconv.Atoi(ctx.Params("id"))
+	if err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "ID tidak valid"})
+	}
+
+	historyID, err := strconv.Atoi(ctx.Params("historyId"))
+	if err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "History ID tidak valid"})
+	}
+
+	userID := int(ctx.Locals("userID").(float64))
+
+	// Load integrasi
+	var intg integration.Integration
+	if err := c.DB.Preload("Connection").Preload("Recipients").First(&intg, id).Error; err != nil {
+		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Integrasi tidak ditemukan"})
+	}
+
+	// Load history
+	var history integration.IntegrationHistory
+	if err := c.DB.Where("id = ? AND integration_id = ?", historyID, id).First(&history).Error; err != nil {
+		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "History tidak ditemukan"})
+	}
+
+	if history.PayloadSummary == "" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Payload tidak tersedia untuk retrigger",
+		})
+	}
+
+	// Tentukan arah integrasi
+	go func() {
+		if intg.Direction == integration.DirectionInbound {
+			// Inbound: proses ulang file/data → create outbound
+			integration_service.RetriggerInbound(c.DB, intg, history.PayloadSummary, userID)
+		} else {
+			// Outbound: kirim ulang ke eksternal
+			var eventData map[string]interface{}
+			json.Unmarshal([]byte(history.PayloadSummary), &eventData)
+			err := integration_service.RunIntegrationPublic(c.DB, c.QueryDB, intg, eventData, "retrigger")
+			integration_service.LogHistoryPublic(c.DB, intg, history.EventKey, err, "retrigger", eventData)
+			integration_service.SendNotificationPublic(c.DB, intg, eventData, err)
+		}
+	}()
+
+	return ctx.JSON(fiber.Map{
+		"success": true,
+		"message": "Retrigger dimulai, cek history untuk hasilnya",
+	})
+}
+
+// POST /api/v1/integrations/:id/detect-headers
+// Upload sample file → WMS baca header kolom → return ke frontend untuk column mapping UI
+func (c *IntegrationController) DetectHeaders(ctx *fiber.Ctx) error {
+	// Terima file upload
+	file, err := ctx.FormFile("file")
+	if err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Upload file sample terlebih dahulu",
+		})
+	}
+
+	f, err := file.Open()
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Gagal buka file: " + err.Error(),
+		})
+	}
+	defer f.Close()
+
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Gagal baca file: " + err.Error(),
+		})
+	}
+
+	// Auto-detect headers
+	headers, err := integration_service.DetectHeaders(data, "", file.Filename)
+	if err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Gagal detect kolom: " + err.Error(),
+		})
+	}
+
+	// WMS fields yang tersedia untuk di-map
+	wmsFields := []map[string]string{
+		{"key": "outbound_no", "label": "Outbound No"},
+		{"key": "shipment_id", "label": "Shipment ID / Order Number"},
+		{"key": "outbound_date", "label": "Outbound Date"},
+		{"key": "owner_code", "label": "Owner Code"},
+		{"key": "customer_code", "label": "Customer Code"},
+		{"key": "whs_code", "label": "Warehouse Code"},
+		{"key": "deliv_to", "label": "Deliver To"},
+		{"key": "deliv_address", "label": "Deliver Address"},
+		{"key": "deliv_city", "label": "Deliver City"},
+		{"key": "driver", "label": "Driver"},
+		{"key": "truck_no", "label": "Truck No"},
+		{"key": "transporter_code", "label": "Transporter Code"},
+		{"key": "awb_no", "label": "AWB No"},
+		{"key": "remarks", "label": "Remarks"},
+		{"key": "user_def1", "label": "User Def 1"},
+		{"key": "user_def2", "label": "User Def 2"},
+		{"key": "user_def3", "label": "User Def 3"},
+		{"key": "item_code", "label": "Item Code / SKU"},
+		{"key": "quantity", "label": "Quantity"},
+		{"key": "uom", "label": "UOM"},
+		{"key": "lot_number", "label": "Lot Number"},
+		{"key": "exp_date", "label": "Expired Date"},
+		{"key": "prod_date", "label": "Production Date"},
+		{"key": "division_code", "label": "Division Code"},
+		{"key": "qa_status", "label": "QA Status"},
+	}
+
+	return ctx.JSON(fiber.Map{
+		"success":    true,
+		"headers":    headers,   // kolom dari file
+		"wms_fields": wmsFields, // field WMS yang tersedia
 	})
 }

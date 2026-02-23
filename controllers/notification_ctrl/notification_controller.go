@@ -51,16 +51,21 @@ func (c *NotificationController) GetByID(ctx *fiber.Ctx) error {
 
 func (c *NotificationController) Create(ctx *fiber.Ctx) error {
 	var input struct {
-		Name          string `json:"name" validate:"required"`
-		EventKey      string `json:"event_key" validate:"required"`
-		Description   string `json:"description"`
-		EmailConfigID uint   `json:"email_config_id" validate:"required"`
-		EmailSubject  string `json:"email_subject" validate:"required"`
-		EmailHeader   string `json:"email_header"`
-		EmailBody     string `json:"email_body"`
-		EmailFooter   string `json:"email_footer"`
-		HeaderColor   string `json:"header_color"`
-		IsActive      bool   `json:"is_active"`
+		Name             string `json:"name" validate:"required"`
+		EventKey         string `json:"event_key" validate:"required"`
+		Description      string `json:"description"`
+		EmailConfigID    uint   `json:"email_config_id" validate:"required"`
+		EmailSubject     string `json:"email_subject" validate:"required"`
+		EmailHeader      string `json:"email_header"`
+		EmailBody        string `json:"email_body"`
+		EmailFooter      string `json:"email_footer"`
+		HeaderColor      string `json:"header_color"`
+		IsActive         bool   `json:"is_active"`
+		WithAttachment   bool   `json:"with_attachment"`
+		AttachmentName   string `json:"attachment_name"`
+		AttachmentFields string `json:"attachment_fields"`
+		AttachmentSource string `json:"attachment_source"`
+		AttachmentQuery  string `json:"attachment_query"`
 	}
 	if err := ctx.BodyParser(&input); err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
@@ -71,17 +76,22 @@ func (c *NotificationController) Create(ctx *fiber.Ctx) error {
 	}
 
 	notif := notification.EmailNotification{
-		Name:          input.Name,
-		EventKey:      input.EventKey,
-		Description:   input.Description,
-		EmailConfigID: input.EmailConfigID,
-		EmailSubject:  input.EmailSubject,
-		EmailHeader:   input.EmailHeader,
-		EmailBody:     input.EmailBody,
-		EmailFooter:   input.EmailFooter,
-		HeaderColor:   input.HeaderColor,
-		IsActive:      input.IsActive,
-		CreatedBy:     int(ctx.Locals("userID").(float64)),
+		Name:             input.Name,
+		EventKey:         input.EventKey,
+		Description:      input.Description,
+		EmailConfigID:    input.EmailConfigID,
+		EmailSubject:     input.EmailSubject,
+		EmailHeader:      input.EmailHeader,
+		EmailBody:        input.EmailBody,
+		EmailFooter:      input.EmailFooter,
+		HeaderColor:      input.HeaderColor,
+		IsActive:         input.IsActive,
+		WithAttachment:   input.WithAttachment,
+		AttachmentName:   input.AttachmentName,
+		AttachmentFields: input.AttachmentFields,
+		AttachmentSource: input.AttachmentSource,
+		AttachmentQuery:  input.AttachmentQuery,
+		CreatedBy:        int(ctx.Locals("userID").(float64)),
 	}
 
 	if notif.HeaderColor == "" {
@@ -106,33 +116,43 @@ func (c *NotificationController) Update(ctx *fiber.Ctx) error {
 	}
 
 	var input struct {
-		Name          string `json:"name"`
-		EventKey      string `json:"event_key"`
-		Description   string `json:"description"`
-		EmailConfigID uint   `json:"email_config_id"`
-		EmailSubject  string `json:"email_subject"`
-		EmailHeader   string `json:"email_header"`
-		EmailBody     string `json:"email_body"`
-		EmailFooter   string `json:"email_footer"`
-		HeaderColor   string `json:"header_color"`
-		IsActive      bool   `json:"is_active"`
+		Name             string `json:"name"`
+		EventKey         string `json:"event_key"`
+		Description      string `json:"description"`
+		EmailConfigID    uint   `json:"email_config_id"`
+		EmailSubject     string `json:"email_subject"`
+		EmailHeader      string `json:"email_header"`
+		EmailBody        string `json:"email_body"`
+		EmailFooter      string `json:"email_footer"`
+		HeaderColor      string `json:"header_color"`
+		IsActive         bool   `json:"is_active"`
+		WithAttachment   bool   `json:"with_attachment"`
+		AttachmentName   string `json:"attachment_name"`
+		AttachmentFields string `json:"attachment_fields"`
+		AttachmentSource string `json:"attachment_source"`
+		AttachmentQuery  string `json:"attachment_query"`
 	}
 	if err := ctx.BodyParser(&input); err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
 	if err := c.DB.Model(&notif).Updates(map[string]interface{}{
-		"name":            input.Name,
-		"event_key":       input.EventKey,
-		"description":     input.Description,
-		"email_config_id": input.EmailConfigID,
-		"email_subject":   input.EmailSubject,
-		"email_header":    input.EmailHeader,
-		"email_body":      input.EmailBody,
-		"email_footer":    input.EmailFooter,
-		"header_color":    input.HeaderColor,
-		"is_active":       input.IsActive,
-		"updated_by":      int(ctx.Locals("userID").(float64)),
+		"name":              input.Name,
+		"event_key":         input.EventKey,
+		"description":       input.Description,
+		"email_config_id":   input.EmailConfigID,
+		"email_subject":     input.EmailSubject,
+		"email_header":      input.EmailHeader,
+		"email_body":        input.EmailBody,
+		"email_footer":      input.EmailFooter,
+		"header_color":      input.HeaderColor,
+		"is_active":         input.IsActive,
+		"with_attachment":   input.WithAttachment,
+		"attachment_name":   input.AttachmentName,
+		"attachment_fields": input.AttachmentFields,
+		"attachment_source": input.AttachmentSource,
+		"attachment_query":  input.AttachmentQuery,
+		"updated_by":        int(ctx.Locals("userID").(float64)),
 	}).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}

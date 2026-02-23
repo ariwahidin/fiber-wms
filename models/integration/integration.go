@@ -29,6 +29,13 @@ const (
 	SourceEvent SourceType = "event" // data dari event payload
 )
 
+type Direction string
+
+const (
+	DirectionOutbound Direction = "outbound"
+	DirectionInbound  Direction = "inbound"
+)
+
 type Integration struct {
 	ID              uint        `json:"id" gorm:"primaryKey;autoIncrement"`
 	Name            string      `json:"name" gorm:"not null"`
@@ -57,7 +64,15 @@ type Integration struct {
 	NotifyEmailSubject string `json:"notify_email_subject"`
 	NotifyEmailBody    string `json:"notify_email_body" gorm:"type:text"`
 
-	IsActive  bool           `json:"is_active" gorm:"default:true"`
+	IsActive bool `json:"is_active" gorm:"default:true"`
+
+	Direction     Direction `json:"direction" gorm:"type:varchar(10);default:'outbound'"`
+	ColumnMapping string    `json:"column_mapping" gorm:"type:text"`         // JSON: {"wms_field": "file_column"}
+	Action        string    `json:"action" gorm:"default:'create_outbound'"` // create_outbound | create_inbound
+	SourcePath    string    `json:"source_path"`                             // path folder/remote yg dibaca
+	ArchivePath   string    `json:"archive_path"`                            // file dipindah ke sini kalau sukses
+	ErrorPath     string    `json:"error_path"`                              // file dipindah ke sini kalau gagal
+
 	CreatedBy int            `json:"created_by"`
 	UpdatedBy int            `json:"updated_by"`
 	CreatedAt time.Time      `json:"created_at"`
