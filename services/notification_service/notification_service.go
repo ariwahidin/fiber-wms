@@ -262,3 +262,8 @@ func logHistory(db *gorm.DB, notifID uint, eventKey string, data map[string]inte
 
 	db.Create(&history)
 }
+
+func Retrigger(db *gorm.DB, notif notification.EmailNotification, eventKey string, eventData map[string]interface{}) {
+	sendErr := sendOne(db, notif, eventData)
+	logHistory(db, notif.ID, eventKey, eventData, sendErr)
+}

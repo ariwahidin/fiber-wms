@@ -1,12 +1,15 @@
 package notification_ctrl
 
 import (
+	"encoding/json"
 	"fiber-app/models/notification"
 	"strconv"
 
 	"github.com/go-playground/validator"
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
+
+	notification_service "fiber-app/services/notification_service"
 )
 
 type NotificationController struct {
@@ -265,5 +268,54 @@ func (c *NotificationController) GetAllHistory(ctx *fiber.Ctx) error {
 			"limit": limit,
 			"pages": (total + int64(limit) - 1) / int64(limit),
 		},
+	})
+}
+
+func (c *NotificationController) Retrigger(ctx *fiber.Ctx) error {
+	id, err := strconv.Atoi(ctx.Params("id"))
+	if err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "ID tidak valid"})
+	}
+
+	historyID, err := strconv.Atoi(ctx.Params("historyId"))
+	if err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "History ID tidak valid"})
+	}
+
+	// Load notifikasi
+	var notif notification.EmailNotification
+	if err := c.DB.Preload("EmailConfig").Preload("Recipients").First(&notif, id).Error; err != nil {
+		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Notifikasi tidak ditemukan"})
+	}
+
+	// Load history
+	var history notification.NotificationHistory
+	if err := c.DB.Where("id = ? AND notification_id = ?", historyID, id).First(&history).Error; err != nil {
+		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "History tidak ditemukan"})
+	}
+
+	// Parse payload
+	var eventData map[string]interface{}
+	if history.Payload != "" {
+		if err := json.Unmarshal([]byte(history.Payload), &eventData); err != nil {
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error": "Gagal parse payload: " + err.Error(),
+			})
+		}
+	} else {
+		eventData = map[string]interface{}{}
+	}
+
+	// Kirim ulang secara async
+	// go func() {
+	// 	sendErr := sendOne(c.DB, notif, eventData)
+	// 	logHistory(c.DB, notif.ID, history.EventKey, eventData, sendErr)
+	// }()
+
+	go notification_service.Retrigger(c.DB, notif, history.EventKey, eventData)
+
+	return ctx.JSON(fiber.Map{
+		"success": true,
+		"message": "Retrigger dimulai, cek history untuk hasilnya",
 	})
 }

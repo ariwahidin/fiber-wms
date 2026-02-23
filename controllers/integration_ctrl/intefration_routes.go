@@ -1,4 +1,4 @@
-package notification_ctrl
+package integration_ctrl
 
 import (
 	"fiber-app/middleware"
@@ -7,28 +7,30 @@ import (
 	"gorm.io/gorm"
 )
 
-func SetupNotificationRoutes(app *fiber.App, db *gorm.DB) {
-	ctrl := NewNotificationController(db)
+func SetupIntegrationRoutes(app *fiber.App, db *gorm.DB, queryDB *gorm.DB) {
+	ctrl := NewIntegrationController(db, queryDB)
 
-	api := app.Group("/api/v1/notifications", middleware.AuthMiddleware)
+	api := app.Group("/api/v1/integrations", middleware.AuthMiddleware)
 
-	// CRUD notifikasi
+	// CRUD
 	api.Get("/", ctrl.GetAll)
 	api.Get("/:id", ctrl.GetByID)
 	api.Post("/", ctrl.Create)
 	api.Put("/:id", ctrl.Update)
 	api.Delete("/:id", ctrl.Delete)
 
+	// Connection
+	api.Put("/:id/connection", ctrl.SaveConnection)
+
 	// Recipients
-	api.Get("/:id/recipients", ctrl.GetRecipients)
 	api.Post("/:id/recipients", ctrl.AddRecipient)
 	api.Delete("/:id/recipients/:recipientId", ctrl.RemoveRecipient)
 
-	// History per notifikasi
+	// History
 	api.Get("/:id/history", ctrl.GetHistory)
 
-	// History semua (global)
-	api.Get("/history/all", ctrl.GetAllHistory)
+	// Test Run
+	api.Post("/:id/test-run", ctrl.TestRun)
 
 	api.Post("/:id/history/:historyId/retrigger", ctrl.Retrigger)
 }

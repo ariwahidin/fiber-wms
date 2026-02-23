@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	integration_service "fiber-app/services/integration_service"
 	notification_service "fiber-app/services/notification_service"
 
 	"github.com/gofiber/fiber/v2"
@@ -25,12 +26,21 @@ import (
 	"gorm.io/gorm"
 )
 
+// type OutboundController struct {
+// 	DB *gorm.DB
+// }
+
+// func NewOutboundController(DB *gorm.DB) *OutboundController {
+// 	return &OutboundController{DB: DB}
+// }
+
 type OutboundController struct {
-	DB *gorm.DB
+	DB      *gorm.DB
+	QueryDB *gorm.DB
 }
 
-func NewOutboundController(DB *gorm.DB) *OutboundController {
-	return &OutboundController{DB: DB}
+func NewOutboundController(db *gorm.DB, queryDB *gorm.DB) *OutboundController {
+	return &OutboundController{DB: db, QueryDB: queryDB}
 }
 
 type Outbound struct {
@@ -1330,6 +1340,23 @@ func (c *OutboundController) PickingComplete(ctx *fiber.Ctx) error {
 	go notification_service.SendNotification(c.DB, "outbound.completed", map[string]interface{}{
 		"outbound_no":   outboundHeader.OutboundNo,
 		"shipment_id":   outboundHeader.ShipmentID,
+		"owner_code":    outboundHeader.OwnerCode,
+		"customer_code": outboundHeader.CustomerCode,
+		"whs_code":      outboundHeader.WhsCode,
+		"picker_name":   outboundHeader.PickerName,
+		"deliv_to":      outboundHeader.DelivTo,
+		"deliv_address": outboundHeader.DelivAddress,
+		"deliv_city":    outboundHeader.DelivCity,
+		"driver":        outboundHeader.Driver,
+		"truck_no":      outboundHeader.TruckNo,
+		"awb_no":        outboundHeader.AwbNo,
+		"remarks":       outboundHeader.Remarks,
+		"complete_time": completeTime.Format("2006-01-02 15:04:05"),
+	})
+
+	// Trigger Integration Hub (async)
+	go integration_service.Dispatch(c.DB, c.QueryDB, "outbound.completed", map[string]interface{}{
+		"outbound_no":   outboundHeader.OutboundNo,
 		"owner_code":    outboundHeader.OwnerCode,
 		"customer_code": outboundHeader.CustomerCode,
 		"whs_code":      outboundHeader.WhsCode,

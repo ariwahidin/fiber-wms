@@ -2,6 +2,7 @@ package migration
 
 import (
 	"fiber-app/models"
+	"fiber-app/models/integration"
 	"fiber-app/models/notification"
 	"fiber-app/models/report_mailer"
 
@@ -83,5 +84,10 @@ func MigrateBusinessUnit(db *gorm.DB) error {
 		&notification.EmailNotification{},
 		&notification.NotificationRecipient{},
 		&notification.NotificationHistory{},
+
+		&integration.Integration{},
+		&integration.IntegrationConnection{},
+		&integration.IntegrationRecipient{},
+		&integration.IntegrationHistory{},
 	)
 }
