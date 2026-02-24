@@ -39,7 +39,7 @@ type IntegrationHistory struct {
 	ID             uint              `json:"id" gorm:"primaryKey;autoIncrement"`
 	IntegrationID  uint              `json:"integration_id" gorm:"not null;index"`
 	EventKey       string            `json:"event_key"`
-	ChannelType    ChannelType       `json:"channel_type" gorm:"type:varchar(10)"`
+	ChannelType    ChannelType       `json:"channel_type" gorm:"type:varchar(20)"`
 	Status         IntegrationStatus `json:"status" gorm:"type:varchar(10)"`
 	Message        string            `json:"message" gorm:"type:text"`
 	FileName       string            `json:"file_name"`                        // nama file yang dikirim (kalau ada)

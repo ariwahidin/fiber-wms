@@ -118,7 +118,7 @@ func SetupCORS(app *fiber.App) {
 		origin := c.Get("Origin")
 		if allowedOrigins[origin] {
 			c.Set("Access-Control-Allow-Origin", origin)
-			c.Set("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
+			c.Set("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS,PATCH")
 			c.Set("Access-Control-Allow-Headers", "Origin, Content-Type, Accept, Authorization")
 			c.Set("Access-Control-Allow-Credentials", "true")
 		}

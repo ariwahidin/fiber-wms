@@ -27,7 +27,12 @@ type IntegrationConnection struct {
 	BodyTemplate string `json:"body_template" gorm:"type:text"` // template JSON body untuk API, support {{placeholder}}
 
 	// File output
-	OutputPath string `json:"output_path"` // direktori tujuan simpan file
+	OutputPath      string `json:"output_path"` // direktori tujuan simpan file
+	SpreadsheetID   string `json:"spreadsheet_id"`
+	SheetName       string `json:"sheet_name"`
+	CredentialsJSON string `json:"credentials_json" gorm:"type:text"`
+	AppendMode      string `json:"append_mode" gorm:"default:'append'"`
+	HeaderRow       bool   `json:"header_row" gorm:"default:true"`
 
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`

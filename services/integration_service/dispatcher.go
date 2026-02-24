@@ -8,6 +8,7 @@ import (
 	"fiber-app/models/integration"
 	report_mailer "fiber-app/models/report_mailer"
 	"fmt"
+	"log"
 	"mime/multipart"
 	"mime/quotedprintable"
 	"net/smtp"
@@ -28,6 +29,9 @@ func Dispatch(db *gorm.DB, queryDB *gorm.DB, eventKey string, eventData map[stri
 	eventData["date"] = time.Now().Format("20060102")
 	eventData["datetime"] = time.Now().Format("2006-01-02 15:04:05")
 
+	// tambah ini sementara
+	log.Printf("[Integration] Dispatch dipanggil: eventKey=%s, data=%v", eventKey, eventData)
+
 	// Cari semua integrasi aktif untuk event ini
 	var integrations []integration.Integration
 	if err := db.
@@ -38,6 +42,8 @@ func Dispatch(db *gorm.DB, queryDB *gorm.DB, eventKey string, eventData map[stri
 		return
 	}
 
+	log.Printf("[Integration] Integrasi ditemukan: %d", len(integrations))
+
 	for _, intg := range integrations {
 		err := runIntegration(db, queryDB, intg, eventData, "event")
 		// logHistory(db, intg, eventKey, err, "event")
@@ -47,6 +53,48 @@ func Dispatch(db *gorm.DB, queryDB *gorm.DB, eventKey string, eventData map[stri
 }
 
 // ─── Run Single Integration ───────────────────────────────────────────────────
+
+// func runIntegration(
+// 	db *gorm.DB,
+// 	queryDB *gorm.DB,
+// 	intg integration.Integration,
+// 	eventData map[string]interface{},
+// 	triggeredBy string,
+// ) error {
+// 	if intg.Connection == nil {
+// 		return fmt.Errorf("connection belum dikonfigurasi")
+// 	}
+
+// 	// Untuk API — tidak perlu generate file
+// 	if intg.ChannelType == integration.ChannelAPI {
+// 		return sendViaAPI(*intg.Connection, eventData)
+// 	}
+
+// 	// Untuk channel lain — generate file dulu
+// 	// Pilih DB yang sesuai: queryDB untuk source query, tidak perlu DB untuk source event
+// 	activeDB := db
+// 	if intg.SourceType == integration.SourceQuery {
+// 		activeDB = queryDB
+// 	}
+
+// 	file, err := GenerateFile(activeDB, intg, eventData)
+// 	if err != nil {
+// 		return fmt.Errorf("gagal generate file: %w", err)
+// 	}
+
+// 	switch intg.ChannelType {
+// 	case integration.ChannelSFTP:
+// 		return sendViaSFTP(*intg.Connection, file)
+// 	case integration.ChannelFTP:
+// 		return sendViaFTP(*intg.Connection, file)
+// 	case integration.ChannelFile:
+// 		return sendViaFile(*intg.Connection, file)
+// 	case integration.ChannelGoogleSheets:
+// 		return sendViaGoogleSheets(*intg.Connection, file, eventData, intg)
+// 	default:
+// 		return fmt.Errorf("channel_type tidak dikenal: %s", intg.ChannelType)
+// 	}
+// }
 
 func runIntegration(
 	db *gorm.DB,
@@ -59,13 +107,17 @@ func runIntegration(
 		return fmt.Errorf("connection belum dikonfigurasi")
 	}
 
-	// Untuk API — tidak perlu generate file
+	// Google Sheets — handle sendiri, tidak perlu generate file
+	if intg.ChannelType == integration.ChannelGoogleSheets {
+		return sendViaGoogleSheets(db, queryDB, *intg.Connection, intg, eventData)
+	}
+
+	// API — tidak perlu generate file
 	if intg.ChannelType == integration.ChannelAPI {
 		return sendViaAPI(*intg.Connection, eventData)
 	}
 
-	// Untuk channel lain — generate file dulu
-	// Pilih DB yang sesuai: queryDB untuk source query, tidak perlu DB untuk source event
+	// Channel lain (SFTP/FTP/File) — generate file dulu
 	activeDB := db
 	if intg.SourceType == integration.SourceQuery {
 		activeDB = queryDB

@@ -12,10 +12,11 @@ type Timing string
 type SourceType string
 
 const (
-	ChannelSFTP ChannelType = "sftp"
-	ChannelFTP  ChannelType = "ftp"
-	ChannelAPI  ChannelType = "api"
-	ChannelFile ChannelType = "file"
+	ChannelSFTP         ChannelType = "sftp"
+	ChannelFTP          ChannelType = "ftp"
+	ChannelAPI          ChannelType = "api"
+	ChannelFile         ChannelType = "file"
+	ChannelGoogleSheets ChannelType = "google_sheets"
 
 	FormatCSV   FileFormat = "csv"
 	FormatExcel FileFormat = "excel"
@@ -41,7 +42,7 @@ type Integration struct {
 	Name            string      `json:"name" gorm:"not null"`
 	EventKey        string      `json:"event_key" gorm:"not null;index"` // cth: "outbound.completed"
 	Description     string      `json:"description"`
-	ChannelType     ChannelType `json:"channel_type" gorm:"type:varchar(10);not null"`
+	ChannelType     ChannelType `json:"channel_type" gorm:"type:varchar(20);not null"`
 	FileFormat      FileFormat  `json:"file_format" gorm:"type:varchar(10)"` // kosong kalau API
 	SourceType      SourceType  `json:"source_type" gorm:"type:varchar(10);not null"`
 	Query           string      `json:"query" gorm:"type:text"` // diisi kalau source_type = query

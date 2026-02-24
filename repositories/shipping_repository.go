@@ -99,6 +99,7 @@ func (r *ShippingRepository) GetAllOutboundList() ([]OutboundList, error) {
 type OrderList struct {
 	ID              int     `json:"ID"`
 	OrderNo         string  `json:"order_no"`
+	Status          string  `json:"status"`
 	OrderDate       string  `json:"order_date"`
 	OrderType       string  `json:"order_type"`
 	Driver          string  `json:"driver"`
@@ -137,6 +138,7 @@ func (r *ShippingRepository) GetOrderSummaryList() ([]OrderList, error) {
 
 SELECT oh.id,
 oh.order_no,
+oh.status,
 oh.order_date,
 oh.order_type,
 oh.driver,
