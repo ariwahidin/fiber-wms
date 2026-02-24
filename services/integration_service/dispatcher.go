@@ -275,6 +275,9 @@ func sendNotification(db *gorm.DB, intg integration.Integration, data map[string
 </body></html>`, bodyTemplate, time.Now().Year())
 
 	// Kirim email
+	// go sendEmail(emailConfig, toList, ccList, subject, htmlBody)
+	subject = resolvePlaceholders(subject, data)
+	htmlBody = resolvePlaceholders(htmlBody, data)
 	go sendEmail(emailConfig, toList, ccList, subject, htmlBody)
 }
 
