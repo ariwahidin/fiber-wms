@@ -34,6 +34,7 @@ type OutboundHeader struct {
 	PickerName        string    `json:"picker_name"`
 	CustAddress       string    `json:"cust_address"`
 	CustCity          string    `json:"cust_city"`
+	OrderType         string    `json:"order_type"`
 	PlanPickupDate    string    `json:"plan_pickup_date"`
 	PlanPickupTime    string    `json:"plan_pickup_time"`
 	RcvDoDate         string    `json:"rcv_do_date"`

@@ -58,6 +58,7 @@ type Outbound struct {
 	PickerName      string            `json:"picker_name"`
 	CustAddress     string            `json:"cust_address"`
 	CustCity        string            `json:"cust_city"`
+	OrderType       string            `json:"order_type"`
 	PlanPickupDate  string            `json:"plan_pickup_date"`
 	PlanPickupTime  string            `json:"plan_pickup_time"`
 	RcvDoDate       string            `json:"rcv_do_date"`
@@ -274,6 +275,7 @@ func (c *OutboundController) CreateOutbound(ctx *fiber.Ctx) error {
 	OutboundHeader.PickerName = payload.PickerName
 	OutboundHeader.CustAddress = payload.CustAddress
 	OutboundHeader.CustCity = payload.CustCity
+	OutboundHeader.OrderType = payload.OrderType
 	OutboundHeader.PlanPickupDate = payload.PlanPickupDate
 	OutboundHeader.PlanPickupTime = payload.PlanPickupTime
 	OutboundHeader.RcvDoDate = payload.RcvDoDate
@@ -664,6 +666,7 @@ func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
 	OutboundHeader.PickerName = payload.PickerName
 	OutboundHeader.CustAddress = payload.CustAddress
 	OutboundHeader.CustCity = payload.CustCity
+	OutboundHeader.OrderType = payload.OrderType
 	OutboundHeader.PlanPickupDate = payload.PlanPickupDate
 	OutboundHeader.PlanPickupTime = payload.PlanPickupTime
 	OutboundHeader.RcvDoDate = payload.RcvDoDate

@@ -195,6 +195,7 @@ type OutboundList struct {
 	QtyKoli      int     `json:"qty_koli"`
 	TotalCBM     float64 `json:"total_cbm"`
 	UseVas       bool    `json:"use_vas"`
+	OrderType    string  `json:"order_type"`
 }
 
 func (r *OutboundRepository) GetAllOutboundList() ([]OutboundList, error) {
@@ -287,6 +288,7 @@ func (r *OutboundRepository) GetAllOutboundList() ([]OutboundList, error) {
 			a.status, a.owner_code, 
 			a.shipment_id,
             a.outbound_date,
+			a.order_type,
 			ord.order_no,
 			a.customer_code,
             od.total_item, od.qty_req, COALESCE(ps.qty_plan, 0) AS qty_plan,
