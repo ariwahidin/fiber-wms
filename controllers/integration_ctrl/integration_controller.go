@@ -55,7 +55,7 @@ func (c *IntegrationController) Create(ctx *fiber.Ctx) error {
 		Name               string                  `json:"name" validate:"required"`
 		EventKey           string                  `json:"event_key" validate:"required"`
 		Description        string                  `json:"description"`
-		ChannelType        integration.ChannelType `json:"channel_type" validate:"required,oneof=sftp ftp api file"`
+		ChannelType        integration.ChannelType `json:"channel_type" validate:"required,oneof=sftp ftp api file google_sheets"`
 		FileFormat         integration.FileFormat  `json:"file_format"`
 		SourceType         integration.SourceType  `json:"source_type" validate:"required,oneof=query event"`
 		Query              string                  `json:"query"`

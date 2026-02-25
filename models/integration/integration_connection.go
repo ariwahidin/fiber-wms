@@ -33,6 +33,7 @@ type IntegrationConnection struct {
 	CredentialsJSON string `json:"credentials_json" gorm:"type:text"`
 	AppendMode      string `json:"append_mode" gorm:"default:'append'"`
 	HeaderRow       bool   `json:"header_row" gorm:"default:true"`
+	KeyColumn       string `json:"key_column"`
 
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
