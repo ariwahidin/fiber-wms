@@ -85,6 +85,8 @@ func SetupMobileOutboundRoutes(app *fiber.App) {
 
 	// SealCarton
 	api.Post("/outbound/picking/seal-container/:outbound_no", mobileOutboundController.SealCarton)
+
+	api.Get("/outbound/picking/:outbound_no/cartons/next", mobileOutboundController.NewCarton)
 }
 
 func SetupMobileShippingGuestRoutes(app *fiber.App, shippingGuestController *mobiles.ShippingGuestController) {

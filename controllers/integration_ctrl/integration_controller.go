@@ -5,6 +5,7 @@ import (
 	"fiber-app/models/integration"
 	integration_service "fiber-app/services/integration_service"
 	"io"
+	"log"
 	"strconv"
 
 	"github.com/go-playground/validator"
@@ -110,6 +111,8 @@ func (c *IntegrationController) Create(ctx *fiber.Ctx) error {
 	if err := c.DB.Create(&intg).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
+
+	integration_service.IntegrationScheduler.ReloadIntegration(intg.ID)
 	return ctx.Status(fiber.StatusCreated).JSON(fiber.Map{"success": true, "data": intg})
 }
 
@@ -132,6 +135,8 @@ func (c *IntegrationController) Update(ctx *fiber.Ctx) error {
 	if err := c.DB.Save(&intg).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
+
+	integration_service.IntegrationScheduler.ReloadIntegration(intg.ID)
 	return ctx.JSON(fiber.Map{"success": true, "message": "Integrasi berhasil diupdate"})
 }
 
@@ -140,6 +145,8 @@ func (c *IntegrationController) Delete(ctx *fiber.Ctx) error {
 	if err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "ID tidak valid"})
 	}
+
+	integration_service.IntegrationScheduler.ReloadAll()
 
 	tx := c.DB.Begin()
 	tx.Where("integration_id = ?", id).Delete(&integration.IntegrationConnection{})
@@ -509,5 +516,21 @@ func (c *IntegrationController) DetectHeaders(ctx *fiber.Ctx) error {
 		"success":    true,
 		"headers":    headers,   // kolom dari file
 		"wms_fields": wmsFields, // field WMS yang tersedia
+	})
+}
+
+func (ctrl *IntegrationController) RunNow(ctx *fiber.Ctx) error {
+	id, _ := strconv.Atoi(ctx.Params("id"))
+
+	go func() {
+		err := integration_service.TriggerIntegrationNow(ctrl.DB, ctrl.QueryDB, uint(id))
+		if err != nil {
+			log.Printf("[Integration] RunNow %d gagal: %v", id, err)
+		}
+	}()
+
+	return ctx.Status(fiber.StatusAccepted).JSON(fiber.Map{
+		"success": true,
+		"message": "Integrasi sedang dijalankan",
 	})
 }

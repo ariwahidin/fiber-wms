@@ -5,6 +5,7 @@ import (
 	"fiber-app/models"
 	"fiber-app/repositories"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -962,5 +963,32 @@ func (c *MobileOutboundController) GetItemInCartonByOutbound(ctx *fiber.Ctx) err
 			"cartons":     cartons,
 			"total":       total,
 		},
+	})
+}
+
+func (c *MobileOutboundController) NewCarton(ctx *fiber.Ctx) error {
+	outboundNo := ctx.Params("outbound_no")
+
+	var maxCtnNo string
+	err := c.DB.Model(&models.OutboundBarcode{}).
+		Where("outbound_no = ?", outboundNo).
+		// Select("COALESCE(MAX(CAST(pack_ctn_no AS UNSIGNED)), 0)").
+		Select("COALESCE(MAX(CAST(pack_ctn_no AS BIGINT)), 0)").
+		Scan(&maxCtnNo).Error
+
+	if err != nil {
+		return ctx.Status(500).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to get carton data",
+		})
+	}
+
+	maxNo, _ := strconv.Atoi(maxCtnNo)
+	nextNo := maxNo + 1
+
+	return ctx.JSON(fiber.Map{
+		"success":     true,
+		"last_ctn_no": maxNo,
+		"next_ctn_no": nextNo,
 	})
 }

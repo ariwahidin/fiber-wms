@@ -18,6 +18,7 @@ import (
 	integration_ctrl "fiber-app/controllers/integration_ctrl"
 	notification_ctrl "fiber-app/controllers/notification_ctrl"
 	reportmailer "fiber-app/controllers/report_mailer"
+	integration_service "fiber-app/services/integration_service"
 	rm_services "fiber-app/services/report_mailer"
 
 	"github.com/gofiber/fiber/v2"
@@ -222,6 +223,7 @@ func main() {
 	reportmailer.SetupReportQueryRoutes(app, unitDB, reportDB)
 	notification_ctrl.SetupNotificationRoutes(app, unitDB)
 	integration_ctrl.SetupIntegrationRoutes(app, unitDB, reportDB)
+	integration_service.InitIntegrationScheduler(unitDB, reportDB)
 
 	// routes.SetupRfInboundRoutes(app, RfInboundController)
 	// routes.SetupOutboundRoutes(app, db)

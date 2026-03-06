@@ -70,4 +70,6 @@ func SetupIntegrationRoutes(app *fiber.App, db *gorm.DB, queryDB *gorm.DB) {
 
 	// Inbound: detect headers dari sample file upload
 	api.Post("/:id/detect-headers", ctrl.DetectHeaders)
+
+	api.Post("/:id/run-now", ctrl.RunNow)
 }

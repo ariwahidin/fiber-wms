@@ -34,6 +34,7 @@ type IntegrationConnection struct {
 	AppendMode      string `json:"append_mode" gorm:"default:'append'"`
 	HeaderRow       bool   `json:"header_row" gorm:"default:true"`
 	KeyColumn       string `json:"key_column"`
+	ScheduleMode    string `json:"schedule_mode" gorm:"default:'upsert'"`
 
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
