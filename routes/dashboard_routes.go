@@ -15,4 +15,5 @@ func SetupDashboardRoutes(app *fiber.App) {
 	api.Use(database.InjectDBMiddleware(dashboardController))
 
 	api.Get("/", dashboardController.GetDashboard)
+	api.Get("/chart", dashboardController.GetDashboardChart)
 }
