@@ -7,6 +7,7 @@ import (
 	"fiber-app/controllers/idgen"
 	"fiber-app/models"
 	"fiber-app/models/notification"
+	"fiber-app/models/report_builder"
 	"fiber-app/models/report_mailer"
 	"fiber-app/types"
 	"fmt"
@@ -25,6 +26,7 @@ func RunSeeders(db *gorm.DB) {
 	// SeedDivision(db)
 	SeedMasterCartons(db)
 	SeedEmailNotification(db)
+	SeedReportBuilder(db)
 }
 
 func SeedUnit(db *gorm.DB) {
@@ -462,6 +464,110 @@ func SeedEmailNotification(db *gorm.DB) error {
 
 	if err := db.Create(&inboundNotif).Error; err != nil {
 		return err
+	}
+
+	return nil
+}
+
+func SeedReportBuilder(db *gorm.DB) error {
+	reports := []struct {
+		report report_builder.RptReport
+		fields []report_builder.RptReportField
+	}{
+		{
+			report: report_builder.RptReport{
+				ReportCode: "INVENTORY",
+				ReportName: "Inventory Stock",
+				ReportType: "QUERY",
+				BaseQuery: `SELECT
+					a.whs_code, a.location, a.owner_code, a.rec_date,
+					b.item_code, b.item_name, b.category, b.cbm,
+					a.qa_status, a.uom,
+					SUM(a.qty_origin) AS qty_in,
+					SUM(a.qty_onhand) AS qty_onhand,
+					SUM(a.qty_available) AS qty_available,
+					SUM(a.qty_allocated) AS qty_allocated,
+					SUM(a.qty_shipped) AS qty_out,
+					b.cbm * SUM(a.qty_available) AS cbm_total
+				FROM inventories a
+				INNER JOIN products b ON a.item_id = b.id
+				WHERE a.qty_origin > 0
+				GROUP BY a.whs_code, a.location, b.item_code, b.item_name,
+					a.qa_status, a.uom, a.owner_code, a.rec_date, b.category, b.cbm`,
+				IsActive: true,
+			},
+			fields: []report_builder.RptReportField{
+				{FieldKey: "whs_code", FieldLabel: "Warehouse", FieldType: "STRING", IsFilterable: true, IsSortable: true, SortOrder: 1},
+				{FieldKey: "location", FieldLabel: "Location", FieldType: "STRING", IsFilterable: true, IsSortable: true, SortOrder: 2},
+				{FieldKey: "owner_code", FieldLabel: "Owner", FieldType: "STRING", IsFilterable: true, IsSortable: true, SortOrder: 3},
+				{FieldKey: "item_code", FieldLabel: "Item Code", FieldType: "STRING", IsFilterable: true, IsSortable: true, SortOrder: 4},
+				{FieldKey: "item_name", FieldLabel: "Item Name", FieldType: "STRING", IsFilterable: true, IsSortable: true, SortOrder: 5},
+				{FieldKey: "category", FieldLabel: "Category", FieldType: "STRING", IsFilterable: true, IsSortable: true, SortOrder: 6},
+				{FieldKey: "uom", FieldLabel: "UOM", FieldType: "STRING", IsFilterable: true, IsSortable: true, SortOrder: 7},
+				{FieldKey: "qa_status", FieldLabel: "QA Status", FieldType: "STRING", IsFilterable: true, IsSortable: true, SortOrder: 8},
+				{FieldKey: "rec_date", FieldLabel: "Receive Date", FieldType: "DATE", IsFilterable: true, IsSortable: true, SortOrder: 9},
+				{FieldKey: "qty_in", FieldLabel: "Qty In", FieldType: "NUMBER", IsFilterable: false, IsSortable: true, SortOrder: 10},
+				{FieldKey: "qty_onhand", FieldLabel: "Qty On Hand", FieldType: "NUMBER", IsFilterable: false, IsSortable: true, SortOrder: 11},
+				{FieldKey: "qty_available", FieldLabel: "Qty Available", FieldType: "NUMBER", IsFilterable: false, IsSortable: true, SortOrder: 12},
+				{FieldKey: "qty_allocated", FieldLabel: "Qty Allocated", FieldType: "NUMBER", IsFilterable: false, IsSortable: true, SortOrder: 13},
+				{FieldKey: "qty_out", FieldLabel: "Qty Out", FieldType: "NUMBER", IsFilterable: false, IsSortable: true, SortOrder: 14},
+				{FieldKey: "cbm", FieldLabel: "CBM/pcs", FieldType: "NUMBER", IsFilterable: false, IsSortable: false, SortOrder: 15},
+				{FieldKey: "cbm_total", FieldLabel: "CBM Total", FieldType: "NUMBER", IsFilterable: false, IsSortable: true, SortOrder: 16},
+			},
+		},
+		{
+			report: report_builder.RptReport{
+				ReportCode:   "PICKING_LIST",
+				ReportName:   "Picking List",
+				ReportType:   "DOCUMENT",
+				DocumentType: "PICKING_LIST",
+				BaseQuery: `SELECT
+					oh.doc_no, oh.doc_date, oh.owner_code, oh.whs_code,
+					c.item_code, c.item_name, c.uom,
+					b.qty_request, b.qty_picked,
+					b.location, b.batch_no
+				FROM outbound_headers oh
+				INNER JOIN outbound_details b ON oh.id = b.outbound_id
+				INNER JOIN products c ON b.item_id = c.id
+				WHERE oh.id = :outbound_id
+				ORDER BY b.location, c.item_code`,
+				IsActive: true,
+			},
+			fields: []report_builder.RptReportField{
+				{FieldKey: "doc_no", FieldLabel: "Document No", FieldType: "STRING", IsFilterable: false, IsSortable: false, SortOrder: 1},
+				{FieldKey: "doc_date", FieldLabel: "Document Date", FieldType: "DATE", IsFilterable: false, IsSortable: false, SortOrder: 2},
+				{FieldKey: "owner_code", FieldLabel: "Owner", FieldType: "STRING", IsFilterable: false, IsSortable: false, SortOrder: 3},
+				{FieldKey: "whs_code", FieldLabel: "Warehouse", FieldType: "STRING", IsFilterable: false, IsSortable: false, SortOrder: 4},
+				{FieldKey: "location", FieldLabel: "Location", FieldType: "STRING", IsFilterable: false, IsSortable: false, SortOrder: 5},
+				{FieldKey: "item_code", FieldLabel: "Item Code", FieldType: "STRING", IsFilterable: false, IsSortable: false, SortOrder: 6},
+				{FieldKey: "item_name", FieldLabel: "Item Name", FieldType: "STRING", IsFilterable: false, IsSortable: false, SortOrder: 7},
+				{FieldKey: "uom", FieldLabel: "UOM", FieldType: "STRING", IsFilterable: false, IsSortable: false, SortOrder: 8},
+				{FieldKey: "qty_request", FieldLabel: "Qty Request", FieldType: "NUMBER", IsFilterable: false, IsSortable: false, SortOrder: 9},
+				{FieldKey: "qty_picked", FieldLabel: "Qty Picked", FieldType: "NUMBER", IsFilterable: false, IsSortable: false, SortOrder: 10},
+				{FieldKey: "batch_no", FieldLabel: "Batch No", FieldType: "STRING", IsFilterable: false, IsSortable: false, SortOrder: 11},
+			},
+		},
+	}
+
+	for _, item := range reports {
+		// Skip kalau sudah ada
+		var existing report_builder.RptReport
+		if err := db.Where("report_code = ?", item.report.ReportCode).First(&existing).Error; err == nil {
+			continue
+		}
+
+		// Create report
+		if err := db.Create(&item.report).Error; err != nil {
+			return err
+		}
+
+		// Create fields
+		for i := range item.fields {
+			item.fields[i].ReportID = item.report.ID
+		}
+		if err := db.Create(&item.fields).Error; err != nil {
+			return err
+		}
 	}
 
 	return nil

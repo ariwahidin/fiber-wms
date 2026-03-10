@@ -4,6 +4,7 @@ import (
 	"fiber-app/models"
 	"fiber-app/models/integration"
 	"fiber-app/models/notification"
+	"fiber-app/models/report_builder"
 	"fiber-app/models/report_mailer"
 
 	"gorm.io/gorm"
@@ -89,5 +90,12 @@ func MigrateBusinessUnit(db *gorm.DB) error {
 		&integration.IntegrationConnection{},
 		&integration.IntegrationRecipient{},
 		&integration.IntegrationHistory{},
+
+		&report_builder.RptReport{},
+		&report_builder.RptReportField{},
+		&report_builder.RptLayout{},
+		&report_builder.RptLayoutColumn{},
+		&report_builder.RptLayoutFilter{},
+		&report_builder.RptDocumentConfig{},
 	)
 }

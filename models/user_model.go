@@ -37,6 +37,8 @@ type Permission struct {
 	gorm.Model
 	Name        string `json:"name" gorm:"unique"`
 	Description string `json:"description"`
+	Resource    string `json:"resource"` // e.g. "supplier", "inbound", "user"
+	Action      string `json:"action"`
 	CreatedBy   int
 	UpdatedBy   int
 	DeletedBy   int

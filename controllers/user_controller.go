@@ -365,16 +365,69 @@ func (c *UserController) GetPermissionByID(ctx *fiber.Ctx) error {
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"data": permission, "success": true})
 }
 
+// func (c *UserController) CreatePermission(ctx *fiber.Ctx) error {
+// 	var permission models.Permission
+// 	if err := ctx.BodyParser(&permission); err != nil {
+// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+// 	}
+// 	permission.CreatedBy = int(ctx.Locals("userID").(float64))
+// 	permission.CreatedAt = ctx.Context().Time()
+// 	result := c.DB.Create(&permission)
+// 	if result.Error != nil {
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": result.Error.Error()})
+// 	}
+// 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Permission created successfully"})
+// }
+
+type CreatePermissionInput struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Resource    string `json:"resource"`
+	Action      string `json:"action"`
+}
+
+type UpdatePermissionInput struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Resource    string `json:"resource"`
+	Action      string `json:"action"`
+}
+
+func getUserID(ctx *fiber.Ctx) (int, error) {
+	val := ctx.Locals("userID")
+	switch v := val.(type) {
+	case float64:
+		return int(v), nil
+	case int:
+		return v, nil
+	case uint:
+		return int(v), nil
+	default:
+		return 0, fmt.Errorf("invalid userID type")
+	}
+}
+
 func (c *UserController) CreatePermission(ctx *fiber.Ctx) error {
-	var permission models.Permission
-	if err := ctx.BodyParser(&permission); err != nil {
+	var input CreatePermissionInput
+	if err := ctx.BodyParser(&input); err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
-	permission.CreatedBy = int(ctx.Locals("userID").(float64))
-	permission.CreatedAt = ctx.Context().Time()
-	result := c.DB.Create(&permission)
-	if result.Error != nil {
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": result.Error.Error()})
+
+	userID, err := getUserID(ctx)
+	if err != nil {
+		return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Invalid user"})
+	}
+
+	permission := models.Permission{
+		Name:        input.Name,
+		Description: input.Description,
+		Resource:    input.Resource,
+		Action:      input.Action,
+		CreatedBy:   userID,
+	}
+
+	if err := c.DB.Create(&permission).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Permission created successfully"})
 }
@@ -384,6 +437,7 @@ func (c *UserController) UpdatePermission(ctx *fiber.Ctx) error {
 	if err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid ID"})
 	}
+
 	var permission models.Permission
 	if err := c.DB.First(&permission, id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -391,17 +445,53 @@ func (c *UserController) UpdatePermission(ctx *fiber.Ctx) error {
 		}
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
-	if err := ctx.BodyParser(&permission); err != nil {
+
+	var input UpdatePermissionInput
+	if err := ctx.BodyParser(&input); err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
-	permission.UpdatedBy = int(ctx.Locals("userID").(float64))
-	permission.UpdatedAt = ctx.Context().Time()
-	result := c.DB.Save(&permission)
-	if result.Error != nil {
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": result.Error.Error()})
+
+	userID, err := getUserID(ctx)
+	if err != nil {
+		return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Invalid user"})
+	}
+
+	// Hanya update field yang boleh berubah
+	permission.Name = input.Name
+	permission.Description = input.Description
+	permission.Resource = input.Resource
+	permission.Action = input.Action
+	permission.UpdatedBy = userID
+
+	if err := c.DB.Save(&permission).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Permission updated successfully"})
 }
+
+// func (c *UserController) UpdatePermission(ctx *fiber.Ctx) error {
+// 	id, err := ctx.ParamsInt("id")
+// 	if err != nil {
+// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid ID"})
+// 	}
+// 	var permission models.Permission
+// 	if err := c.DB.First(&permission, id).Error; err != nil {
+// 		if errors.Is(err, gorm.ErrRecordNotFound) {
+// 			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Permission not found"})
+// 		}
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+// 	}
+// 	if err := ctx.BodyParser(&permission); err != nil {
+// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+// 	}
+// 	permission.UpdatedBy = int(ctx.Locals("userID").(float64))
+// 	permission.UpdatedAt = ctx.Context().Time()
+// 	result := c.DB.Save(&permission)
+// 	if result.Error != nil {
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": result.Error.Error()})
+// 	}
+// 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Permission updated successfully"})
+// }
 
 func (c *UserController) UpdatePermissionsForRole(ctx *fiber.Ctx) error {
 	// Ambil ID dari parameter URL
