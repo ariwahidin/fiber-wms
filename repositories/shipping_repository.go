@@ -72,7 +72,8 @@ func (r *ShippingRepository) GetAllOutboundList() ([]OutboundList, error) {
 			od.total_item,
 			ps.qty_plan as total_qty,
 			odt.outbound_id as odt_id,
-			inpo.use_vas
+			inpo.use_vas, 
+			a.order_type
             from outbound_headers a
             left join od on a.id = od.outbound_id
             LEFT JOIN ps ON a.id = ps.outbound_id

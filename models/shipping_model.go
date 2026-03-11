@@ -91,6 +91,7 @@ type OrderDetail struct {
 	DelivToName  string            `json:"deliv_to_name"`
 	DelivAddress string            `json:"deliv_address"`
 	DelivCity    string            `json:"deliv_city"`
+	OrderType    string            `json:"order_type"`
 	Status       string            `json:"status" gorm:"default:'open'"`
 	Remarks      string            `json:"remarks"`
 	CreatedBy    int               `json:"created_by"`
