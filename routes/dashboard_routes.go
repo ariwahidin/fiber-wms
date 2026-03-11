@@ -16,4 +16,5 @@ func SetupDashboardRoutes(app *fiber.App) {
 
 	api.Get("/", dashboardController.GetDashboard)
 	api.Get("/chart", dashboardController.GetDashboardChart)
+	api.Get("/pipeline", dashboardController.GetDashboardPipeline)
 }
