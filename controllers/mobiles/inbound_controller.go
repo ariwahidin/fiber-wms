@@ -166,6 +166,7 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 		ProdDate  string  `json:"prodDate"`
 		ExpDate   string  `json:"expDate"`
 		LotNo     string  `json:"lotNo"`
+		QrRaw     string  `json:"qrRaw"`
 		Uploaded  bool    `json:"uploaded"`
 	}
 
@@ -331,8 +332,14 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 		OwnerCode:       inboundDetail.OwnerCode,
 		DivisionCode:    inboundDetail.DivisionCode,
 		// QaStatus:        scanInbound.QaStatus,
-		QaStatus:     inboundDetail.QaStatus,
-		ScanData:     scanInbound.Serial,
+		QaStatus: inboundDetail.QaStatus,
+		// ScanData:     scanInbound.Serial,
+		ScanData: func() string { // ← ganti ScanData yang sudah ada
+			if scanInbound.QrRaw != "" {
+				return scanInbound.QrRaw
+			}
+			return scanInbound.Serial
+		}(),
 		SerialNumber: scanInbound.Serial,
 		RecDate:      inboundDetail.RecDate,
 		ProdDate:     scanInbound.ProdDate,
@@ -356,65 +363,166 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Scan item success"})
 }
 
+// func (c *MobileInboundController) GetInboundDetail(ctx *fiber.Ctx) error {
+
+// 	inbound_no := ctx.Params("inbound_no")
+
+// 	var inboundHeader models.InboundHeader
+// 	if err := c.DB.Where("inbound_no = ?", inbound_no).First(&inboundHeader).Error; err != nil {
+// 		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Inbound not found"})
+// 	}
+
+// 	var inboundDetail []models.InboundDetail
+// 	if err := c.DB.Debug().Where("inbound_id = ?", inboundHeader.ID).Find(&inboundDetail).Error; err != nil {
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+// 	}
+
+// 	type InboundDetailResult struct {
+// 		models.InboundDetail
+// 		ItemName string  `json:"item_name"`
+// 		IsSerial bool    `json:"is_serial"`
+// 		ScanQty  float64 `json:"scan_qty"`
+// 	}
+
+// 	var result []InboundDetailResult
+// 	for _, v := range inboundDetail {
+
+// 		var product models.Product
+// 		isSerial := false
+
+// 		if err := c.DB.Where("id = ?", v.ItemId).First(&product).Error; err != nil {
+// 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+// 		}
+
+// 		var uomConvesion models.UomConversion
+// 		if err := c.DB.Where("item_code = ? AND from_uom = ?", product.ItemCode, v.Uom).First(&uomConvesion).Error; err != nil {
+// 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+// 		}
+
+// 		if product.HasSerial == "Y" {
+// 			isSerial = true
+// 		}
+
+// 		var inboundBarcode []models.InboundBarcode
+// 		if err := c.DB.Where("inbound_detail_id = ?", v.ID).Find(&inboundBarcode).Error; err != nil {
+// 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+// 		}
+
+// 		var scanQty float64
+
+// 		for _, item := range inboundBarcode {
+// 			if int(v.ID) == int(item.InboundDetailId) {
+// 				scanQty += item.Quantity
+// 			}
+// 		}
+
+// 		v.Barcode = uomConvesion.Ean
+// 		result = append(result, InboundDetailResult{
+// 			InboundDetail: v,
+// 			ScanQty:       scanQty,
+// 			IsSerial:      isSerial,
+// 		})
+
+// 	}
+
+// 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "data": result})
+// }
+
 func (c *MobileInboundController) GetInboundDetail(ctx *fiber.Ctx) error {
+	inboundNo := ctx.Params("inbound_no")
 
-	inbound_no := ctx.Params("inbound_no")
-
+	// 1. Get inbound header
 	var inboundHeader models.InboundHeader
-	if err := c.DB.Where("inbound_no = ?", inbound_no).First(&inboundHeader).Error; err != nil {
+	if err := c.DB.Where("inbound_no = ?", inboundNo).First(&inboundHeader).Error; err != nil {
 		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Inbound not found"})
 	}
 
-	var inboundDetail []models.InboundDetail
-	if err := c.DB.Debug().Where("inbound_id = ?", inboundHeader.ID).Find(&inboundDetail).Error; err != nil {
+	// 2. Get all inbound details
+	var inboundDetails []models.InboundDetail
+	if err := c.DB.Where("inbound_id = ?", inboundHeader.ID).Find(&inboundDetails).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	if len(inboundDetails) == 0 {
+		return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "data": []interface{}{}})
+	}
+
+	// 3. Collect item IDs and detail IDs for batch queries
+	itemIDs := make([]uint, 0, len(inboundDetails))
+	detailIDs := make([]uint, 0, len(inboundDetails))
+	for _, d := range inboundDetails {
+		itemIDs = append(itemIDs, d.ItemId)
+		detailIDs = append(detailIDs, d.ID)
+	}
+
+	// 4. Batch fetch products → map by ID
+	var products []models.Product
+	if err := c.DB.Where("id IN ?", itemIDs).Find(&products).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	productMap := make(map[uint]models.Product, len(products))
+	for _, p := range products {
+		productMap[p.ID] = p
+	}
+
+	// 5. Batch fetch UOM conversions
+	//    Build (item_code, uom) pairs per detail for matching
+	type uomKey struct {
+		ItemCode string
+		FromUom  string
+	}
+	uomKeys := make([]uomKey, 0, len(inboundDetails))
+	for _, d := range inboundDetails {
+		if p, ok := productMap[d.ItemId]; ok {
+			uomKeys = append(uomKeys, uomKey{p.ItemCode, d.Uom})
+		}
+	}
+
+	// Collect unique item codes to fetch UOM conversions in one query
+	itemCodes := make([]string, 0, len(products))
+	for _, p := range products {
+		itemCodes = append(itemCodes, p.ItemCode)
+	}
+
+	var uomConversions []models.UomConversion
+	if err := c.DB.Where("item_code IN ?", itemCodes).Find(&uomConversions).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	uomMap := make(map[uomKey]models.UomConversion, len(uomConversions))
+	for _, u := range uomConversions {
+		uomMap[uomKey{u.ItemCode, u.FromUom}] = u
+	}
+
+	// 6. Batch fetch inbound barcodes → map by detail ID
+	var inboundBarcodes []models.InboundBarcode
+	if err := c.DB.Where("inbound_detail_id IN ?", detailIDs).Find(&inboundBarcodes).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	scanQtyMap := make(map[int]float64, len(inboundDetails))
+	for _, b := range inboundBarcodes {
+		scanQtyMap[b.InboundDetailId] += b.Quantity
+	}
+
+	// 7. Build result
 	type InboundDetailResult struct {
 		models.InboundDetail
+		ItemName string  `json:"item_name"`
 		IsSerial bool    `json:"is_serial"`
 		ScanQty  float64 `json:"scan_qty"`
 	}
 
-	var result []InboundDetailResult
-	for _, v := range inboundDetail {
+	result := make([]InboundDetailResult, 0, len(inboundDetails))
+	for _, d := range inboundDetails {
+		product := productMap[d.ItemId]
+		uomConv := uomMap[uomKey{product.ItemCode, d.Uom}]
+		d.Barcode = uomConv.Ean
 
-		var product models.Product
-		isSerial := false
-
-		if err := c.DB.Where("id = ?", v.ItemId).First(&product).Error; err != nil {
-			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-		}
-
-		var uomConvesion models.UomConversion
-		if err := c.DB.Where("item_code = ? AND from_uom = ?", product.ItemCode, v.Uom).First(&uomConvesion).Error; err != nil {
-			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-		}
-
-		if product.HasSerial == "Y" {
-			isSerial = true
-		}
-
-		var inboundBarcode []models.InboundBarcode
-		if err := c.DB.Where("inbound_detail_id = ?", v.ID).Find(&inboundBarcode).Error; err != nil {
-			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-		}
-
-		var scanQty float64
-
-		for _, item := range inboundBarcode {
-			if int(v.ID) == int(item.InboundDetailId) {
-				scanQty += item.Quantity
-			}
-		}
-
-		v.Barcode = uomConvesion.Ean
 		result = append(result, InboundDetailResult{
-			InboundDetail: v,
-			ScanQty:       scanQty,
-			IsSerial:      isSerial,
+			InboundDetail: d,
+			ItemName:      product.ItemName,
+			IsSerial:      product.HasSerial == "Y",
+			ScanQty:       scanQtyMap[int(d.ID)],
 		})
-
 	}
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "data": result})

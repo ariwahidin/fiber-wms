@@ -140,25 +140,25 @@ func (c *InboundController) CreateInbound(ctx *fiber.Ctx) error {
 			})
 		}
 
-		if InventoryPolicy.UseLotNo {
-			if item.LotNumber == "" {
-				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-					"success": false,
-					"message": "Lot number cannot be empty",
-					"error":   "Lot number cannot be empty",
-				})
-			}
-		}
+		// if InventoryPolicy.UseLotNo {
+		// 	if item.LotNumber == "" {
+		// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+		// 			"success": false,
+		// 			"message": "Lot number cannot be empty",
+		// 			"error":   "Lot number cannot be empty",
+		// 		})
+		// 	}
+		// }
 
-		if InventoryPolicy.UseProductionDate {
-			if item.ProdDate == "" {
-				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-					"success": false,
-					"message": "Production date cannot be empty",
-					"error":   "Production date cannot be empty",
-				})
-			}
-		}
+		// if InventoryPolicy.UseProductionDate {
+		// 	if item.ProdDate == "" {
+		// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+		// 			"success": false,
+		// 			"message": "Production date cannot be empty",
+		// 			"error":   "Production date cannot be empty",
+		// 		})
+		// 	}
+		// }
 
 		if InventoryPolicy.UseReceiveLocation {
 			if item.Location == "" {
@@ -170,15 +170,15 @@ func (c *InboundController) CreateInbound(ctx *fiber.Ctx) error {
 			}
 		}
 
-		if InventoryPolicy.RequireExpiryDate {
-			if item.ExpDate == "" {
-				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-					"success": false,
-					"message": "Expiration date cannot be empty",
-					"error":   "Expiration date cannot be empty",
-				})
-			}
-		}
+		// if InventoryPolicy.RequireExpiryDate {
+		// 	if item.ExpDate == "" {
+		// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+		// 			"success": false,
+		// 			"message": "Expiration date cannot be empty",
+		// 			"error":   "Expiration date cannot be empty",
+		// 		})
+		// 	}
+		// }
 
 		if item.ItemCode == "" {
 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
@@ -483,35 +483,35 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 			})
 		}
 
-		if InventoryPolicy.UseLotNo {
-			if item.LotNumber == "" {
-				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-					"success": false,
-					"message": "Lot number cannot be empty",
-					"error":   "Lot number cannot be empty",
-				})
-			}
-		}
+		// if InventoryPolicy.UseLotNo {
+		// 	if item.LotNumber == "" {
+		// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+		// 			"success": false,
+		// 			"message": "Lot number cannot be empty",
+		// 			"error":   "Lot number cannot be empty",
+		// 		})
+		// 	}
+		// }
 
-		if InventoryPolicy.RequireExpiryDate {
-			if item.ExpDate == "" {
-				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-					"success": false,
-					"message": "Expiration date cannot be empty",
-					"error":   "Expiration date cannot be empty",
-				})
-			}
-		}
+		// if InventoryPolicy.RequireExpiryDate {
+		// 	if item.ExpDate == "" {
+		// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+		// 			"success": false,
+		// 			"message": "Expiration date cannot be empty",
+		// 			"error":   "Expiration date cannot be empty",
+		// 		})
+		// 	}
+		// }
 
-		if InventoryPolicy.UseProductionDate {
-			if item.ProdDate == "" {
-				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-					"success": false,
-					"message": "Production date cannot be empty",
-					"error":   "Production date cannot be empty",
-				})
-			}
-		}
+		// if InventoryPolicy.UseProductionDate {
+		// 	if item.ProdDate == "" {
+		// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+		// 			"success": false,
+		// 			"message": "Production date cannot be empty",
+		// 			"error":   "Production date cannot be empty",
+		// 		})
+		// 	}
+		// }
 
 		if InventoryPolicy.UseReceiveLocation {
 			if item.Location == "" {
@@ -833,15 +833,15 @@ func (c *InboundController) UpdateInboundByID_OLD(ctx *fiber.Ctx) error {
 			})
 		}
 
-		if InventoryPolicy.UseLotNo {
-			if item.LotNumber == "" {
-				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-					"success": false,
-					"message": "Lot number cannot be empty",
-					"error":   "Lot number cannot be empty",
-				})
-			}
-		}
+		// if InventoryPolicy.UseLotNo {
+		// 	if item.LotNumber == "" {
+		// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+		// 			"success": false,
+		// 			"message": "Lot number cannot be empty",
+		// 			"error":   "Lot number cannot be empty",
+		// 		})
+		// 	}
+		// }
 
 		if InventoryPolicy.RequireExpiryDate {
 			if item.ExpDate == "" {

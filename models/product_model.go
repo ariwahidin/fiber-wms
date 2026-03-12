@@ -12,6 +12,7 @@ type Product struct {
 	OwnerCode     string  `json:"owner_code"`
 	ItemCode      string  `json:"item_code"`
 	ItemName      string  `json:"item_name"`
+	UnitModel     string  `json:"unit_model"`
 	Barcode       string  `json:"barcode"`
 	GMC           string  `json:"gmc"`
 	Width         float64 `json:"width" gorm:"default:0"`
@@ -94,6 +95,7 @@ type ProductRegister struct {
 	gorm.Model
 	OwnerCode     string `json:"owner_code"`
 	SKU           string `json:"sku"`
+	Description   string `json:"description"`
 	UnitModel     string `json:"unit_model"`
 	Ean           string `json:"ean"`
 	Uom           string `json:"uom"`

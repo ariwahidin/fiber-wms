@@ -39,53 +39,6 @@ func (c *MobileInventoryController) GetItemsByLocation(ctx *fiber.Ctx) error {
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "data": inventories})
 }
 
-// func (c *MobileInventoryController) CreateDummyInventory(ctx *fiber.Ctx) error {
-// 	// Ambil jumlah dari query param (default 100)
-// 	count := ctx.QueryInt("count", 100)
-
-// 	var inventories []models.Inventory
-
-// 	for i := 0; i < count; i++ {
-// 		fmt.Println("Loop ke-", i, "Data : ", inventories)
-// 		now := time.Now()
-// 		inventory := models.Inventory{
-// 			InboundDetailId: rand.Intn(1000),
-// 			// InboundBarcodeId: rand.Intn(1000),
-// 			RecDate:   now.Format("2006-01-02"),
-// 			OwnerCode: fmt.Sprintf("Owner%d", rand.Intn(100)),
-// 			WhsCode:   fmt.Sprintf("WHS%d", rand.Intn(10)),
-// 			Pallet:    fmt.Sprintf("Pallet%d", rand.Intn(100)),
-// 			Location:  fmt.Sprintf("Loc%d", rand.Intn(50)),
-// 			ItemId:    rand.Intn(1000),
-// 			ItemCode:  fmt.Sprintf("ITEMCODE%d", rand.Intn(10000)),
-// 			Barcode:   fmt.Sprintf("BARCODE%d", rand.Intn(99999)),
-// 			// SerialNumber:     fmt.Sprintf("SN%d", rand.Intn(99999)),
-// 			QaStatus: "A",
-// 			// QtyOrigin:    rand.Intn(100),
-// 			QtyOnhand:    rand.Intn(100),
-// 			QtyAvailable: rand.Intn(100),
-// 			QtyAllocated: rand.Intn(100),
-// 			QtySuspend:   rand.Intn(100),
-// 			QtyShipped:   rand.Intn(100),
-// 			Trans:        "dummy",
-// 			CreatedBy:    1,
-// 			UpdatedBy:    1,
-// 		}
-// 		inventories = append(inventories, inventory)
-// 	}
-
-// 	// Batch Insert
-// 	if err := c.DB.Create(&inventories).Error; err != nil {
-// 		return ctx.Status(500).JSON(fiber.Map{
-// 			"error": "Failed to insert dummy data to database, error: " + err.Error(),
-// 		})
-// 	}
-
-// 	return ctx.Status(200).JSON(fiber.Map{
-// 		"success": true,
-// 		"data":    inventories})
-// }
-
 func (c *MobileInventoryController) GetItemsByLocationAndBarcode(ctx *fiber.Ctx) error {
 
 	type request struct {
@@ -724,11 +677,12 @@ func (c *MobileInventoryController) GetItemsByBarcode(ctx *fiber.Ctx) error {
 }
 
 type RegisterProductRequest struct {
-	OwnerCode string `json:"owner_code"`
-	SKU       string `json:"sku"`
-	UnitModel string `json:"unit_model"`
-	Ean       string `json:"ean"`
-	Uom       string `json:"uom"`
+	OwnerCode   string `json:"owner_code"`
+	SKU         string `json:"sku"`
+	Description string `json:"description"`
+	UnitModel   string `json:"unit_model"`
+	Ean         string `json:"ean"`
+	Uom         string `json:"uom"`
 }
 
 func (c *MobileInventoryController) CreateRegisterProduct(ctx *fiber.Ctx) error {
@@ -752,6 +706,7 @@ func (c *MobileInventoryController) CreateRegisterProduct(ctx *fiber.Ctx) error 
 	req.OwnerCode = strings.ToUpper(strings.TrimSpace(req.OwnerCode))
 	req.SKU = strings.ToUpper(strings.TrimSpace(req.SKU))
 	req.UnitModel = strings.ToUpper(strings.TrimSpace(req.UnitModel))
+	req.Description = strings.TrimSpace(req.Description)
 	req.Ean = strings.ToUpper(strings.TrimSpace(req.Ean))
 	req.Uom = strings.ToUpper(strings.TrimSpace(req.Uom))
 
@@ -791,13 +746,14 @@ func (c *MobileInventoryController) CreateRegisterProduct(ctx *fiber.Ctx) error 
 
 	// Create new product
 	newProduct := models.ProductRegister{
-		OwnerCode: req.OwnerCode,
-		SKU:       req.SKU,
-		UnitModel: req.UnitModel,
-		Ean:       req.Ean,
-		Uom:       req.Uom,
-		CreatedBy: userID,
-		CreatedAt: time.Now(),
+		OwnerCode:   req.OwnerCode,
+		SKU:         req.SKU,
+		UnitModel:   req.UnitModel,
+		Description: req.Description,
+		Ean:         req.Ean,
+		Uom:         req.Uom,
+		CreatedBy:   userID,
+		CreatedAt:   time.Now(),
 	}
 
 	if err := c.DB.Create(&newProduct).Error; err != nil {
@@ -841,24 +797,6 @@ func (c *MobileInventoryController) GetAllProducts(ctx *fiber.Ctx) error {
 		"data":    products,
 	})
 }
-
-// func (c *MobileInventoryController) GetAllProducts(ctx *fiber.Ctx) error {
-// 	var products []models.ProductRegister
-
-// 	// Query untuk mendapatkan semua produk, diurutkan berdasarkan created_at terbaru
-// 	if err := c.DB.Order("created_at DESC").Find(&products).Error; err != nil {
-// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-// 			"success": false,
-// 			"message": "Failed to fetch products",
-// 		})
-// 	}
-
-// 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
-// 		"success": true,
-// 		"message": "Products fetched successfully",
-// 		"data":    products,
-// 	})
-// }
 
 // GetProductByID - Endpoint untuk mendapatkan produk berdasarkan ID
 func (c *MobileInventoryController) GetProductByID(ctx *fiber.Ctx) error {
@@ -909,6 +847,7 @@ func (c *MobileInventoryController) UpdateProduct(ctx *fiber.Ctx) error {
 	req.OwnerCode = strings.ToUpper(strings.TrimSpace(req.OwnerCode))
 	req.SKU = strings.ToUpper(strings.TrimSpace(req.SKU))
 	req.UnitModel = strings.ToUpper(strings.TrimSpace(req.UnitModel))
+	req.Description = strings.ToUpper(strings.TrimSpace(req.Description))
 	req.Ean = strings.ToUpper(strings.TrimSpace(req.Ean))
 	req.Uom = strings.ToUpper(strings.TrimSpace(req.Uom))
 
@@ -965,6 +904,7 @@ func (c *MobileInventoryController) UpdateProduct(ctx *fiber.Ctx) error {
 	product.OwnerCode = req.OwnerCode
 	product.SKU = req.SKU
 	product.UnitModel = req.UnitModel
+	product.Description = req.Description
 	product.Ean = req.Ean
 	product.Uom = req.Uom
 	product.UpdatedBy = userID
