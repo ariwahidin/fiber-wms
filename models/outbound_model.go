@@ -207,6 +207,7 @@ type OutboundBarcode struct {
 	CaseNumber       string  `json:"case_number" gorm:"default:null"`
 	Quantity         float64 `json:"quantity"`
 	Status           string  `json:"status" gorm:"default:'pending'"`
+	DataScan         string  `json:"data_scan"`
 	BarcodeDataScan  string  `json:"barcode_data_scan"` // data barcode yang di scan
 	QtyDataScan      float64 `json:"qty_data_scan"`     // data qty yang di scan
 	LocationScan     string  `json:"location_scan"`

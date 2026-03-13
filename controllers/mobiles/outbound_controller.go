@@ -161,6 +161,7 @@ func (c *MobileOutboundController) CheckItem(ctx *fiber.Ctx) error {
 		PackingNo  string `json:"packing_no"`
 		OutboundNo string `json:"outbound_no"`
 		Barcode    string `json:"barcode"`
+		Sku        string `json:"sku"`
 		Qty        int    `json:"qty"`
 	}
 
@@ -176,15 +177,28 @@ func (c *MobileOutboundController) CheckItem(ctx *fiber.Ctx) error {
 		}
 	}
 
+	var product models.Product
+
+	if scanOutbound.Sku != "" {
+		if err := c.DB.Where("item_code = ?", scanOutbound.Sku).First(&product).Error; err != nil {
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Product not found", "message": "Product not found"})
+		}
+
+	} else {
+		if err := c.DB.Where("barcode = ?", scanOutbound.Barcode).First(&product).Error; err != nil {
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Product not found", "message": "Product not found"})
+		}
+	}
+
 	var uomConversion models.UomConversion
-	if err := c.DB.Where("ean = ?", scanOutbound.Barcode).First(&uomConversion).Error; err != nil {
+	if err := c.DB.Where("ean = ?", product.Barcode).First(&uomConversion).Error; err != nil {
 		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Item not found in UOM conversion", "message": "Item not found in UOM conversion"})
 	}
 
-	var product models.Product
-	if err := c.DB.Where("item_code = ?", uomConversion.ItemCode).First(&product).Error; err != nil {
-		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Product not found", "message": "Product not found"})
-	}
+	// var product models.Product
+	// if err := c.DB.Where("item_code = ?", uomConversion.ItemCode).First(&product).Error; err != nil {
+	// 	return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Product not found", "message": "Product not found"})
+	// }
 
 	if product.HasSerial == "Y" {
 		return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
@@ -231,11 +245,16 @@ func (c *MobileOutboundController) ScanPicking(ctx *fiber.Ctx) error {
 		Uom        string  `json:"uom"`
 		CartonID   uint    `json:"carton_id"`
 		CartonCode string  `json:"carton_code"`
+		QrRaw      string  `json:"qr_raw"`
+		LotNo      string  `json:"lot_no"`    // ← tambah
+		ProdDate   string  `json:"prod_date"` // ← tambah
 	}
 
 	if err := ctx.BodyParser(&scanOutbound); err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
+
+	fmt.Println(scanOutbound)
 
 	var inventoryPolicy models.InventoryPolicy
 	if err := c.DB.Debug().Where("owner_code = ?", outboundHeader.OwnerCode).First(&inventoryPolicy).Error; err != nil {
@@ -410,19 +429,27 @@ func (c *MobileOutboundController) ScanPicking(ctx *fiber.Ctx) error {
 		Quantity:         uom.QtyConverted,
 		Status:           "pending",
 		BarcodeDataScan:  scanOutbound.Barcode,
-		QtyDataScan:      scanOutbound.Qty,
-		LocationScan:     scanOutbound.Location,
-		UomScan:          uomConversion.FromUom,
-		IsSerial:         product.HasSerial == "Y",
-		CartonID:         scanOutbound.CartonID,
-		CartonCode:       scanOutbound.CartonCode,
-		CtnLength:        carton.Length,
-		CtnWidth:         carton.Width,
-		CtnHeight:        carton.Height,
-		CtnVolume:        carton.Volume,
-		CtnMaxWeight:     carton.MaxWeight,
-		CtnTareWeight:    carton.TareWeight,
-		CreatedBy:        int(ctx.Locals("userID").(float64)),
+		DataScan: func() string {
+			if scanOutbound.QrRaw != "" {
+				return scanOutbound.QrRaw
+			}
+			return scanOutbound.Barcode
+		}(),
+		ProdDate:      scanOutbound.ProdDate,
+		LotNumber:     scanOutbound.LotNo,
+		QtyDataScan:   scanOutbound.Qty,
+		LocationScan:  scanOutbound.Location,
+		UomScan:       uomConversion.FromUom,
+		IsSerial:      product.HasSerial == "Y",
+		CartonID:      scanOutbound.CartonID,
+		CartonCode:    scanOutbound.CartonCode,
+		CtnLength:     carton.Length,
+		CtnWidth:      carton.Width,
+		CtnHeight:     carton.Height,
+		CtnVolume:     carton.Volume,
+		CtnMaxWeight:  carton.MaxWeight,
+		CtnTareWeight: carton.TareWeight,
+		CreatedBy:     int(ctx.Locals("userID").(float64)),
 	}
 
 	if err := c.DB.Create(&outboundBarcode).Error; err != nil {
@@ -467,6 +494,7 @@ func (c *MobileOutboundController) GetPickingList(ctx *fiber.Ctx) error {
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "data": pickingList})
 }
+
 func (c *MobileOutboundController) OverridePicking(ctx *fiber.Ctx) error {
 
 	picking_list_id := ctx.Params("id")

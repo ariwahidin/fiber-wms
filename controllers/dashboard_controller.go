@@ -415,25 +415,57 @@ SELECT
 	//   INNER JOIN inbound_details id ON ih.id = id.inbound_id
 	//   lalu SUM(id.quantity) AS total_qty
 
-	inboundSQL := `
-		SELECT
-			ih.status                       AS stage_key,
-			COUNT(DISTINCT ih.id)           AS total_orders,
-			999                             AS total_qty   -- [TODO] ganti dengan SUM(id.quantity) dari detail table
-		FROM inbound_headers ih
-		WHERE ih.deleted_at IS NULL
-		  AND ih.status NOT IN ('complete', 'cancelled', 'draft')
+	// inboundSQL := `
+	// 	SELECT
+	// 		ih.status                       AS stage_key,
+	// 		COUNT(DISTINCT ih.id)           AS total_orders,
+	// 		999                             AS total_qty   -- [TODO] ganti dengan SUM(id.quantity) dari detail table
+	// 	FROM inbound_headers ih
+	// 	WHERE ih.deleted_at IS NULL
+	// 	  AND ih.status NOT IN ('complete', 'cancelled', 'draft')
+	// 	` + ibDateCond + `
+	// 	` + ibOwnerCond + `
+	// 	GROUP BY ih.status
+	// 	ORDER BY
+	// 		CASE ih.status
+	// 			WHEN 'received'   THEN 1
+	// 			WHEN 'inspection' THEN 2
+	// 			WHEN 'putaway'    THEN 3
+	// 			ELSE 99
+	// 		END
+	// `
+	inboundSQL := `WITH ih AS (
+SELECT a.id, 
+a.inbound_date, a.deleted_at,
+SUM(b.quantity) as qty,
+CASE a.status
+			WHEN 'open'   THEN 'open'
+			WHEN 'checking' THEN 'checking'
+			WHEN 'partially received'    THEN 'partially_received'
+			WHEN 'fully received'    THEN 'fully_received'
+			WHEN 'complete'    THEN 'complete' END AS [status]
+FROM inbound_headers a
+LEFT JOIN inbound_details b ON a.id = b.inbound_id
+GROUP BY a.id, a.[status], a.inbound_date, a.deleted_at)
+
+SELECT
+	ih.status                       AS stage_key,
+	COUNT(DISTINCT ih.id)           AS total_orders,
+	SUM(qty)                             AS total_qty
+FROM ih 
+WHERE ih.deleted_at IS NULL
 		` + ibDateCond + `
 		` + ibOwnerCond + `
-		GROUP BY ih.status
-		ORDER BY
-			CASE ih.status
-				WHEN 'received'   THEN 1
-				WHEN 'inspection' THEN 2
-				WHEN 'putaway'    THEN 3
-				ELSE 99
-			END
-	`
+GROUP BY ih.status
+ORDER BY
+	CASE ih.status
+			WHEN 'open'   THEN 1
+			WHEN 'checking' THEN 2
+			WHEN 'partially_received'    THEN 3
+			WHEN 'fully_received'    THEN 4
+			WHEN 'complete'    THEN 5
+			ELSE 99
+	END`
 
 	type PipelineRow struct {
 		StageKey    string `json:"stage_key"     gorm:"column:stage_key"`
