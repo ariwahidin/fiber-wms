@@ -41,9 +41,15 @@ func (c *MobileInventoryController) GetItemsByLocation(ctx *fiber.Ctx) error {
 
 func (c *MobileInventoryController) GetItemsByLocationAndBarcode(ctx *fiber.Ctx) error {
 
+	// type request struct {
+	// 	Location string `json:"location" validate:"required"`
+	// 	Barcode  string `json:"barcode"`
+	// }
+
 	type request struct {
 		Location string `json:"location" validate:"required"`
 		Barcode  string `json:"barcode"`
+		Sku      string `json:"sku"` // ← tambah
 	}
 
 	type resultInventory struct {
@@ -93,14 +99,34 @@ func (c *MobileInventoryController) GetItemsByLocationAndBarcode(ctx *fiber.Ctx)
 			Where("location = ? AND barcode = ? AND qty_available > 0", req.Location, uomConvByBarcode.BaseEan).Find(&inventories).Error; err != nil {
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
-	} else {
+	} else if req.Sku != "" {
+		// SKU mode — query by item_code langsung
 		if err := c.DB.
 			Table("inventories").
 			Select("inventories.*, qty_available AS qty_display, uom AS uom_display, barcode AS ean_display").
-			Where("location = ? AND qty_available > 0", req.Location).Find(&inventories).Error; err != nil {
+			Where("location = ? AND item_code = ? AND qty_available > 0", req.Location, req.Sku).
+			Find(&inventories).Error; err != nil {
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+
+	} else {
+		// Tidak ada filter item — tampilkan semua by location
+		if err := c.DB.
+			Table("inventories").
+			Select("inventories.*, qty_available AS qty_display, uom AS uom_display, barcode AS ean_display").
+			Where("location = ? AND qty_available > 0", req.Location).
+			Find(&inventories).Error; err != nil {
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
 	}
+	// else {
+	// 	if err := c.DB.
+	// 		Table("inventories").
+	// 		Select("inventories.*, qty_available AS qty_display, uom AS uom_display, barcode AS ean_display").
+	// 		Where("location = ? AND qty_available > 0", req.Location).Find(&inventories).Error; err != nil {
+	// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	// 	}
+	// }
 
 	var totalAllocated float64 = 0
 	for _, inv := range inventories {
