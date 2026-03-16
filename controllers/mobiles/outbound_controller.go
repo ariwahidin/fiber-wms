@@ -195,11 +195,6 @@ func (c *MobileOutboundController) CheckItem(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Item not found in UOM conversion", "message": "Item not found in UOM conversion"})
 	}
 
-	// var product models.Product
-	// if err := c.DB.Where("item_code = ?", uomConversion.ItemCode).First(&product).Error; err != nil {
-	// 	return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Product not found", "message": "Product not found"})
-	// }
-
 	if product.HasSerial == "Y" {
 		return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
 			"success": true,
@@ -266,11 +261,11 @@ func (c *MobileOutboundController) ScanPicking(ctx *fiber.Ctx) error {
 
 	var outboundRepo = repositories.NewOutboundRepository(c.DB)
 
-	if inventoryPolicy.RequireScanPickLocation {
-		if scanOutbound.Location == "" {
-			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Location is required"})
-		}
-	}
+	// if inventoryPolicy.RequireScanPickLocation {
+	// 	if scanOutbound.Location == "" {
+	// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Location is required"})
+	// 	}
+	// }
 
 	var packings []models.OutboundPacking
 	var packing models.OutboundPacking
@@ -350,9 +345,9 @@ func (c *MobileOutboundController) ScanPicking(ctx *fiber.Ctx) error {
 
 	queryOutboundPicking := c.DB.Where("outbound_id = ? AND barcode = ?", outboundHeader.ID, product.Barcode)
 
-	if inventoryPolicy.RequireScanPickLocation {
-		queryOutboundPicking = queryOutboundPicking.Where("location = ?", scanOutbound.Location)
-	}
+	// if inventoryPolicy.RequireScanPickLocation {
+	// 	queryOutboundPicking = queryOutboundPicking.Where("location = ?", scanOutbound.Location)
+	// }
 
 	var outboundPicking models.OutboundPicking
 
@@ -1018,5 +1013,342 @@ func (c *MobileOutboundController) NewCarton(ctx *fiber.Ctx) error {
 		"success":     true,
 		"last_ctn_no": maxNo,
 		"next_ctn_no": nextNo,
+	})
+}
+
+// PICKING STARTS HERE
+// package mobiles
+
+// Tambahkan handler-handler ini ke MobileOutboundController yang sudah ada.
+// File: /controller/mobile/outbound_controller.go
+
+// Import tambahan yang diperlukan (merge dengan import yang sudah ada):
+//   "fiber-app/repositories"
+//   "fiber-app/models"
+
+// ─── Request/Response Types ───────────────────────────────────────────────────
+
+type PickingScanRequest struct {
+	OutboundPickingID int     `json:"outbound_picking_id"` // wajib: dari picking sheet
+	Barcode           string  `json:"barcode"`             // EAN yang di-scan
+	BarcodeRaw        string  `json:"barcode_raw"`         // raw QR (opsional)
+	ScanType          string  `json:"scan_type"`           // "EAN" | "QR_UNIT" | "QR_CARTON"
+	LabelType         string  `json:"label_type"`          // "UNIT" | "CARTON" | ""
+	Quantity          float64 `json:"quantity"`
+	Location          string  `json:"location"`
+	SerialNumber      string  `json:"serial_number"`
+	CaseNumber        string  `json:"case_number"`
+	LotNumber         string  `json:"lot_number"`
+	ProdDate          string  `json:"prod_date"`
+}
+
+// ─── GET /api/wms/picking/:outbound_no ───────────────────────────────────────
+// Ambil picking sheet beserta progress per item.
+
+func (c *MobileOutboundController) GetPickingSheet(ctx *fiber.Ctx) error {
+	outboundNo := ctx.Params("outbound_no")
+	if outboundNo == "" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "outbound_no is required",
+		})
+	}
+
+	repo := repositories.NewOutboundPickingRepository(c.DB)
+	rows, err := repo.GetPickingSheet(outboundNo)
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": err.Error(),
+		})
+	}
+
+	// Hitung summary
+	var totalRequired, totalPicked float64
+	for _, r := range rows {
+		totalRequired += r.QtyRequired
+		totalPicked += r.QtyPicked
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"data":    rows,
+		"summary": fiber.Map{
+			"total_required": totalRequired,
+			"total_picked":   totalPicked,
+			"is_complete":    totalPicked >= totalRequired && totalRequired > 0,
+		},
+	})
+}
+
+// ─── POST /api/wms/picking/:outbound_no/scan ─────────────────────────────────
+// Submit hasil scan satu item/carton.
+
+func (c *MobileOutboundController) SubmitPickingScan(ctx *fiber.Ctx) error {
+	outboundNo := ctx.Params("outbound_no")
+
+	var req PickingScanRequest
+	if err := ctx.BodyParser(&req); err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "Invalid request body",
+		})
+	}
+
+	// Validasi field wajib
+	if req.OutboundPickingID == 0 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "outbound_picking_id wajib diisi",
+		})
+	}
+	if req.Barcode == "" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "barcode wajib diisi",
+		})
+	}
+	if req.Quantity <= 0 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "quantity harus lebih dari 0",
+		})
+	}
+
+	repo := repositories.NewOutboundPickingRepository(c.DB)
+
+	// ── Ambil OutboundPicking yang di-refer ──────────────────────────────────
+	var picking models.OutboundPicking
+	if err := c.DB.First(&picking, req.OutboundPickingID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"success": false,
+				"message": "Picking item tidak ditemukan",
+			})
+		}
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": err.Error(),
+		})
+	}
+
+	// Pastikan outbound_no match
+	if picking.OutboundNo != outboundNo {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "Picking item tidak sesuai dengan outbound ini",
+		})
+	}
+
+	// ── Validasi barcode cocok dengan picking sheet ───────────────────────────
+	// Toleransi: EAN scan boleh cocok ke barcode atau ean_display di picking
+	if picking.Barcode != req.Barcode && picking.EanDisplay != req.Barcode {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": fmt.Sprintf("Barcode %s tidak sesuai dengan item yang harus dipick (%s)", req.Barcode, picking.Barcode),
+		})
+	}
+
+	// ── Cek over-pick ────────────────────────────────────────────────────────
+	qtyPicked, err := repo.GetQtyPicked(req.OutboundPickingID)
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": err.Error(),
+		})
+	}
+
+	if qtyPicked+req.Quantity > picking.Quantity {
+		remaining := picking.Quantity - qtyPicked
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": fmt.Sprintf("Over-pick! Qty tersisa: %.0f, scan qty: %.0f", remaining, req.Quantity),
+		})
+	}
+
+	// ── Cek duplikat serial (jika ada) ───────────────────────────────────────
+	if req.SerialNumber != "" {
+		var dupCount int64
+		c.DB.Model(&models.OutboundPickingScan{}).
+			Where("outbound_no = ? AND serial_number = ? AND deleted_at IS NULL", outboundNo, req.SerialNumber).
+			Count(&dupCount)
+		if dupCount > 0 {
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"success": false,
+				"message": fmt.Sprintf("Serial number %s sudah pernah di-scan", req.SerialNumber),
+			})
+		}
+	}
+
+	// ── Tentukan scan_type jika kosong ───────────────────────────────────────
+	scanType := req.ScanType
+	if scanType == "" {
+		if req.BarcodeRaw != "" {
+			if req.LabelType == "CARTON" {
+				scanType = "QR_CARTON"
+			} else {
+				scanType = "QR_UNIT"
+			}
+		} else {
+			scanType = "EAN"
+		}
+	}
+
+	// ── Ambil user session (opsional, graceful jika tidak ada) ───────────────
+	userID := 0
+	if uid, ok := ctx.Locals("user_id").(int); ok {
+		userID = uid
+	}
+
+	// ── Validasi lokasi jika inventory policy mengharuskan ─────────────────
+	var inventoryPolicy models.InventoryPolicy
+	if err := c.DB.Where("owner_code = ? AND whs_code = ?", picking.OwnerCode, picking.WhsCode).First(&inventoryPolicy).Error; err == nil {
+		if inventoryPolicy.RequireScanPickLocation {
+			if req.Location == "" {
+				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Location is required"})
+			}
+		}
+	} else {
+		// Jika tidak ada inventory policy, default ke require location
+		inventoryPolicy.RequireScanPickLocation = true
+	}
+
+	// ── Buat scan record ─────────────────────────────────────────────────────
+	scan := &models.OutboundPickingScan{
+		OutboundID:        uint(picking.OutboundId),
+		OutboundNo:        outboundNo,
+		OutboundDetailID:  picking.OutboundDetailId,
+		OutboundPickingID: req.OutboundPickingID,
+		OwnerCode:         picking.OwnerCode,
+		WhsCode:           picking.WhsCode,
+		ItemID:            picking.ItemID,
+		ItemCode:          picking.ItemCode,
+		Barcode:           req.Barcode,
+		BarcodeRaw:        req.BarcodeRaw,
+		ScanType:          scanType,
+		LabelType:         req.LabelType,
+		Quantity:          req.Quantity,
+		Uom:               picking.Uom,
+		Location:          req.Location,
+		SerialNumber:      req.SerialNumber,
+		CaseNumber:        req.CaseNumber,
+		LotNumber:         req.LotNumber,
+		ProdDate:          req.ProdDate,
+		Status:            "pending",
+		CreatedBy:         userID,
+	}
+
+	if err := repo.CreateScan(scan); err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Gagal menyimpan scan: " + err.Error(),
+		})
+	}
+
+	// Hitung ulang progress setelah insert
+	newQtyPicked := qtyPicked + req.Quantity
+	isItemComplete := newQtyPicked >= picking.Quantity
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": "Scan berhasil disimpan",
+		"data": fiber.Map{
+			"scan_id":          scan.ID,
+			"qty_picked":       newQtyPicked,
+			"qty_required":     picking.Quantity,
+			"is_item_complete": isItemComplete,
+		},
+	})
+}
+
+// ─── DELETE /api/wms/picking/scan/:scan_id ───────────────────────────────────
+
+func (c *MobileOutboundController) DeletePickingScan(ctx *fiber.Ctx) error {
+	scanIDStr := ctx.Params("scan_id")
+	scanID, err := strconv.Atoi(scanIDStr)
+	if err != nil || scanID <= 0 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "scan_id tidak valid",
+		})
+	}
+
+	repo := repositories.NewOutboundPickingRepository(c.DB)
+	if err := repo.DeleteScan(uint(scanID)); err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": err.Error(),
+		})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": "Scan dihapus",
+	})
+}
+
+// ─── POST /api/wms/picking/:outbound_no/confirm ──────────────────────────────
+// Confirm picking setelah semua item complete → status outbound jadi 'packing'.
+
+func (c *MobileOutboundController) ConfirmPicking(ctx *fiber.Ctx) error {
+	outboundNo := ctx.Params("outbound_no")
+
+	repo := repositories.NewOutboundPickingRepository(c.DB)
+
+	// Pastikan semua item sudah complete sebelum confirm
+	isComplete, err := repo.IsPickingComplete(outboundNo)
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": err.Error(),
+		})
+	}
+	if !isComplete {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "Belum semua item selesai dipick. Selesaikan picking terlebih dahulu.",
+		})
+	}
+
+	userID := 0
+	if uid, ok := ctx.Locals("user_id").(int); ok {
+		userID = uid
+	}
+
+	if err := repo.ConfirmPicking(outboundNo, userID); err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Gagal konfirmasi picking: " + err.Error(),
+		})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": fmt.Sprintf("Picking %s berhasil dikonfirmasi", outboundNo),
+	})
+}
+
+func (c *MobileOutboundController) GetPickingScans(ctx *fiber.Ctx) error {
+	idStr := ctx.Params("outbound_picking_id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil || id <= 0 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "outbound_picking_id tidak valid",
+		})
+	}
+
+	repo := repositories.NewOutboundPickingRepository(c.DB)
+	scans, err := repo.GetScans(id)
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": err.Error(),
+		})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"data":    scans,
 	})
 }

@@ -17,6 +17,7 @@ import (
 	"fiber-app/controllers/truck_controller"
 	"fiber-app/controllers/vas_controller"
 	"fiber-app/database"
+	"fiber-app/migration"
 	"fiber-app/routes"
 	"fiber-app/wms/master/owner"
 	"fmt"
@@ -155,10 +156,10 @@ func main() {
 		fmt.Println("✅ Connected to read-only report database")
 	}
 
-	// err = migration.MigrateBusinessUnit(unitDB)
-	// if err != nil {
-	// 	log.Fatalf("Failed to auto migrate unit database: %v", err)
-	// }
+	err = migration.MigrateBusinessUnit(unitDB)
+	if err != nil {
+		log.Fatalf("Failed to auto migrate unit database: %v", err)
+	}
 
 	// database.SeedUnit(mainDB)
 

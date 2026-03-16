@@ -97,5 +97,6 @@ func MigrateBusinessUnit(db *gorm.DB) error {
 		&report_builder.RptLayoutColumn{},
 		&report_builder.RptLayoutFilter{},
 		&report_builder.RptDocumentConfig{},
+		&models.OutboundPickingScan{},
 	)
 }

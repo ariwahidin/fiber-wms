@@ -100,6 +100,68 @@ type OutboundDetail struct {
 	Handling                []OutboundDetailHandling `gorm:"foreignKey:OutboundDetailId;references:ID;" json:"handling"`
 }
 
+type OutboundPicking struct {
+	gorm.Model
+	InventoryID      int     `json:"inventory_id"`
+	OutboundId       uint    `json:"outbound_id"`
+	OutboundNo       string  `json:"outbound_no"`
+	OutboundDetailId int     `gorm:"foreignKey:OutboundDetailId" json:"outbound_detail_id"`
+	OwnerCode        string  `json:"owner_code"`
+	WhsCode          string  `json:"whs_code"`
+	DivisionCode     string  `json:"division_code" gorm:"default:'REGULAR'"`
+	ItemID           uint    `json:"item_id"`
+	ItemCode         string  `json:"item_code"`
+	Barcode          string  `json:"barcode"`
+	Pallet           string  `json:"pallet"`
+	Location         string  `json:"location"`
+	Quantity         float64 `json:"quantity"`
+	QaStatus         string  `json:"qa_status"`
+	RecDate          string  `json:"rec_date" gorm:"default:null"`
+	ProdDate         string  `json:"prod_date" gorm:"default:null"`
+	ExpDate          string  `json:"exp_date" gorm:"default:null"`
+	LotNumber        string  `json:"lot_number" gorm:"default:null"`
+	CaseNumber       string  `json:"case_number" gorm:"default:null"`
+	Uom              string  `json:"uom"`
+	Reason           string  `json:"reason"`
+	QtyDisplay       float64 `json:"qty_display"`
+	UomDisplay       string  `json:"uom_display"`
+	EanDisplay       string  `json:"ean_display"`
+	CreatedBy        int
+	UpdatedBy        int
+	DeletedBy        int
+}
+
+type OutboundPickingScan struct {
+	gorm.Model
+	OutboundID        uint    `json:"outbound_id"`
+	OutboundNo        string  `json:"outbound_no"`
+	OutboundDetailID  int     `json:"outbound_detail_id"`
+	OutboundPickingID int     `json:"outbound_picking_id"` // ref ke OutboundPicking yang di-assign
+	OwnerCode         string  `json:"owner_code"`
+	WhsCode           string  `json:"whs_code"`
+	ItemID            uint    `json:"item_id"`
+	ItemCode          string  `json:"item_code"`
+	Barcode           string  `json:"barcode"`     // EAN yang di-scan
+	BarcodeRaw        string  `json:"barcode_raw"` // raw QR string jika scan QR
+	ScanType          string  `json:"scan_type"`   // "EAN" | "QR_UNIT" | "QR_CARTON"
+	LabelType         string  `json:"label_type"`  // "UNIT" | "CARTON" | ""
+	Quantity          float64 `json:"quantity"`    // qty yang di-scan
+	Uom               string  `json:"uom"`
+	Location          string  `json:"location"` // lokasi scan (jika require_scan_pick_location)
+	Pallet            string  `json:"pallet"`
+
+	// Data dari QR (opsional, kosongin jika tidak ada)
+	SerialNumber string `json:"serial_number"` // dari SERIAL
+	CaseNumber   string `json:"case_number"`   // dari CARTON_SERIAL
+	LotNumber    string `json:"lot_number"`    // dari BATCH
+	ProdDate     string `json:"prod_date"`     // dari MFG_DATE (yyyy-MM-dd)
+
+	Status    string `json:"status" gorm:"default:'pending'"` // "pending" | "confirmed"
+	CreatedBy int    `json:"created_by"`
+	UpdatedBy int    `json:"updated_by"`
+	DeletedBy int    `json:"deleted_by"`
+}
+
 type OutboundFile struct {
 	gorm.Model
 	DeliveryNo   string `json:"delivery_no"`
@@ -148,37 +210,6 @@ type OutboundHandling struct {
 	ItemCode         string            `json:"item_code"`
 	Quantity         int               `json:"quantity" gorm:"default:0"`
 	Koli             int               `json:"koli" gorm:"default:0"`
-	CreatedBy        int
-	UpdatedBy        int
-	DeletedBy        int
-}
-
-type OutboundPicking struct {
-	gorm.Model
-	InventoryID      int     `json:"inventory_id"`
-	OutboundId       uint    `json:"outbound_id"`
-	OutboundNo       string  `json:"outbound_no"`
-	OutboundDetailId int     `gorm:"foreignKey:OutboundDetailId" json:"outbound_detail_id"`
-	OwnerCode        string  `json:"owner_code"`
-	WhsCode          string  `json:"whs_code"`
-	DivisionCode     string  `json:"division_code" gorm:"default:'REGULAR'"`
-	ItemID           uint    `json:"item_id"`
-	ItemCode         string  `json:"item_code"`
-	Barcode          string  `json:"barcode"`
-	Pallet           string  `json:"pallet"`
-	Location         string  `json:"location"`
-	Quantity         float64 `json:"quantity"`
-	QaStatus         string  `json:"qa_status"`
-	RecDate          string  `json:"rec_date" gorm:"default:null"`
-	ProdDate         string  `json:"prod_date" gorm:"default:null"`
-	ExpDate          string  `json:"exp_date" gorm:"default:null"`
-	LotNumber        string  `json:"lot_number" gorm:"default:null"`
-	CaseNumber       string  `json:"case_number" gorm:"default:null"`
-	Uom              string  `json:"uom"`
-	Reason           string  `json:"reason"`
-	QtyDisplay       float64 `json:"qty_display"`
-	UomDisplay       string  `json:"uom_display"`
-	EanDisplay       string  `json:"ean_display"`
 	CreatedBy        int
 	UpdatedBy        int
 	DeletedBy        int
