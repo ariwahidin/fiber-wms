@@ -126,7 +126,7 @@ func (c *IntegrationController) CreateInboundFromCsv(ctx *fiber.Ctx) error {
 		// Contoh simulasi insert ke DB (atau kirim ke API lain)
 		for _, item := range items {
 			// kamu bisa ubah ke model DB sesuai kebutuhan
-			fmt.Printf("Inbound SO %s - %s (%s) Qty: %s\n", item.SO_NO, item.ITEM_CODE, item.ITEM_NAME, item.QTY)
+			fmt.Printf("Inbound SO %s - %s (%s) Qty: %d\n", item.SO_NO, item.ITEM_CODE, item.ITEM_NAME, item.QTY)
 		}
 
 		// Setelah selesai baca CSV

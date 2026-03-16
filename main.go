@@ -3,10 +3,20 @@ package main
 import (
 	"encoding/json"
 	"fiber-app/config"
-	"fiber-app/controllers"
+	"fiber-app/controllers/customer_controller"
 	"fiber-app/controllers/idgen"
+	"fiber-app/controllers/inbound_controller"
+	"fiber-app/controllers/item_controller"
+	"fiber-app/controllers/location_controller"
+	"fiber-app/controllers/origin_controller"
+	"fiber-app/controllers/outbound_controller"
+	"fiber-app/controllers/owner_controller"
+	"fiber-app/controllers/qa_controller"
+	"fiber-app/controllers/supplier_controller"
+	"fiber-app/controllers/transporter_controller"
+	"fiber-app/controllers/truck_controller"
+	"fiber-app/controllers/vas_controller"
 	"fiber-app/database"
-	"fiber-app/migration"
 	"fiber-app/routes"
 	"fiber-app/wms/master/owner"
 	"fmt"
@@ -145,10 +155,10 @@ func main() {
 		fmt.Println("✅ Connected to read-only report database")
 	}
 
-	err = migration.MigrateBusinessUnit(unitDB)
-	if err != nil {
-		log.Fatalf("Failed to auto migrate unit database: %v", err)
-	}
+	// err = migration.MigrateBusinessUnit(unitDB)
+	// if err != nil {
+	// 	log.Fatalf("Failed to auto migrate unit database: %v", err)
+	// }
 
 	// database.SeedUnit(mainDB)
 
@@ -157,40 +167,29 @@ func main() {
 	database.RunSeeders(unitDB)
 	owner.SeedOwner(unitDB)
 
-	// checkUnprocessedFiles(db)
-	// Initialize controllers
-	// authMiddleware := middleware.NewAuthMiddleware(db)
-	// authController := controllers.NewAuthController(db)
-	// customerController := controllers.NewCustomerController(db)
-	// handlingController := controllers.NewHandlingController(db)
-	// transporterController := controllers.NewTransporterController(db)
-	// truckController := controllers.NewTruckController(db)
-	// originController := controllers.NewOriginController(db)
-	// RfInboundController := controllers.NewRfInboundController(db)
-
 	// Setup CORS middleware
 	config.SetupCORS(app)
-
-	// Setup routes
-	// api := app.Group("/api")
-	// guestApi := app.Group("/guest/api")
-	// Aplikasikan middleware auth ke semua route di bawah /api
+	supplier_controller.SetupSupplierRoutes(app)
+	item_controller.SetupProductRoutes(app)
+	customer_controller.SetupCustomerRoutes(app)
+	transporter_controller.SetupTransporterRoutes(app)
+	truck_controller.SetupTruckRoutes(app)
+	origin_controller.SetupOriginRoutes(app)
+	location_controller.SetupLocationRoutes(app)
+	vas_controller.SetupVasRoutes(app)
+	qa_controller.SetupQaRoutes(app)
+	owner_controller.SetupOwnerRoutes(app)
+	inbound_controller.SetupInboundRoutes(app)
+	outbound_controller.SetupOutboundRoutes(app)
 
 	routes.SetupAuthRoutes(app)
 	routes.SetupDashboardRoutes(app)
-	routes.SetupProductRoutes(app)
-	routes.SetupCategoryRoutes(app)
-	routes.SetupSupplierRoutes(app)
-	routes.SetupCustomerRoutes(app)
-	routes.SetupTransporterRoutes(app)
-	routes.SetupTruckRoutes(app)
-	routes.SetupOriginRoutes(app)
 	routes.SetupHandlingRoutes(app)
 	routes.SetupUserRoutes(app)
 	routes.SetupMenuRoutes(app)
-	routes.SetupInboundRoutes(app)
+
 	routes.SetupWarehouseRoutes(app)
-	routes.SetupOutboundRoutes(app)
+
 	routes.SetupInventoryRoutes(app)
 	routes.SetupMobileInboundRoutes(app)
 	routes.SetupMobileOutboundRoutes(app)
@@ -199,19 +198,16 @@ func main() {
 	routes.SetupMobileInventoryRoutes(app)
 	owner.SetupOwnerRoutes(app)
 	routes.SetupStockTakeRoutes(app)
-	routes.SetupLocationRoutes(app)
-	routes.SetupVasRoutes(app)
+
 	routes.SetupIntegrationRoutes(app)
 	routes.SetupMasterCartonRoutes(app)
 
 	// Setup controller
-	itemPackagingCtrl := controllers.NewItemPackagingController(unitDB)
-	itemPackagingCtrl.SetupRoutes(app)
+
+	// itemPackagingCtrl.SetupRoutes(app)
 
 	// Setup Main Controller 2025-12-28 14:38 (ari.wahidin)
-	mainCtrl := controllers.NewController(unitDB)
-	mainCtrl.SetupRoutes(app)
-	mainCtrl.SetupOwnerRoutes(app)
+	// mainCtrl := controllers.NewController(unitDB)
 
 	// rm_services.InitScheduler(reportDB)
 	rm_services.InitScheduler(unitDB, reportDB)

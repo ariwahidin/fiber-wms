@@ -17,7 +17,6 @@ func SetupAuthRoutes(app *fiber.App) {
 	api.Post("/login/confirm", middleware.LoginMiddleware, controllers.LoginConfirm)
 	api.Post("/login/sessions", middleware.LoginMiddleware, controllers.GetSessionActive)
 	api.Post("/refresh", middleware.LoginMiddleware, controllers.RefreshToken)
-	// api.Get("/isLoggedIn", middleware.AuthMiddleware, authController.IsLoggedIn)
 
 	apiLogout := app.Group(config.MAIN_ROUTES+"/auth", middleware.AuthMiddleware)
 	apiLogout.Use(database.InjectDBMiddleware(authController))
