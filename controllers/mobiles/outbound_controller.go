@@ -22,37 +22,46 @@ func NewMobileOutboundController(DB *gorm.DB) *MobileOutboundController {
 
 func (c *MobileOutboundController) GetListOutbound(ctx *fiber.Ctx) error {
 	type listOutboundResponse struct {
-		ID           uint      `json:"id"`
-		OutboundNo   string    `json:"outbound_no"`
-		CustomerName string    `json:"customer_name"`
-		Status       string    `json:"status"`
-		ShipmentID   string    `json:"shipment_id"`
-		QtyReq       int       `json:"qty_req"`
-		QtyScan      int       `json:"qty_scan"`
-		QtyPack      int       `json:"qty_pack"`
-		UpdatedAt    time.Time `json:"updated_at"`
+		ID                 uint      `json:"id"`
+		OutboundNo         string    `json:"outbound_no"`
+		CustomerName       string    `json:"customer_name"`
+		Status             string    `json:"status"`
+		ShipmentID         string    `json:"shipment_id"`
+		QtyReq             int       `json:"qty_req"`
+		QtyScan            int       `json:"qty_scan"`
+		QtyPack            int       `json:"qty_pack"`
+		PickingWithScanner bool      `json:"picking_with_scanner"`
+		RequirePickingScan bool      `json:"require_picking_scan"`
+		UpdatedAt          time.Time `json:"updated_at"`
 	}
 
-	sql := `WITH od AS
-	(SELECT outbound_id, SUM(quantity) qty_req, SUM(scan_qty) as scan_qty 
-	FROM outbound_details
-	GROUP BY outbound_id),
+	sql := `WITH 
+	od AS
+		(SELECT outbound_id, SUM(quantity) qty_req, SUM(scan_qty) as scan_qty 
+		FROM outbound_details
+		GROUP BY outbound_id),
 	kd AS (
-	SELECT outbound_id, SUM(quantity) AS qty_pack
-	FROM outbound_barcodes
-	GROUP BY outbound_id
+		SELECT outbound_id, SUM(quantity) AS qty_pack
+		FROM outbound_barcodes
+		GROUP BY outbound_id
+		),
+	os AS(
+		SELECT outbound_id, SUM(quantity) AS qty_scan
+		FROM outbound_picking_scans
+		WHERE deleted_at IS NULL
+		GROUP BY outbound_id
 	)
-
-	SELECT a.id, a.outbound_no, b.customer_name,
-	a.shipment_id, od.qty_req, od.scan_qty, kd.qty_pack,
-	a.status, a.updated_at, ipo.require_picking_scan
-	FROM outbound_headers a
-	INNER JOIN customers b ON a.customer_code = b.customer_code
-	LEFT JOIN od ON a.id = od.outbound_id	
-	LEFT JOIN kd ON a.id = kd.outbound_id
-	LEFT JOIN inventory_policies ipo ON a.owner_code = ipo.owner_code
-	WHERE a.status IN ('picking', 'packing') and ipo.require_picking_scan <> 0
-	ORDER BY a.id DESC;`
+		SELECT a.id, a.outbound_no, b.customer_name,
+		a.shipment_id, od.qty_req, os.qty_scan, kd.qty_pack,
+		a.status, a.updated_at, ipo.require_picking_scan, ipo.picking_with_scanner
+		FROM outbound_headers a
+		INNER JOIN customers b ON a.customer_code = b.customer_code
+		LEFT JOIN od ON a.id = od.outbound_id	
+		LEFT JOIN kd ON a.id = kd.outbound_id
+		LEFT JOIN os ON a.id = os.outbound_id
+		LEFT JOIN inventory_policies ipo ON a.owner_code = ipo.owner_code
+		WHERE a.status IN ('picking', 'packing') and ipo.require_picking_scan <> 0
+		ORDER BY a.id DESC;`
 	var listOutbound []listOutboundResponse
 	if err := c.DB.Raw(sql).Scan(&listOutbound).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
@@ -1213,6 +1222,21 @@ func (c *MobileOutboundController) SubmitPickingScan(ctx *fiber.Ctx) error {
 		inventoryPolicy.RequireScanPickLocation = true
 	}
 
+	queryOutboundPicking := c.DB.Where("outbound_id = ? AND barcode = ?", picking.OutboundId, picking.Barcode).Where("deleted_at IS NULL")
+
+	if inventoryPolicy.RequireScanPickLocation {
+		queryOutboundPicking = queryOutboundPicking.Where("location = ?", req.Location)
+	}
+
+	var outboundPicking models.OutboundPicking
+
+	if err := queryOutboundPicking.First(&outboundPicking).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Picking not found", "message": "Picking not found"})
+		}
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
 	// ── Buat scan record ─────────────────────────────────────────────────────
 	scan := &models.OutboundPickingScan{
 		OutboundID:        uint(picking.OutboundId),
@@ -1251,7 +1275,7 @@ func (c *MobileOutboundController) SubmitPickingScan(ctx *fiber.Ctx) error {
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
 		"success": true,
-		"message": "Scan berhasil disimpan",
+		"message": "Successfully scanned item",
 		"data": fiber.Map{
 			"scan_id":          scan.ID,
 			"qty_picked":       newQtyPicked,

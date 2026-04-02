@@ -531,6 +531,7 @@ func (c *InventoryController) UpdateInventoryPolicy(ctx *fiber.Ctx) error {
 	policy.ValidateReceiveScan = updateData.ValidateReceiveScan
 	policy.RequirePutawayScan = updateData.RequirePutawayScan
 	policy.AllocationLotByOrder = updateData.AllocationLotByOrder
+	policy.PickingWithScanner = updateData.PickingWithScanner
 	policy.UpdatedBy = int(ctx.Locals("userID").(float64))
 
 	if err := c.DB.Save(&policy).Error; err != nil {
