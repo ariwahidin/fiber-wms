@@ -1001,6 +1001,7 @@ func (c *InventoryController) GetAllInventoryAvailableGrouped(ctx *fiber.Ctx) er
 		Category          string  `json:"category"`
 		Group             string  `json:"group"`
 		QaStatus          string  `json:"qa_status"`
+		DivisionCode      string  `json:"division_code"`
 		Uom               string  `json:"uom"`
 		RecDate           string  `json:"rec_date"`
 		ProdDate          string  `json:"prod_date"`
@@ -1029,6 +1030,7 @@ func (c *InventoryController) GetAllInventoryAvailableGrouped(ctx *fiber.Ctx) er
 			products.category,
 			products.[group],
 			inventories.qa_status,
+			inventories.division_code,
 			inventories.uom,
 			inventories.rec_date,
 			inventories.prod_date,
@@ -1058,14 +1060,14 @@ func (c *InventoryController) GetAllInventoryAvailableGrouped(ctx *fiber.Ctx) er
 	}
 	if search != "" {
 		query = query.Where(
-			"inventories.item_code LIKE ? OR products.item_name LIKE ? OR inventories.barcode LIKE ?",
-			"%"+search+"%", "%"+search+"%", "%"+search+"%",
+			"inventories.item_code LIKE ? OR products.item_name LIKE ? OR inventories.barcode LIKE ? OR inventories.division_code LIKE ? OR inventories.location LIKE ?",
+			"%"+search+"%", "%"+search+"%", "%"+search+"%", "%"+search+"%", "%"+search+"%",
 		)
 	}
 
 	var inventories []InventoryGrouped
 	result := query.
-		Group("inventories.location, inventories.item_code, inventories.barcode, inventories.qa_status, inventories.uom, products.item_name, products.category, products.[group], inventories.rec_date, inventories.prod_date, inventories.exp_date, inventories.lot_number").
+		Group("inventories.location, inventories.item_code, inventories.barcode, inventories.qa_status, inventories.division_code, inventories.uom, products.item_name, products.category, products.[group], inventories.rec_date, inventories.prod_date, inventories.exp_date, inventories.lot_number").
 		Order("inventories.location ASC, inventories.item_code ASC").
 		Find(&inventories)
 

@@ -28,6 +28,7 @@ type listInventory struct {
 	Category     string  `json:"category"`
 	WhsCode      string  `json:"whs_code"`
 	QaStatus     string  `json:"qa_status"`
+	DivisionCode string  `json:"division_code"`
 	QtyIn        int     `json:"qty_in"`
 	QtyOnhand    int     `json:"qty_onhand"`
 	QtyAvailable int     `json:"qty_available"`
@@ -41,7 +42,7 @@ type listInventory struct {
 func (r *InventoryRepository) GetInventory() ([]listInventory, error) {
 
 	sqlInventory := `select a.whs_code, a.location, a.barcode, a.owner_code, a.rec_date, b.category,
-	b.item_code, b.item_name, a.qa_status,
+	b.item_code, b.item_name, a.qa_status, a.division_code,
 	sum(a.qty_origin) as qty_in,
 	sum(a.qty_onhand) as qty_onhand,
 	sum(a.qty_available) as qty_available,
@@ -51,9 +52,8 @@ func (r *InventoryRepository) GetInventory() ([]listInventory, error) {
 	b.cbm * sum(a.qty_available) as cbm_total
 	from inventories a
 	inner join products b on a.item_id = b.id
-	-- where a.qty_available > 0 or a.qty_allocated > 0
 	where a.qty_origin > 0
-	group by a.whs_code, a.location, b.item_code, b.item_name, a.qa_status,
+	group by a.whs_code, a.location, b.item_code, b.item_name, a.qa_status, a.division_code,
 	a.barcode, a.owner_code, a.rec_date, b.category, a.inbound_detail_id, b.cbm`
 
 	var inventories []listInventory
