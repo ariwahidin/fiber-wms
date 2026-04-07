@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fiber-app/config"
 	"fiber-app/controllers/customer_controller"
+	"fiber-app/controllers/division_controller"
 	"fiber-app/controllers/idgen"
 	"fiber-app/controllers/inbound_controller"
 	"fiber-app/controllers/item_controller"
@@ -180,6 +181,8 @@ func main() {
 	vas_controller.SetupVasRoutes(app)
 	qa_controller.SetupQaRoutes(app)
 	owner_controller.SetupOwnerRoutes(app)
+	division_controller.SetupDivisionRoutes(app)
+
 	inbound_controller.SetupInboundRoutes(app)
 	outbound_controller.SetupOutboundRoutes(app)
 

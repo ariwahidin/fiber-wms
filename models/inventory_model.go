@@ -115,6 +115,8 @@ type InventoryMovement struct {
 	ToLocation   string `gorm:"size:100"`
 	OldQaStatus  string `gorm:"size:50"`
 	NewQaStatus  string `gorm:"size:50"`
+	FromDivision string `gorm:"size:50"`
+	ToDivision   string `gorm:"size:50"`
 
 	// Metadata
 	Reason    string `gorm:"size:255"`

@@ -81,18 +81,19 @@ type Outbound struct {
 }
 
 type OutboundItem struct {
-	ID         int               `json:"ID"`
-	OutboundID types.SnowflakeID `json:"outbound_id"`
-	ItemCode   string            `json:"item_code"`
-	Quantity   float64           `json:"quantity"`
-	UOM        string            `json:"uom"`
-	SN         string            `json:"sn"`
-	Location   string            `json:"location"`
-	Remarks    string            `json:"remarks"`
-	Mode       string            `json:"mode"`
-	VasID      int               `json:"vas_id"`
-	ExpDate    string            `json:"exp_date"`
-	LotNumber  string            `json:"lot_number"`
+	ID           int               `json:"ID"`
+	OutboundID   types.SnowflakeID `json:"outbound_id"`
+	ItemCode     string            `json:"item_code"`
+	Quantity     float64           `json:"quantity"`
+	UOM          string            `json:"uom"`
+	SN           string            `json:"sn"`
+	Location     string            `json:"location"`
+	Remarks      string            `json:"remarks"`
+	Mode         string            `json:"mode"`
+	VasID        int               `json:"vas_id"`
+	ExpDate      string            `json:"exp_date"`
+	LotNumber    string            `json:"lot_number"`
+	DivisionCode string            `json:"division_code"`
 }
 
 func (c *OutboundController) CreateOutbound(ctx *fiber.Ctx) error {
@@ -370,7 +371,11 @@ func (c *OutboundController) CreateOutbound(ctx *fiber.Ctx) error {
 		OutboundDetail.ExpDate = item.ExpDate
 		OutboundDetail.LotNumber = item.LotNumber
 		OutboundDetail.WhsCode = OutboundHeader.WhsCode
-		OutboundDetail.DivisionCode = "REGULAR"
+		if item.DivisionCode == "" {
+			OutboundDetail.DivisionCode = "REGULAR"
+		} else {
+			OutboundDetail.DivisionCode = item.DivisionCode
+		}
 		OutboundDetail.Location = item.Location
 		OutboundDetail.QaStatus = "A"
 		OutboundDetail.SN = item.SN
@@ -739,6 +744,13 @@ func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
 
+		var DivisionCode string
+		if item.DivisionCode == "" {
+			DivisionCode = "REGULAR"
+		} else {
+			DivisionCode = item.DivisionCode
+		}
+
 		// Coba cari berdasarkan ID
 		err := tx.Debug().First(&outboundDetail, "id = ?", item.ID).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -759,7 +771,8 @@ func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
 					OwnerCode:    OutboundHeader.OwnerCode,
 					CustomerCode: customer.CustomerCode,
 					Uom:          item.UOM,
-					DivisionCode: "REGULAR",
+					// DivisionCode: "REGULAR",
+					DivisionCode: DivisionCode,
 					QaStatus:     "A",
 					Remarks:      item.Remarks,
 					SN:           item.SN,
@@ -786,7 +799,8 @@ func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
 				outboundDetail.Uom = item.UOM
 				outboundDetail.WhsCode = OutboundHeader.WhsCode
 				outboundDetail.OwnerCode = OutboundHeader.OwnerCode
-				outboundDetail.DivisionCode = "REGULAR"
+				// outboundDetail.DivisionCode = "REGULAR"
+				outboundDetail.DivisionCode = DivisionCode
 				outboundDetail.CustomerCode = customer.CustomerCode
 				outboundDetail.QaStatus = "A"
 				outboundDetail.ExpDate = item.ExpDate
@@ -962,6 +976,7 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 					AND i.uom = ?
 					AND i.owner_code = ?
 					AND i.qa_status = ?
+					AND i.division_code = ?
 					AND (
 						l.id IS NULL
 						OR (l.is_active = 1 AND l.is_pickable = 1)
@@ -972,6 +987,7 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 				uomConversion.ToUom,
 				outboundHeader.OwnerCode,
 				outboundDetail.QaStatus,
+				outboundDetail.DivisionCode,
 			)
 
 		if invetoryPolicy.RequireLotNumber {

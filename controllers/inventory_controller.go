@@ -589,21 +589,22 @@ func (c *InventoryController) HardDelete(ctx *fiber.Ctx) error {
 // ==================================================================
 
 type TransferInventoryInput struct {
-	InventoryID   uint    `json:"inventory_id" validate:"required"`
-	FromWhsCode   string  `json:"from_whs_code" validate:"required"`
-	ToWhsCode     string  `json:"to_whs_code" validate:"required"`
-	FromLocation  string  `json:"from_location" validate:"required"`
-	ToLocation    string  `json:"to_location" validate:"required"`
-	OldQaStatus   string  `json:"old_qa_status"`
-	NewQaStatus   string  `json:"new_qa_status"`
-	RecDate       string  `json:"rec_date"`
-	ProdDate      string  `json:"prod_date"`
-	ExpDate       string  `json:"exp_date"`
-	LotNumber     string  `json:"lot_number"`
-	Pallet        string  `json:"pallet"`
-	QtyToTransfer float64 `json:"qty_to_transfer" validate:"required,gt=0"`
-	Reason        string  `json:"reason"`
-	DivisionCode  string  `json:"division_code" validate:"required"`
+	InventoryID      uint    `json:"inventory_id" validate:"required"`
+	FromWhsCode      string  `json:"from_whs_code" validate:"required"`
+	ToWhsCode        string  `json:"to_whs_code" validate:"required"`
+	FromLocation     string  `json:"from_location" validate:"required"`
+	ToLocation       string  `json:"to_location" validate:"required"`
+	OldQaStatus      string  `json:"old_qa_status"`
+	NewQaStatus      string  `json:"new_qa_status"`
+	RecDate          string  `json:"rec_date"`
+	ProdDate         string  `json:"prod_date"`
+	ExpDate          string  `json:"exp_date"`
+	LotNumber        string  `json:"lot_number"`
+	Pallet           string  `json:"pallet"`
+	QtyToTransfer    float64 `json:"qty_to_transfer" validate:"required,gt=0"`
+	Reason           string  `json:"reason"`
+	FromDivisionCode string  `json:"from_division_code" validate:"required"`
+	DivisionCode     string  `json:"division_code" validate:"required"`
 }
 
 func (c *InventoryController) TransferInventory(ctx *fiber.Ctx) error {
@@ -733,6 +734,9 @@ func (c *InventoryController) TransferInventory(ctx *fiber.Ctx) error {
 	if input.Pallet != "" {
 		destQuery = destQuery.Where("pallet = ?", input.Pallet)
 	}
+	if input.DivisionCode != "" {
+		destQuery = destQuery.Where("division_code = ?", input.DivisionCode)
+	}
 
 	err := destQuery.First(&destInventory).Error
 	isNewDestination := err == gorm.ErrRecordNotFound
@@ -768,7 +772,7 @@ func (c *InventoryController) TransferInventory(ctx *fiber.Ctx) error {
 		MovementID:         movementID,
 		InventoryID:        sourceInventory.ID,
 		RefType:            "TRANSFER",
-		RefID:              0, // Will be updated with destination inventory ID
+		RefID:              0,
 		ItemID:             sourceInventory.ItemId,
 		ItemCode:           sourceInventory.ItemCode,
 		QtyOnhandChange:    -input.QtyToTransfer,
@@ -782,6 +786,8 @@ func (c *InventoryController) TransferInventory(ctx *fiber.Ctx) error {
 		ToLocation:         input.ToLocation,
 		OldQaStatus:        sourceInventory.QaStatus,
 		NewQaStatus:        newQaStatus,
+		FromDivision:       input.FromDivisionCode,
+		ToDivision:         input.DivisionCode,
 		Reason:             input.Reason,
 		CreatedBy:          userID,
 		CreatedAt:          time.Now(),
@@ -879,6 +885,8 @@ func (c *InventoryController) TransferInventory(ctx *fiber.Ctx) error {
 			ToWhsCode:          input.ToWhsCode,
 			FromLocation:       input.FromLocation,
 			ToLocation:         input.ToLocation,
+			FromDivision:       input.FromDivisionCode,
+			ToDivision:         input.DivisionCode,
 			OldQaStatus:        sourceInventory.QaStatus,
 			NewQaStatus:        newQaStatus,
 			Reason:             input.Reason,
@@ -928,6 +936,8 @@ func (c *InventoryController) TransferInventory(ctx *fiber.Ctx) error {
 			FromLocation:       input.FromLocation,
 			ToLocation:         input.ToLocation,
 			OldQaStatus:        sourceInventory.QaStatus,
+			ToDivision:         input.DivisionCode,
+			FromDivision:       input.FromDivisionCode,
 			NewQaStatus:        newQaStatus,
 			Reason:             input.Reason,
 			CreatedBy:          userID,
