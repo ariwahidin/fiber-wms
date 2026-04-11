@@ -98,5 +98,7 @@ func MigrateBusinessUnit(db *gorm.DB) error {
 		&report_builder.RptLayoutFilter{},
 		&report_builder.RptDocumentConfig{},
 		&models.OutboundPickingScan{},
+
+		&models.ShopeeConfig{},
 	)
 }

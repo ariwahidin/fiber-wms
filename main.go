@@ -20,6 +20,7 @@ import (
 	"fiber-app/database"
 	"fiber-app/migration"
 	"fiber-app/routes"
+	scheduler "fiber-app/shceduler"
 	"fiber-app/wms/master/owner"
 	"fmt"
 	"log"
@@ -252,6 +253,8 @@ func main() {
 	// 	fmt.Println("pprof aktif di http://localhost:6060/debug/pprof/")
 	// 	log.Println(http.ListenAndServe("localhost:6060", nil))
 	// }()
+
+	go scheduler.StartShopeeScheduler(unitDB, reportDB)
 
 	if err := app.Listen(":" + port); err != nil {
 		log.Fatal(err)

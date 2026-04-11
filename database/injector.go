@@ -2,6 +2,7 @@ package database
 
 import (
 	"fmt"
+	"os"
 	"reflect"
 
 	"github.com/gofiber/fiber/v2"
@@ -74,6 +75,38 @@ func InjectQueryDBMiddleware(controller interface{}) fiber.Handler {
 		}
 
 		dbField.Set(reflect.ValueOf(queryDB))
+		return c.Next()
+	}
+}
+
+func InjectDBMiddlewareFromEnv(controller interface{}) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		// Ambil nama database dari env, misal "DB_NAME"
+		dbName := os.Getenv("DB_UNIT")
+
+		db, err := GetDBConnection(dbName)
+		if err != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, "error connecting to database")
+		}
+
+		// Inject ke field DB di controller
+		val := reflect.ValueOf(controller)
+		if val.Kind() != reflect.Ptr || val.IsNil() {
+			return fiber.NewError(fiber.StatusInternalServerError, "controller must be a non-nil pointer")
+		}
+
+		elem := val.Elem()
+		dbField := elem.FieldByName("DB")
+		if !dbField.IsValid() || !dbField.CanSet() {
+			return fiber.NewError(fiber.StatusInternalServerError, "DB field not found or cannot be set in controller")
+		}
+
+		if dbField.Type() != reflect.TypeOf((*gorm.DB)(nil)) {
+			return fiber.NewError(fiber.StatusInternalServerError, "DB field has wrong type")
+		}
+
+		dbField.Set(reflect.ValueOf(db))
+
 		return c.Next()
 	}
 }

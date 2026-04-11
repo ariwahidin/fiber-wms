@@ -196,6 +196,7 @@ type OutboundList struct {
 	TotalCBM     float64 `json:"total_cbm"`
 	UseVas       bool    `json:"use_vas"`
 	OrderType    string  `json:"order_type"`
+	Source       string  `json:"source"`
 }
 
 func (r *OutboundRepository) GetAllOutboundList() ([]OutboundList, error) {
@@ -300,7 +301,8 @@ func (r *OutboundRepository) GetAllOutboundList() ([]OutboundList, error) {
 			cd.cust_city as deliv_city,
 			a.qty_koli,
 			od.total_cbm,
-			od.total_item
+			od.total_item,
+			a.[source]
             from outbound_headers a
             left join od on a.id = od.outbound_id
             LEFT JOIN ps ON a.id = ps.outbound_id

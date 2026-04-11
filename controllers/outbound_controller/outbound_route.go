@@ -14,8 +14,10 @@ func SetupOutboundRoutes(app *fiber.App) {
 		middleware.AuthMiddleware,
 	)
 	outboundController := &OutboundController{}
+	shopeeController := &ShopeeSyncController{}
 
 	api.Use(database.InjectDBMiddleware(outboundController))
+	api.Use(database.InjectDBMiddleware(shopeeController))
 
 	api.Post("/upload-excel", outboundController.CreateOutboundFromExcelFile)
 	api.Post("/upload-ecommerce-excel", outboundController.CreateOutboundFromEcommerceExcel)
@@ -60,4 +62,26 @@ func SetupOutboundRoutes(app *fiber.App) {
 	// api.Delete("/item/:id", outboundController.DeleteItemOutbound)
 
 	// api.Post("/picking/complete/:id", outboundController.PickingComplete)
+
+	// shopeeSyncCtrl := outbound_controller.NewShopeeSyncController(db, queryDB)
+	api.Post("/shopee/sync", shopeeController.SyncShopeeOrders)
+	// api.Post("/shopee/refresh-token", shopeeController.HandleRefreshToken)
+
+	api.Get("/shopee/tracking/:order_sn", shopeeController.GetTrackingNumber)
+	api.Get("/shopee/label/:order_sn", shopeeController.GetShippingLabel)
+
+	api.Get("/shopee/shipping-param/:order_sn", shopeeController.GetShippingParameter)
+	api.Post("/shopee/init-shipment", shopeeController.InitShipment)
+
+	api.Get("/shopee/config", shopeeController.GetConfig)
+	api.Post("/shopee/config", shopeeController.SaveConfig)
+	api.Get("/shopee/auth-url", shopeeController.GenerateAuthURL)
+	api.Post("/shopee/refresh-token", shopeeController.HandleRefreshTokenDB)
+
+	api_auth := app.Group(
+		config.MAIN_ROUTES,
+	)
+	shopeeSyncController := &ShopeeSyncController{}
+	api_auth.Use(database.InjectDBMiddlewareFromEnv(shopeeSyncController))
+	api_auth.Get("/shopee/callback", shopeeSyncController.OAuthCallback)
 }
