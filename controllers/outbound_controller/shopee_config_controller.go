@@ -242,7 +242,7 @@ func (c *ShopeeSyncController) OAuthCallback(ctx *fiber.Ctx) error {
 		return ctx.Status(400).SendString("Missing code or shop_id")
 	}
 
-	cfg := c.loadConfig()
+	cfg := c.loadConfigForAuth()
 
 	path := "/api/v2/auth/token/get"
 	timestamp := time.Now().Unix()
