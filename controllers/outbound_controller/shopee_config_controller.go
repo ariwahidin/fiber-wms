@@ -315,7 +315,7 @@ func (c *ShopeeSyncController) OAuthCallback(ctx *fiber.Ctx) error {
 // ============================================================
 
 func (c *ShopeeSyncController) GenerateAuthURL(ctx *fiber.Ctx) error {
-	cfg := c.loadConfig()
+	cfg := c.loadConfigForAuth()
 
 	path := "/api/v2/shop/auth_partner"
 	timestamp := time.Now().Unix()
@@ -338,6 +338,29 @@ func (c *ShopeeSyncController) GenerateAuthURL(ctx *fiber.Ctx) error {
 		"success":  true,
 		"auth_url": authURL,
 	})
+}
+
+func (c *ShopeeSyncController) loadConfigForAuth() ShopeeConfig {
+	var cfg models.ShopeeConfig
+
+	err := c.DB.
+		Where("is_active = ?", true).
+		Order("id desc").
+		Take(&cfg).Error
+
+	if err == nil {
+		return ShopeeConfig{
+			PartnerID:    cfg.PartnerID,
+			PartnerKey:   cfg.PartnerKey,
+			ShopID:       cfg.ShopID,
+			AccessToken:  cfg.AccessToken,
+			RefreshToken: cfg.RefreshToken,
+			BaseURL:      cfg.BaseURL,
+		}
+	}
+
+	// Fallback ke .env
+	return loadShopeeConfig()
 }
 
 // ============================================================
