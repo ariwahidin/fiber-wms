@@ -13,6 +13,7 @@ import (
 	"fiber-app/controllers/outbound_controller"
 	"fiber-app/controllers/owner_controller"
 	"fiber-app/controllers/qa_controller"
+	"fiber-app/controllers/shopee_controller"
 	"fiber-app/controllers/supplier_controller"
 	"fiber-app/controllers/transporter_controller"
 	"fiber-app/controllers/truck_controller"
@@ -77,15 +78,15 @@ func main() {
 	config.SetupCORS(app)
 
 	// ambil MAIN_ROUTES dari .env
-	mainRoutes := os.Getenv("MAIN_ROUTES") // /api/v1
 
 	// healthcheck
-	app.Get(mainRoutes+"/health", func(c *fiber.Ctx) error {
-		return c.Status(fiber.StatusOK).JSON(fiber.Map{
-			"status":  "ok",
-			"message": "Fiber WMS is healthy",
-		})
-	})
+	// app.Get(mainRoutes+"/health", func(c *fiber.Ctx) error {
+	// 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+	// 		"status":  "ok",
+	// 		"message": "Fiber WMS is healthy",
+	// 	})
+	// })
+	// healthcheck
 
 	// middleware logger custom
 	app.Use(func(c *fiber.Ctx) error {
@@ -144,7 +145,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	} else {
-		fmt.Println("Connected to unit database successfully")
+		fmt.Println("✅ Connected to unit database successfully")
 	}
 
 	// ── Read-Only DB untuk Report Mailer ──────────────────────────────
@@ -171,6 +172,32 @@ func main() {
 
 	// Setup CORS middleware
 	config.SetupCORS(app)
+
+	mainRoutes := os.Getenv("MAIN_ROUTES") // /api/v1
+	app.Get(mainRoutes+"/health", func(c *fiber.Ctx) error {
+		// ping DB
+		sqlDB, err := unitDB.DB() // db = *gorm.DB kamu
+		if err != nil || sqlDB.Ping() != nil {
+			return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
+				"status":  "degraded",
+				"message": "Database unreachable",
+				"services": fiber.Map{
+					"api": "ok",
+					"db":  "error",
+				},
+			})
+		}
+
+		return c.Status(fiber.StatusOK).JSON(fiber.Map{
+			"status":  "ok",
+			"message": "Fiber WMS is healthy",
+			"services": fiber.Map{
+				"api": "ok",
+				"db":  "ok",
+			},
+		})
+	})
+
 	supplier_controller.SetupSupplierRoutes(app)
 	item_controller.SetupProductRoutes(app)
 	customer_controller.SetupCustomerRoutes(app)
@@ -193,7 +220,6 @@ func main() {
 	routes.SetupMenuRoutes(app)
 
 	routes.SetupWarehouseRoutes(app)
-
 	routes.SetupInventoryRoutes(app)
 	routes.SetupMobileInboundRoutes(app)
 	routes.SetupMobileOutboundRoutes(app)
@@ -244,6 +270,7 @@ func main() {
 	// api.Get("/configurations/get-all-bu", database.GetAllBusinessUnit)
 	// api.Post("/configurations/db-migrate", database.MigrateDB)
 
+	shopee_controller.SetupShopeeRoutes(app) // tanpa middleware auth karena Shopee yang akses
 	port := config.APP_PORT
 	fmt.Println("🚀 Server berjalan di port " + port)
 

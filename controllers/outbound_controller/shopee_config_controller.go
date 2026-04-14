@@ -171,6 +171,7 @@ func (c *ShopeeSyncController) GetConfig(ctx *fiber.Ctx) error {
 			"shop_id":      cfg.ShopID,
 			"access_token": maskedAccess,
 			"base_url":     cfg.BaseURL,
+			"push_url":     cfg.PushURL,
 			"is_active":    cfg.IsActive,
 			"environment":  cfg.Environment,
 			"updated_at":   cfg.UpdatedAt,
@@ -191,6 +192,7 @@ type ShopeeConfigPayload struct {
 	ShopID      int64  `json:"shop_id"`
 	BaseURL     string `json:"base_url"`
 	Environment string `json:"environment"`
+	PushURL     string `json:"push_url"`
 }
 
 func (c *ShopeeSyncController) SaveConfig(ctx *fiber.Ctx) error {
@@ -212,6 +214,7 @@ func (c *ShopeeSyncController) SaveConfig(ctx *fiber.Ctx) error {
 		PartnerKey:  payload.PartnerKey,
 		ShopID:      payload.ShopID,
 		BaseURL:     payload.BaseURL,
+		PushURL:     payload.PushURL,
 		Environment: payload.Environment,
 		IsActive:    true,
 		CreatedBy:   userID,

@@ -857,8 +857,13 @@ func Login(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Missing required fields"})
 	}
 
+	fmt.Println("Login attempt for email:", input.Email)
+	fmt.Println("User-Agent:", ctx.Get("User-Agent"))
+
 	db, err := database.GetDBConnection(config.DBUnit)
+
 	if err != nil {
+		fmt.Println("Database connection error:", err)
 		return errInternalDB(ctx)
 	}
 

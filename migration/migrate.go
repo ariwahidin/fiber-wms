@@ -100,5 +100,6 @@ func MigrateBusinessUnit(db *gorm.DB) error {
 		&models.OutboundPickingScan{},
 
 		&models.ShopeeConfig{},
+		&models.ShopeeWebhookLog{},
 	)
 }
