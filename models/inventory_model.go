@@ -108,6 +108,13 @@ type InventoryMovement struct {
 	QtySuspendChange   float64 `gorm:"default:0"`
 	QtyShippedChange   float64 `gorm:"default:0"`
 
+	// Snapshot before/after — BARU, nullable
+	// Data lama akan NULL, data baru akan terisi
+	QtyOnhandBefore    *float64 `gorm:"default:null" json:"qty_onhand_before"`
+	QtyOnhandAfter     *float64 `gorm:"default:null" json:"qty_onhand_after"`
+	QtyAvailableBefore *float64 `gorm:"default:null" json:"qty_available_before"`
+	QtyAvailableAfter  *float64 `gorm:"default:null" json:"qty_available_after"`
+
 	// Konteks whs_code, lokasi & status
 	FromWhsCode  string `gorm:"size:20"`
 	ToWhsCode    string `gorm:"size:20"`

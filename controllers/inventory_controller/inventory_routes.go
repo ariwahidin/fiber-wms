@@ -1,8 +1,7 @@
-package routes
+package inventory_controller
 
 import (
 	"fiber-app/config"
-	"fiber-app/controllers"
 	"fiber-app/database"
 	"fiber-app/middleware"
 
@@ -10,9 +9,11 @@ import (
 )
 
 func SetupInventoryRoutes(app *fiber.App) {
-	inventoryController := &controllers.InventoryController{}
+	inventoryController := &InventoryController{}
+	adjustmentController := &AdjustmentController{}
 	api := app.Group(config.MAIN_ROUTES+"/inventory", middleware.AuthMiddleware)
 	api.Use(database.InjectDBMiddleware(inventoryController))
+	api.Use(database.InjectDBMiddleware(adjustmentController))
 
 	api.Get("/", inventoryController.GetInventory)
 	api.Get("/all", inventoryController.GetAllInventoryAvailable)
@@ -30,4 +31,11 @@ func SetupInventoryRoutes(app *fiber.App) {
 	api.Get("/policies", inventoryController.GetAllInventoryPolicy)
 	api.Put("/policies/:id", inventoryController.UpdateInventoryPolicy)
 	api.Delete("/policies/:id", inventoryController.HardDelete)
+
+	api.Get("/adjustments/reason-codes", adjustmentController.GetReasonCodes)
+	api.Get("/adjustments", adjustmentController.GetAll)
+	api.Get("/adjustments/:id", adjustmentController.GetByID)
+	api.Post("/adjustments", adjustmentController.Create)
+	api.Post("/adjustments/:id/approve", adjustmentController.Approve)
+	api.Post("/adjustments/:id/reject", adjustmentController.Reject)
 }

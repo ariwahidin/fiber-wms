@@ -27,6 +27,7 @@ func RunSeeders(db *gorm.DB) {
 	SeedMasterCartons(db)
 	SeedEmailNotification(db)
 	SeedReportBuilder(db)
+	seedReasonCodes(db)
 }
 
 func SeedUnit(db *gorm.DB) {
@@ -571,4 +572,20 @@ func SeedReportBuilder(db *gorm.DB) error {
 	}
 
 	return nil
+}
+
+func seedReasonCodes(db *gorm.DB) {
+	codes := []models.AdjustmentReasonCode{
+		{Code: "DMGD", Description: "Damaged goods", Direction: "out", RequireNote: true},
+		{Code: "EXPD", Description: "Expired / past expiry date", Direction: "out", RequireNote: true},
+		{Code: "OPNAME", Description: "Stock count result", Direction: "both", RequireNote: false},
+		{Code: "RECV_ERR", Description: "Receiving discrepancy", Direction: "both", RequireNote: true},
+		{Code: "SYS_ERR", Description: "System correction", Direction: "both", RequireNote: true},
+		{Code: "SHRINK", Description: "Unknown loss / shrinkage", Direction: "out", RequireNote: true},
+		{Code: "FOUND", Description: "Found unrecorded stock", Direction: "in", RequireNote: true},
+		{Code: "PROD_LOSS", Description: "Production / repacking loss", Direction: "out", RequireNote: false},
+	}
+	for _, c := range codes {
+		db.Where("code = ?", c.Code).FirstOrCreate(&c)
+	}
 }

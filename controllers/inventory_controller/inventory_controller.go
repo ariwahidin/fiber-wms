@@ -1,4 +1,4 @@
-package controllers
+package inventory_controller
 
 import (
 	"fiber-app/models"

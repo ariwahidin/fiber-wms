@@ -101,5 +101,8 @@ func MigrateBusinessUnit(db *gorm.DB) error {
 
 		&models.ShopeeConfig{},
 		&models.ShopeeWebhookLog{},
+
+		&models.InventoryAdjustment{},
+		&models.AdjustmentReasonCode{},
 	)
 }

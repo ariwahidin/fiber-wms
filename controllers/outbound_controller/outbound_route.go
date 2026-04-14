@@ -77,6 +77,8 @@ func SetupOutboundRoutes(app *fiber.App) {
 	api.Post("/shopee/config", shopeeController.SaveConfig)
 	api.Get("/shopee/auth-url", shopeeController.GenerateAuthURL)
 	api.Post("/shopee/refresh-token", shopeeController.HandleRefreshTokenDB)
+	api.Post("/shopee/manual-update-token", shopeeController.ManualUpdateToken)
+	api.Get("/shopee/config-raw", shopeeController.GetConfigRaw)
 
 	api_auth := app.Group(
 		config.MAIN_ROUTES,

@@ -382,3 +382,89 @@ func (c *ShopeeSyncController) HandleRefreshTokenDB(ctx *fiber.Ctx) error {
 		"message": "Token berhasil di-refresh dan disimpan ke database",
 	})
 }
+
+// ============================================================
+// MANUAL UPDATE TOKEN — POST /api/shopee/manual-update-token
+// Update access_token, refresh_token, shop_id secara manual
+// ============================================================
+
+type ManualTokenPayload struct {
+	ShopID       *int64  `json:"shop_id"`
+	AccessToken  *string `json:"access_token"`
+	RefreshToken *string `json:"refresh_token"`
+}
+
+func (c *ShopeeSyncController) ManualUpdateToken(ctx *fiber.Ctx) error {
+	var payload ManualTokenPayload
+	if err := ctx.BodyParser(&payload); err != nil {
+		return ctx.Status(400).JSON(fiber.Map{"success": false, "message": "Invalid payload"})
+	}
+
+	// Minimal: setidaknya satu field harus diisi
+	if payload.ShopID == nil && payload.AccessToken == nil && payload.RefreshToken == nil {
+		return ctx.Status(400).JSON(fiber.Map{"success": false, "message": "Tidak ada data yang dikirim"})
+	}
+
+	updates := map[string]interface{}{
+		"updated_at": time.Now(),
+	}
+	if payload.ShopID != nil {
+		updates["shop_id"] = *payload.ShopID
+	}
+	if payload.AccessToken != nil && *payload.AccessToken != "" {
+		updates["access_token"] = *payload.AccessToken
+	}
+	if payload.RefreshToken != nil && *payload.RefreshToken != "" {
+		updates["refresh_token"] = *payload.RefreshToken
+	}
+
+	if err := c.DB.Model(&models.ShopeeConfig{}).
+		Where("is_active = ?", true).
+		Updates(updates).Error; err != nil {
+		return ctx.Status(500).JSON(fiber.Map{"success": false, "message": err.Error()})
+	}
+
+	// Sync ke env jika access/refresh token diupdate
+	if payload.AccessToken != nil && *payload.AccessToken != "" {
+		os.Setenv("SHOPEE_ACCESS_TOKEN", *payload.AccessToken)
+	}
+	if payload.RefreshToken != nil && *payload.RefreshToken != "" {
+		os.Setenv("SHOPEE_REFRESH_TOKEN", *payload.RefreshToken)
+	}
+
+	return ctx.JSON(fiber.Map{
+		"success": true,
+		"message": "Token berhasil diupdate secara manual",
+	})
+}
+
+// ============================================================
+// GET CONFIG RAW — GET /api/shopee/config-raw
+// Khusus untuk load data di modal Update Manual (tanpa masking)
+// ============================================================
+
+func (c *ShopeeSyncController) GetConfigRaw(ctx *fiber.Ctx) error {
+	var cfg models.ShopeeConfig
+
+	if err := c.DB.
+		Where("is_active = ?", true).
+		Order("id desc").
+		Take(&cfg).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return ctx.JSON(fiber.Map{
+				"success": true,
+				"data":    nil,
+			})
+		}
+		return ctx.Status(500).JSON(fiber.Map{"success": false, "message": err.Error()})
+	}
+
+	return ctx.JSON(fiber.Map{
+		"success": true,
+		"data": fiber.Map{
+			"shop_id":       cfg.ShopID,
+			"access_token":  cfg.AccessToken,
+			"refresh_token": cfg.RefreshToken,
+		},
+	})
+}

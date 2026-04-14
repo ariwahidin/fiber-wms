@@ -7,6 +7,7 @@ import (
 	"fiber-app/controllers/division_controller"
 	"fiber-app/controllers/idgen"
 	"fiber-app/controllers/inbound_controller"
+	"fiber-app/controllers/inventory_controller"
 	"fiber-app/controllers/item_controller"
 	"fiber-app/controllers/location_controller"
 	"fiber-app/controllers/origin_controller"
@@ -161,6 +162,8 @@ func main() {
 	err = migration.MigrateBusinessUnit(unitDB)
 	if err != nil {
 		log.Fatalf("Failed to auto migrate unit database: %v", err)
+	} else {
+		fmt.Println("✅ Migrated unit database successfully")
 	}
 
 	// database.SeedUnit(mainDB)
@@ -209,7 +212,7 @@ func main() {
 	qa_controller.SetupQaRoutes(app)
 	owner_controller.SetupOwnerRoutes(app)
 	division_controller.SetupDivisionRoutes(app)
-
+	inventory_controller.SetupInventoryRoutes(app)
 	inbound_controller.SetupInboundRoutes(app)
 	outbound_controller.SetupOutboundRoutes(app)
 
@@ -220,7 +223,7 @@ func main() {
 	routes.SetupMenuRoutes(app)
 
 	routes.SetupWarehouseRoutes(app)
-	routes.SetupInventoryRoutes(app)
+	// routes.SetupInventoryRoutes(app)
 	routes.SetupMobileInboundRoutes(app)
 	routes.SetupMobileOutboundRoutes(app)
 	routes.SetupMobilePackingRoutes(app)
