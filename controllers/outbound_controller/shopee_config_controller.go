@@ -31,6 +31,7 @@ func (c *ShopeeSyncController) loadConfig() ShopeeConfig {
 		Take(&cfg).Error
 
 	if err == nil && cfg.AccessToken != "" {
+		fmt.Printf("Loaded Shopee config from DB: ShopID %d, PartnerID %d, AccessToken %s \n, Update time: %s", cfg.ShopID, cfg.PartnerID, cfg.AccessToken, cfg.UpdatedAt)
 		return ShopeeConfig{
 			PartnerID:    cfg.PartnerID,
 			PartnerKey:   cfg.PartnerKey,

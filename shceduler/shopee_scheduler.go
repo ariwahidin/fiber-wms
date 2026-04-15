@@ -66,7 +66,6 @@ func StartShopeeScheduler(db *gorm.DB, queryDB *gorm.DB) {
 
 			case <-tokenTicker.C:
 				log.Println("[Shopee Scheduler] Refreshing access token...")
-				// if err := ctrl.RefreshToken(); err != nil {
 				if err := ctrl.RefreshTokenFromDB(); err != nil {
 					log.Printf("[Shopee Scheduler] Token refresh failed: %v", err)
 				} else {

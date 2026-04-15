@@ -199,8 +199,15 @@ func (c *ShopeeSyncController) RefreshToken() error {
 		return fmt.Errorf("shopee error: %s - %s", result.Error, result.Message)
 	}
 
-	// Update .env di runtime (in-memory via os.Setenv)
 	// Untuk persistent: update file .env atau tabel DB
+
+	// Simpan ke DB
+	if err := c.saveToken(result.AccessToken, result.RefreshToken); err != nil {
+		return fmt.Errorf("gagal simpan token ke DB: %w", err)
+	}
+
+	// Update .env di runtime (in-memory via os.Setenv)
+
 	os.Setenv("SHOPEE_ACCESS_TOKEN", result.AccessToken)
 	os.Setenv("SHOPEE_REFRESH_TOKEN", result.RefreshToken)
 
@@ -230,6 +237,7 @@ func (c *ShopeeSyncController) HandleRefreshToken(ctx *fiber.Ctx) error {
 // ============================================================
 
 func (c *ShopeeSyncController) fetchOrderList(cfg ShopeeConfig) ([]string, error) {
+	fmt.Printf("[Shopee] Fetching order list with access_token: %s...\n", cfg.AccessToken[:8])
 	path := "/api/v2/order/get_order_list"
 	timestamp := time.Now().Unix()
 	sign := cfg.sign(path, timestamp)
@@ -241,6 +249,7 @@ func (c *ShopeeSyncController) fetchOrderList(cfg ShopeeConfig) ([]string, error
 		timeFrom, timeTo)
 
 	url := cfg.buildURL(path, timestamp, sign, extra)
+	fmt.Printf("[Shopee] Calling API URL: %s\n", url)
 
 	resp, err := http.Get(url)
 	if err != nil {
@@ -258,6 +267,7 @@ func (c *ShopeeSyncController) fetchOrderList(cfg ShopeeConfig) ([]string, error
 	// Jika token expired, refresh dan retry sekali
 	if result.Error == "invalid_acceess_token" || result.Error == "invalid_access_token" {
 		fmt.Println("[Shopee] Access token expired, refreshing...")
+		fmt.Printf("[Shopee] Old access_token: %s...\n", cfg.AccessToken[:8])
 		if err := c.RefreshToken(); err != nil {
 			return nil, fmt.Errorf("token refresh failed: %w", err)
 		}
@@ -323,6 +333,8 @@ func (c *ShopeeSyncController) RunSync(userID int) ShopeeSyncResult {
 		SkippedOrders: []string{},
 		Errors:        []string{},
 	}
+
+	fmt.Println("[Shopee] Running sync...")
 
 	// cfg := loadShopeeConfig()
 	cfg := c.loadConfig()
@@ -453,6 +465,7 @@ func (c *ShopeeSyncController) processOrder(order ShopeeOrderDetail, userID int)
 		Remarks:      fmt.Sprintf("Shopee Order: %s | Buyer: %s | %s", order.OrderSN, order.BuyerUsername, order.PaymentMethod),
 		Status:       "open",
 		RawStatus:    "DRAFT",
+		OrderType:    "B2C - Marketplace",
 		DraftTime:    time.Now(),
 		Source:       "SHOPEE",
 		Integration:  true,
@@ -507,7 +520,7 @@ func (c *ShopeeSyncController) processOrder(order ShopeeOrderDetail, userID int)
 			Uom:          uomConversion.FromUom,
 			Quantity:     float64(item.ModelQty),
 			WhsCode:      whsCode,
-			DivisionCode: "REGULAR",
+			DivisionCode: "E-COMMERCE",
 			OwnerCode:    ownerCode,
 			QaStatus:     "A",
 			SNCheck:      "N",
@@ -755,5 +768,60 @@ func (c *ShopeeSyncController) InitShipment(ctx *fiber.Ctx) error {
 		"success":  true,
 		"message":  "Arrange shipment berhasil",
 		"order_sn": payload.OrderSN,
+	})
+}
+
+// ============================================================
+// TEST API — GET /api/shopee/test-api
+// Return raw JSON response dari Shopee order list
+// ============================================================
+
+func (c *ShopeeSyncController) TestAPI(ctx *fiber.Ctx) error {
+	cfg := c.loadConfig()
+
+	path := "/api/v2/order/get_order_list"
+	timestamp := time.Now().Unix()
+	sign := cfg.sign(path, timestamp)
+
+	timeTo := timestamp
+	timeFrom := timestamp - (15 * 24 * 60 * 60)
+
+	extra := fmt.Sprintf("&time_range_field=create_time&time_from=%d&time_to=%d&page_size=50&order_status=READY_TO_SHIP",
+		timeFrom, timeTo)
+
+	url := cfg.buildURL(path, timestamp, sign, extra)
+
+	resp, err := http.Get(url)
+	if err != nil {
+		return ctx.Status(500).JSON(fiber.Map{
+			"success": false,
+			"message": err.Error(),
+		})
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+
+	// Parse ke map agar bisa dikirim sebagai JSON proper
+	var raw map[string]interface{}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return ctx.Status(500).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to parse Shopee response",
+			"raw":     string(body),
+		})
+	}
+
+	// return ctx.JSON(fiber.Map{
+	// 	"success":  true,
+	// 	"endpoint": path,
+	// 	"data":     raw,
+	// })
+
+	return ctx.JSON(fiber.Map{
+		"success":  true,
+		"endpoint": path,
+		"url":      url,
+		"data":     raw,
 	})
 }
