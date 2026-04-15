@@ -469,3 +469,25 @@ func (c *ShopeeSyncController) GetConfigRaw(ctx *fiber.Ctx) error {
 		},
 	})
 }
+
+func (c *ShopeeSyncController) ValidateToken() error {
+	var cfg models.ShopeeConfig
+	err := c.DB.
+		Where("is_active = ?", true).
+		Order("id desc").
+		Take(&cfg).Error
+
+	if err != nil {
+		return fmt.Errorf("shopee config tidak ditemukan: %w", err)
+	}
+	if cfg.ShopID == 0 {
+		return fmt.Errorf("shop_id kosong")
+	}
+	if cfg.AccessToken == "" {
+		return fmt.Errorf("access_token kosong")
+	}
+	if cfg.RefreshToken == "" {
+		return fmt.Errorf("refresh_token kosong")
+	}
+	return nil
+}

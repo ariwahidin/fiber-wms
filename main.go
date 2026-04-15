@@ -14,6 +14,7 @@ import (
 	"fiber-app/controllers/outbound_controller"
 	"fiber-app/controllers/owner_controller"
 	"fiber-app/controllers/qa_controller"
+	"fiber-app/controllers/shopee_config_controller"
 	"fiber-app/controllers/shopee_controller"
 	"fiber-app/controllers/supplier_controller"
 	"fiber-app/controllers/transporter_controller"
@@ -22,6 +23,7 @@ import (
 	"fiber-app/database"
 	"fiber-app/migration"
 	"fiber-app/routes"
+	scheduler "fiber-app/shceduler"
 	"fiber-app/wms/master/owner"
 	"fmt"
 	"log"
@@ -215,6 +217,7 @@ func main() {
 	inventory_controller.SetupInventoryRoutes(app)
 	inbound_controller.SetupInboundRoutes(app)
 	outbound_controller.SetupOutboundRoutes(app)
+	shopee_config_controller.SetupShopeeConfigRoutes(app)
 
 	routes.SetupAuthRoutes(app)
 	routes.SetupDashboardRoutes(app)
@@ -284,6 +287,13 @@ func main() {
 	// }()
 
 	// go scheduler.StartShopeeScheduler(unitDB, reportDB)
+
+	go func() {
+		time.Sleep(3 * time.Second)
+		if err := scheduler.StartShopeeScheduler(unitDB, reportDB); err != nil {
+			log.Printf("[Shopee] Auto-start skipped: %v", err)
+		}
+	}()
 
 	if err := app.Listen(":" + port); err != nil {
 		log.Fatal(err)
