@@ -67,7 +67,7 @@ func (c *ProductController) CreateProduct(ctx *fiber.Ctx) error {
 	// Check duplicate item code
 	var existing models.Product
 	if err := c.DB.Where("item_code = ?", input.ItemCode).First(&existing).Error; err == nil {
-		return ctx.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "Item code already exists"})
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Item code already exists"})
 	}
 
 	userID := int(ctx.Locals("userID").(float64))
