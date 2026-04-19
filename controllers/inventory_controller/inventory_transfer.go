@@ -649,8 +649,8 @@ func (c *InventoryController) TransferInventory(ctx *fiber.Ctx) error {
 
 	// Fetch all source records FIFO (by id ASC)
 	var sourceRecords []models.Inventory
-	if err := tx.
-		Where("item_code = ? AND whs_code = ? AND location = ? AND division_code = ? AND qa_status = ? AND carton_number = ? AND qty_available > 0",
+	if err := tx.Debug().
+		Where("item_code = ? AND whs_code = ? AND location = ? AND division_code = ? AND qa_status = ? AND COALESCE(carton_number, '') = COALESCE(?, '') AND qty_available > 0",
 			input.ItemCode,
 			input.FromWhsCode,
 			input.FromLocation,
@@ -774,7 +774,7 @@ func (c *InventoryController) TransferInventory(ctx *fiber.Ctx) error {
 		// Check if destination inventory exists
 		var destInventory models.Inventory
 		destQuery := tx.Where(
-			"whs_code = ? AND location = ? AND item_code = ? AND barcode = ? AND carton_number = ? AND qa_status = ? AND lot_number = ?",
+			"whs_code = ? AND location = ? AND item_code = ? AND barcode = ? AND COALESCE(carton_number, '') = COALESCE(?, '') AND qa_status = ? AND lot_number = ?",
 			input.ToWhsCode,
 			input.ToLocation,
 			sourceInventory.ItemCode,

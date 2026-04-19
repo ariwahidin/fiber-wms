@@ -269,13 +269,6 @@ func (c *MobileOutboundController) ScanPicking(ctx *fiber.Ctx) error {
 	}
 
 	var outboundRepo = repositories.NewOutboundRepository(c.DB)
-
-	// if inventoryPolicy.RequireScanPickLocation {
-	// 	if scanOutbound.Location == "" {
-	// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Location is required"})
-	// 	}
-	// }
-
 	var packings []models.OutboundPacking
 	var packing models.OutboundPacking
 
@@ -353,10 +346,6 @@ func (c *MobileOutboundController) ScanPicking(ctx *fiber.Ctx) error {
 	}
 
 	queryOutboundPicking := c.DB.Where("outbound_id = ? AND barcode = ?", outboundHeader.ID, product.Barcode)
-
-	// if inventoryPolicy.RequireScanPickLocation {
-	// 	queryOutboundPicking = queryOutboundPicking.Where("location = ?", scanOutbound.Location)
-	// }
 
 	var outboundPicking models.OutboundPicking
 
@@ -1374,5 +1363,375 @@ func (c *MobileOutboundController) GetPickingScans(ctx *fiber.Ctx) error {
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
 		"success": true,
 		"data":    scans,
+	})
+}
+
+func (c *MobileOutboundController) ScanPickingBatch(ctx *fiber.Ctx) error {
+	outboundNo := ctx.Params("outbound_no")
+
+	// ── 1. Load outbound header (sekali, shared untuk semua item) ─────────────
+
+	var outboundHeader models.OutboundHeader
+	if err := c.DB.Where("outbound_no = ?", outboundNo).First(&outboundHeader).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"success": false,
+				"error":   "outbound_no not found",
+			})
+		}
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"error":   err.Error(),
+		})
+	}
+
+	// ── 2. Load inventory policy (sekali, shared) ─────────────────────────────
+
+	var inventoryPolicy models.InventoryPolicy
+	if err := c.DB.Where("owner_code = ?", outboundHeader.OwnerCode).First(&inventoryPolicy).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"success": false,
+				"error":   "Inventory policy not found",
+			})
+		}
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"error":   err.Error(),
+		})
+	}
+
+	// ── 3. Parse request body ─────────────────────────────────────────────────
+
+	// Struct payload per scan — identik dengan field di ScanPicking
+	type ScanPayload struct {
+		PackingNo  string  `json:"packing_no"`
+		PackCtnNo  string  `json:"pack_ctn_no"`
+		Location   string  `json:"location"`
+		OutboundNo string  `json:"outbound_no"`
+		Barcode    string  `json:"barcode"`
+		SerialNo   string  `json:"serial_no"`
+		Qty        float64 `json:"qty"`
+		Uom        string  `json:"uom"`
+		CartonID   uint    `json:"carton_id"`
+		CartonCode string  `json:"carton_code"`
+		QrRaw      string  `json:"qr_raw"`
+		LotNo      string  `json:"lot_no"`
+		ProdDate   string  `json:"prod_date"`
+	}
+
+	type ScanItem struct {
+		LocalID string      `json:"localId"` // UUID dari IndexedDB frontend
+		Payload ScanPayload `json:"payload"`
+	}
+
+	type BatchRequest struct {
+		Scans []ScanItem `json:"scans"`
+	}
+
+	var req BatchRequest
+	if err := ctx.BodyParser(&req); err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"error":   err.Error(),
+		})
+	}
+
+	if len(req.Scans) == 0 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"error":   "No scans provided",
+		})
+	}
+
+	// ── 4. Struct hasil per item ──────────────────────────────────────────────
+
+	type ScanResult struct {
+		LocalID string `json:"localId"` // untuk korelasi hasil ke item di frontend
+		Status  string `json:"status"`  // "ok" | "duplicate" | "invalid" | "error"
+		Message string `json:"message"` // pesan detail untuk frontend
+	}
+
+	// ── 5. Cache packing per PackingNo ───────────────────────────────────────
+	// Hindari query ulang ke DB untuk PackingNo yang sama di batch ini
+	packingCache := make(map[string]models.OutboundPacking)
+
+	// ── 6. Cache carton per CartonID ─────────────────────────────────────────
+	cartonCache := make(map[uint]models.MasterCarton)
+
+	// ── 7. Ambil userID sekali ────────────────────────────────────────────────
+	userID := int(ctx.Locals("userID").(float64))
+
+	outboundRepo := repositories.NewOutboundRepository(c.DB)
+	uomRepo := repositories.NewUomRepository(c.DB)
+
+	results := make([]ScanResult, 0, len(req.Scans))
+
+	// ── 8. Proses tiap scan secara independen ─────────────────────────────────
+
+	for _, scanItem := range req.Scans {
+
+		fmt.Printf("Processing scan: %+v\n", scanItem) // Debug log untuk melihat payload tiap item
+
+		scan := scanItem.Payload
+		localID := scanItem.LocalID
+
+		// Helper: return result untuk item ini dan lanjut ke item berikutnya
+		// (tidak stop seluruh batch)
+		addResult := func(status, message string) {
+			results = append(results, ScanResult{
+				LocalID: localID,
+				Status:  status,
+				Message: message,
+			})
+		}
+
+		// ── 8a. Validasi packing (jika policy aktif) ──────────────────────────
+
+		var packing models.OutboundPacking
+
+		if inventoryPolicy.RequirePackingScan {
+			if scan.PackingNo == "" {
+				addResult("invalid", "Packing number is required")
+				continue
+			}
+			if scan.PackCtnNo == "" {
+				addResult("invalid", "CTN number is required")
+				continue
+			}
+
+			// Cek cache dulu
+			if cached, ok := packingCache[scan.PackingNo]; ok {
+				packing = cached
+			} else {
+				var packings []models.OutboundPacking
+				if err := c.DB.Where("packing_no = ?", scan.PackingNo).Find(&packings).Error; err != nil {
+					addResult("error", "Failed to query packing: "+err.Error())
+					continue
+				}
+
+				if len(packings) == 0 {
+					// Buat packing baru
+					newPacking := models.OutboundPacking{
+						PackingNo: scan.PackingNo,
+						// CreatedAt: time.Now(), // GORM otomatis set
+						CreatedBy: userID,
+					}
+					if err := c.DB.Create(&newPacking).Error; err != nil {
+						addResult("error", "Failed to create packing: "+err.Error())
+						continue
+					}
+					packing = newPacking
+				} else {
+					packing = packings[0]
+				}
+				packingCache[scan.PackingNo] = packing
+			}
+		}
+
+		// ── 8b. UOM lookup & konversi ─────────────────────────────────────────
+
+		var uomConversion models.UomConversion
+		if err := c.DB.Where("ean = ?", scan.Barcode).First(&uomConversion).Error; err != nil {
+			addResult("invalid", "Item not found in UOM conversion: "+scan.Barcode)
+			continue
+		}
+
+		uom, errUOM := uomRepo.ConversionQty(uomConversion.ItemCode, scan.Qty, uomConversion.FromUom)
+		if errUOM != nil {
+			addResult("error", "UOM conversion failed: "+errUOM.Error())
+			continue
+		}
+
+		// ── 8c. Outbound detail lookup ────────────────────────────────────────
+
+		var outboundDetail models.OutboundDetail
+		if err := c.DB.Where("outbound_id = ? AND item_code = ?", outboundHeader.ID, uomConversion.ItemCode).First(&outboundDetail).Error; err != nil {
+			addResult("invalid", "Item not found in outbound detail: "+uomConversion.ItemCode)
+			continue
+		}
+
+		// ── 8d. Product lookup ────────────────────────────────────────────────
+
+		var product models.Product
+		if err := c.DB.Where("item_code = ?", uomConversion.ItemCode).First(&product).Error; err != nil {
+			addResult("invalid", "Product not found: "+uomConversion.ItemCode)
+			continue
+		}
+
+		// ── 8e. Serial number validation (jika produk HasSerial = "Y") ────────
+
+		if product.HasSerial == "Y" {
+			// Cek duplikat serial di outbound ini
+			var existing []models.OutboundBarcode
+			if err := c.DB.Where(
+				"outbound_id = ? AND barcode = ? AND serial_number = ?",
+				outboundHeader.ID, scan.Barcode, scan.SerialNo,
+			).Find(&existing).Error; err != nil {
+				addResult("error", "Failed to check duplicate serial: "+err.Error())
+				continue
+			}
+
+			if len(existing) > 0 {
+				// Status "duplicate" — bukan error fatal, frontend tampilkan warning
+				addResult("duplicate", "Serial number sudah pernah discan: "+scan.SerialNo)
+				continue
+			}
+
+			// Validasi serial ke inventory (jika policy aktif)
+			if inventoryPolicy.ValidationSN {
+				_, err := outboundRepo.ValidateSerialNumber(product.ItemCode, scan.SerialNo, int(outboundHeader.ID))
+				if err != nil {
+					addResult("invalid", "Serial number tidak valid: "+err.Error())
+					continue
+				}
+			}
+		}
+
+		// ── 8f. Outbound picking lookup ───────────────────────────────────────
+
+		var outboundPicking models.OutboundPicking
+		if err := c.DB.Where("outbound_id = ? AND barcode = ?", outboundHeader.ID, product.Barcode).First(&outboundPicking).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				addResult("invalid", "Picking not found untuk barcode: "+product.Barcode)
+				continue
+			}
+			addResult("error", "DB error: "+err.Error())
+			continue
+		}
+
+		// ── 8g. Cek qty limit (tidak boleh melebihi picking plan) ─────────────
+
+		type PickingSum struct{ QtyPickingList int }
+		var pickingSum PickingSum
+		if err := c.DB.Table("outbound_pickings").
+			Select("COALESCE(SUM(quantity), 0) as qty_picking_list").
+			Where("outbound_id = ? AND barcode = ?", outboundHeader.ID, product.Barcode).
+			Scan(&pickingSum).Error; err != nil {
+			addResult("error", "Failed to sum picking qty: "+err.Error())
+			continue
+		}
+
+		type BarcodeSum struct{ QtyBarcode int }
+		var barcodeSum BarcodeSum
+		if err := c.DB.Table("outbound_barcodes").
+			Select("COALESCE(SUM(quantity), 0) AS qty_barcode").
+			Where("outbound_id = ? AND barcode = ?", outboundHeader.ID, product.Barcode).
+			Scan(&barcodeSum).Error; err != nil {
+			addResult("error", "Failed to sum barcode qty: "+err.Error())
+			continue
+		}
+
+		if barcodeSum.QtyBarcode+int(uom.QtyConverted) > pickingSum.QtyPickingList {
+			addResult("invalid", fmt.Sprintf(
+				"Qty melebihi limit. Sudah scan: %d, Akan scan: %.0f, Limit: %d",
+				barcodeSum.QtyBarcode, uom.QtyConverted, pickingSum.QtyPickingList,
+			))
+			continue
+		}
+
+		// ── 8h. Carton lookup (dengan cache) ──────────────────────────────────
+
+		var carton models.MasterCarton
+		if cached, ok := cartonCache[scan.CartonID]; ok {
+			carton = cached
+		} else {
+			if err := c.DB.Where("id = ?", scan.CartonID).First(&carton).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					addResult("invalid", fmt.Sprintf("Carton ID %d tidak ditemukan", scan.CartonID))
+					continue
+				}
+				addResult("error", "Failed to load carton: "+err.Error())
+				continue
+			}
+			cartonCache[scan.CartonID] = carton
+		}
+
+		// ── 8i. Tentukan serial number final ──────────────────────────────────
+
+		serialNumber := scan.SerialNo
+		if product.HasSerial == "N" {
+			serialNumber = product.Barcode
+		}
+
+		// ── 8j. Insert OutboundBarcode ────────────────────────────────────────
+
+		outboundBarcode := models.OutboundBarcode{
+			OutboundId:       outboundHeader.ID,
+			OutboundNo:       outboundHeader.OutboundNo,
+			PackingId:        packing.ID,
+			PackingNo:        packing.PackingNo,
+			PackCtnNo:        scan.PackCtnNo,
+			OutboundDetailId: outboundPicking.OutboundDetailId,
+			ItemID:           int(product.ID),
+			ItemCode:         product.ItemCode,
+			Barcode:          product.Barcode,
+			Uom:              product.Uom,
+			SerialNumber:     serialNumber,
+			Quantity:         uom.QtyConverted,
+			Status:           "pending",
+			BarcodeDataScan:  scan.Barcode,
+			DataScan: func() string {
+				if scan.QrRaw != "" {
+					return scan.QrRaw
+				}
+				return scan.Barcode
+			}(),
+			ProdDate:      scan.ProdDate,
+			LotNumber:     scan.LotNo,
+			QtyDataScan:   scan.Qty,
+			LocationScan:  scan.Location,
+			UomScan:       uomConversion.FromUom,
+			IsSerial:      product.HasSerial == "Y",
+			CartonID:      scan.CartonID,
+			CartonCode:    scan.CartonCode,
+			CtnLength:     carton.Length,
+			CtnWidth:      carton.Width,
+			CtnHeight:     carton.Height,
+			CtnVolume:     carton.Volume,
+			CtnMaxWeight:  carton.MaxWeight,
+			CtnTareWeight: carton.TareWeight,
+			CreatedBy:     userID,
+		}
+
+		if err := c.DB.Create(&outboundBarcode).Error; err != nil {
+			addResult("error", "Failed to save scan: "+err.Error())
+			continue
+		}
+
+		// ── 8k. Item berhasil ─────────────────────────────────────────────────
+		addResult("ok", "Item scanned successfully")
+	}
+
+	// ── 9. Update outbound header status (sekali di akhir, jika ada yang ok) ──
+	// Hanya update jika minimal satu scan berhasil
+
+	anyOk := false
+	for _, r := range results {
+		if r.Status == "ok" {
+			anyOk = true
+			break
+		}
+	}
+
+	if anyOk {
+		outboundHeader.Status = "packing"
+		outboundHeader.RawStatus = "PACKING"
+		outboundHeader.ConfirmTime = time.Now()
+		outboundHeader.ConfirmBy = userID
+		outboundHeader.UpdatedBy = userID
+
+		if err := c.DB.Save(&outboundHeader).Error; err != nil {
+			// Jangan gagalkan seluruh response — log saja
+			// Insert sudah berhasil, status header bisa di-retry
+			fmt.Println("Warning: Failed to update outbound header status:", err.Error())
+		}
+	}
+
+	// ── 10. Return semua result ke frontend ───────────────────────────────────
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"results": results,
 	})
 }

@@ -67,6 +67,7 @@ func SetupMobileOutboundRoutes(app *fiber.App) {
 	api.Get("/outbound/detail/:outbound_no", mobileOutboundController.GetListOutboundDetail)
 	api.Post("/outbound/item-check/:outbound_no", mobileOutboundController.CheckItem)
 	api.Post("/outbound/picking/scan/:outbound_no", mobileOutboundController.ScanPicking)
+	api.Post("/outbound/picking/scan-batch/:outbound_no", mobileOutboundController.ScanPickingBatch)
 	api.Get("/outbound/picking/scan/:id", mobileOutboundController.GetListOutboundBarcode)
 	api.Delete("/outbound/picking/scan/:id", mobileOutboundController.DeleteOutboundBarcode)
 	api.Get("/outbound/picking/list/:outbound_no", mobileOutboundController.GetPickingList)
