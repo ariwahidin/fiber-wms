@@ -19,6 +19,7 @@ type Inventory struct {
 	ExpDate         string  `json:"exp_date" gorm:"default:null"`
 	LotNumber       string  `json:"lot_number" gorm:"default:null"`
 	CaseNumber      string  `json:"case_number" gorm:"default:null"`
+	CartonNumber    string  `json:"carton_number" gorm:"default:null"`
 	Pallet          string  `json:"pallet"`
 	Location        string  `json:"location"`
 	ItemId          uint    `json:"item_id"`
@@ -130,14 +131,6 @@ type InventoryMovement struct {
 	CreatedBy int
 	CreatedAt time.Time
 }
-
-// func (i *Inventory) BeforeCreate(tx *gorm.DB) (err error) {
-// 	fmt.Println("ID Inventory Before Create:", i.ID)
-// 	if i.ID == 0 {
-// 		i.ID = types.SnowflakeID(idgen.GenerateID())
-// 	}
-// 	return nil
-// }
 
 // qa_status_change_request table
 type QAStatusChangeRequest struct {

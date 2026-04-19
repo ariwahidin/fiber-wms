@@ -363,71 +363,6 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Scan item success"})
 }
 
-// func (c *MobileInboundController) GetInboundDetail(ctx *fiber.Ctx) error {
-
-// 	inbound_no := ctx.Params("inbound_no")
-
-// 	var inboundHeader models.InboundHeader
-// 	if err := c.DB.Where("inbound_no = ?", inbound_no).First(&inboundHeader).Error; err != nil {
-// 		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Inbound not found"})
-// 	}
-
-// 	var inboundDetail []models.InboundDetail
-// 	if err := c.DB.Debug().Where("inbound_id = ?", inboundHeader.ID).Find(&inboundDetail).Error; err != nil {
-// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-// 	}
-
-// 	type InboundDetailResult struct {
-// 		models.InboundDetail
-// 		ItemName string  `json:"item_name"`
-// 		IsSerial bool    `json:"is_serial"`
-// 		ScanQty  float64 `json:"scan_qty"`
-// 	}
-
-// 	var result []InboundDetailResult
-// 	for _, v := range inboundDetail {
-
-// 		var product models.Product
-// 		isSerial := false
-
-// 		if err := c.DB.Where("id = ?", v.ItemId).First(&product).Error; err != nil {
-// 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-// 		}
-
-// 		var uomConvesion models.UomConversion
-// 		if err := c.DB.Where("item_code = ? AND from_uom = ?", product.ItemCode, v.Uom).First(&uomConvesion).Error; err != nil {
-// 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-// 		}
-
-// 		if product.HasSerial == "Y" {
-// 			isSerial = true
-// 		}
-
-// 		var inboundBarcode []models.InboundBarcode
-// 		if err := c.DB.Where("inbound_detail_id = ?", v.ID).Find(&inboundBarcode).Error; err != nil {
-// 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-// 		}
-
-// 		var scanQty float64
-
-// 		for _, item := range inboundBarcode {
-// 			if int(v.ID) == int(item.InboundDetailId) {
-// 				scanQty += item.Quantity
-// 			}
-// 		}
-
-// 		v.Barcode = uomConvesion.Ean
-// 		result = append(result, InboundDetailResult{
-// 			InboundDetail: v,
-// 			ScanQty:       scanQty,
-// 			IsSerial:      isSerial,
-// 		})
-
-// 	}
-
-// 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "data": result})
-// }
-
 func (c *MobileInboundController) GetInboundDetail(ctx *fiber.Ctx) error {
 	inboundNo := ctx.Params("inbound_no")
 
@@ -815,9 +750,9 @@ func (c *MobileInboundController) PutawayAll(ctx *fiber.Ctx) error {
 		})
 	}
 
-	if len(req.ItemIDs) < 1 {
+	if req.InboundNo == "" || len(req.ItemIDs) < 1 || req.Location == "" {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Item IDs are required",
+			"error": "inbound_no, item_ids, and location are required",
 		})
 	}
 
@@ -839,16 +774,14 @@ func (c *MobileInboundController) PutawayAll(ctx *fiber.Ctx) error {
 
 	inboundRepo := repositories.NewInboundRepository(tx)
 
+	if err := tx.Where("location_code = ?", req.Location).First(&models.Location{}).Error; err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error": "Location " + req.Location + " not registered: " + err.Error(),
+		})
+	}
+
 	for _, itemID := range req.ItemIDs {
-
-		var loc models.Location
-		if err := tx.Where("location_code = ?", req.Location).First(&loc).Error; err != nil {
-			tx.Rollback()
-			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
-				"error": "Location " + req.Location + " not registered: " + err.Error(),
-			})
-		}
-
 		_, err := inboundRepo.ProcessPutawayItem(ctx, itemID, req.Location)
 		if err != nil {
 			tx.Rollback()

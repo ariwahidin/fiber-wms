@@ -524,40 +524,45 @@ func (r *InboundRepository) ProcessPutawayItem(ctx *fiber.Ctx, inboundBarcodeID 
 		return false, errors.New("invalid user ID")
 	}
 
-	err := r.db.Transaction(func(tx *gorm.DB) error {
-		var barcode models.InboundBarcode
-		if err := tx.Where("id = ?", inboundBarcodeID).Take(&barcode).Error; err != nil {
-			return err
-		}
+	var barcode models.InboundBarcode
+	if err := r.db.Where("id = ?", inboundBarcodeID).Take(&barcode).Error; err != nil {
+		return false, err
+	}
 
-		if barcode.Status != "pending" {
-			return fmt.Errorf("item not in pending status")
-		}
+	if barcode.Status != "pending" {
+		return false, fmt.Errorf("item not in pending status")
+	}
 
-		var detail models.InboundDetail
-		if err := tx.Where("id = ?", barcode.InboundDetailId).Take(&detail).Error; err != nil {
-			return errors.New("inbound detail not found for item: " + barcode.ItemCode)
-		}
+	var detail models.InboundDetail
+	if err := r.db.Where("id = ?", barcode.InboundDetailId).Take(&detail).Error; err != nil {
+		return false, errors.New("inbound detail not found for item: " + barcode.ItemCode)
+	}
 
-		if location == "" {
-			location = barcode.Location
-		}
+	if location == "" {
+		location = barcode.Location
+	}
 
-		uomRepo := NewUomRepository(tx)
-		uomConversion, errUom := uomRepo.ConversionQty(barcode.ItemCode, barcode.Quantity, detail.Uom)
-		if errUom != nil {
-			return errUom
-		}
-		qtyConverted := uomConversion.QtyConverted
+	uomRepo := NewUomRepository(r.db)
+	uomConversion, errUom := uomRepo.ConversionQty(barcode.ItemCode, barcode.Quantity, detail.Uom)
+	if errUom != nil {
+		return false, errUom
+	}
+	qtyConverted := uomConversion.QtyConverted
 
-		var product models.Product
-		if err := tx.Where("item_code = ?", barcode.ItemCode).Take(&product).Error; err != nil {
-			return errors.New("product not found for item: " + barcode.ItemCode)
-		}
+	var product models.Product
+	if err := r.db.Where("item_code = ?", barcode.ItemCode).Take(&product).Error; err != nil {
+		return false, errors.New("product not found for item: " + barcode.ItemCode)
+	}
 
-		// Cek apakah data inventory dengan kombinasi yang sama sudah ada
-		var existingInv models.Inventory
-		invQuery := tx.Debug().Where(`
+	CartonSerial := ""
+	result, _ := r.GetScanData(uint(barcode.ID))
+	if result != nil && result.CartonSerial != nil {
+		CartonSerial = *result.CartonSerial
+	}
+
+	// Cek apakah data inventory dengan kombinasi yang sama sudah ada
+	var existingInv models.Inventory
+	invQuery := r.db.Where(`
 			inbound_id = ? AND
 			inbound_detail_id = ? AND
 			item_code = ? AND
@@ -566,120 +571,117 @@ func (r *InboundRepository) ProcessPutawayItem(ctx *fiber.Ctx, inboundBarcodeID 
 			whs_code = ? AND
 			qa_status = ? AND
 			rec_date = ? AND
-			prod_date = ? AND
-			exp_date = ? AND
-			lot_number = ?`,
-			barcode.InboundId,
-			barcode.InboundDetailId,
-			barcode.ItemCode,
-			location,
-			product.Barcode,
-			barcode.WhsCode,
-			barcode.QaStatus,
-			detail.RecDate,
-			detail.ProdDate,
-			barcode.ExpDate,
-			barcode.LotNumber,
-		).First(&existingInv)
+			COALESCE(prod_date, '') = COALESCE(?, '') AND
+			COALESCE(exp_date, '') = COALESCE(?, '') AND
+			COALESCE(lot_number, '') = COALESCE(?, '') AND
+			COALESCE(carton_number, '') = COALESCE(?, '')
+		`,
+		barcode.InboundId,
+		barcode.InboundDetailId,
+		barcode.ItemCode,
+		location,
+		product.Barcode,
+		barcode.WhsCode,
+		barcode.QaStatus,
+		barcode.RecDate,
+		barcode.ProdDate,
+		barcode.ExpDate,
+		barcode.LotNumber,
+		CartonSerial,
+	).First(&existingInv)
 
-		if errors.Is(invQuery.Error, gorm.ErrRecordNotFound) {
-			// Tidak ada data → Insert baru
-			newInv := models.Inventory{
-				InboundID:       detail.InboundId,
-				InboundDetailId: int(detail.ID),
-				RecDate:         detail.RecDate,
-				ItemId:          barcode.ItemID,
-				ItemCode:        barcode.ItemCode,
-				Barcode:         product.Barcode,
-				WhsCode:         barcode.WhsCode,
-				OwnerCode:       barcode.OwnerCode,
-				DivisionCode:    barcode.DivisionCode,
-				Pallet:          barcode.Pallet,
-				Location:        location,
-				QaStatus:        barcode.QaStatus,
-				Uom:             uomConversion.ToUom,
-				QtyOrigin:       qtyConverted,
-				QtyOnhand:       qtyConverted,
-				QtyAvailable:    qtyConverted,
-				ExpDate:         barcode.ExpDate,
-				ProdDate:        barcode.ProdDate,
-				LotNumber:       barcode.LotNumber,
-				Trans:           "INBOUND PUTAWAY",
-				CreatedBy:       int(userID),
-			}
-
-			if err := tx.Create(&newInv).Error; err != nil {
-				return err
-			}
-
-			// ledger
-			helpers.InsertInventoryMovement(tx, helpers.InventoryMovementPayload{
-				InventoryID:        newInv.ID,
-				MovementID:         movementID,
-				RefType:            "INBOUND PUTAWAY",
-				RefID:              uint(barcode.InboundId),
-				ItemID:             product.ID,
-				ItemCode:           product.ItemCode,
-				ToWhsCode:          newInv.WhsCode,
-				QtyOnhandChange:    qtyConverted,
-				QtyAvailableChange: qtyConverted,
-				FromLocation:       barcode.Location,
-				NewQaStatus:        barcode.QaStatus,
-				ToLocation:         location,
-				Reason:             detail.InboundNo + " PUTAWAY",
-				CreatedBy:          int(userID),
-			})
-
-		} else if invQuery.Error == nil {
-			// Sudah ada → Update qty
-			if err := tx.Model(&existingInv).Updates(map[string]interface{}{
-				"qty_origin":    existingInv.QtyOrigin + qtyConverted,
-				"qty_onhand":    existingInv.QtyOnhand + qtyConverted,
-				"qty_available": existingInv.QtyAvailable + qtyConverted,
-				"updated_at":    time.Now().UTC(),
-				"updated_by":    int(userID),
-			}).Error; err != nil {
-				return err
-			}
-
-			// ledger
-			helpers.InsertInventoryMovement(tx, helpers.InventoryMovementPayload{
-				InventoryID:        existingInv.ID,
-				MovementID:         movementID,
-				RefType:            "INBOUND PUTAWAY",
-				RefID:              uint(barcode.InboundId),
-				ItemID:             product.ID,
-				ItemCode:           product.ItemCode,
-				ToWhsCode:          existingInv.WhsCode,
-				QtyOnhandChange:    existingInv.QtyOnhand + qtyConverted,
-				QtyAvailableChange: existingInv.QtyAvailable + qtyConverted,
-				NewQaStatus:        barcode.QaStatus,
-				FromLocation:       barcode.Location,
-				ToLocation:         location,
-				Reason:             detail.InboundNo + " PUTAWAY",
-				CreatedBy:          int(userID),
-			})
-		} else {
-			return invQuery.Error
+	if errors.Is(invQuery.Error, gorm.ErrRecordNotFound) {
+		// Tidak ada data → Insert baru
+		newInv := models.Inventory{
+			InboundID:       detail.InboundId,
+			InboundDetailId: int(detail.ID),
+			RecDate:         detail.RecDate,
+			ItemId:          barcode.ItemID,
+			ItemCode:        barcode.ItemCode,
+			Barcode:         product.Barcode,
+			WhsCode:         barcode.WhsCode,
+			OwnerCode:       barcode.OwnerCode,
+			DivisionCode:    barcode.DivisionCode,
+			Pallet:          barcode.Pallet,
+			Location:        location,
+			CartonNumber:    CartonSerial,
+			QaStatus:        barcode.QaStatus,
+			Uom:             uomConversion.ToUom,
+			QtyOrigin:       qtyConverted,
+			QtyOnhand:       qtyConverted,
+			QtyAvailable:    qtyConverted,
+			ExpDate:         barcode.ExpDate,
+			ProdDate:        barcode.ProdDate,
+			LotNumber:       barcode.LotNumber,
+			Trans:           "INBOUND PUTAWAY",
+			CreatedBy:       int(userID),
 		}
 
-		// Update status barcode ke "in stock"
-		if err := tx.Model(&barcode).Updates(map[string]interface{}{
-			"status":           "in stock",
-			"putaway_location": location,
-			"putaway_qty":      barcode.Quantity,
-			"putaway_at":       time.Now().UTC(),
-			"putaway_by":       int(userID),
-			"updated_at":       time.Now().UTC(),
-			"updated_by":       int(userID),
+		if err := r.db.Create(&newInv).Error; err != nil {
+			return false, err
+		}
+
+		// ledger
+		helpers.InsertInventoryMovement(r.db, helpers.InventoryMovementPayload{
+			InventoryID:        newInv.ID,
+			MovementID:         movementID,
+			RefType:            "INBOUND PUTAWAY",
+			RefID:              uint(barcode.InboundId),
+			ItemID:             product.ID,
+			ItemCode:           product.ItemCode,
+			ToWhsCode:          newInv.WhsCode,
+			QtyOnhandChange:    qtyConverted,
+			QtyAvailableChange: qtyConverted,
+			FromLocation:       barcode.Location,
+			NewQaStatus:        barcode.QaStatus,
+			ToLocation:         location,
+			Reason:             detail.InboundNo + " PUTAWAY",
+			CreatedBy:          int(userID),
+		})
+
+	} else if invQuery.Error == nil {
+		// Sudah ada → Update qty
+		if err := r.db.Model(&existingInv).Updates(map[string]interface{}{
+			"qty_origin":    existingInv.QtyOrigin + qtyConverted,
+			"qty_onhand":    existingInv.QtyOnhand + qtyConverted,
+			"qty_available": existingInv.QtyAvailable + qtyConverted,
+			"updated_at":    time.Now().UTC(),
+			"updated_by":    int(userID),
 		}).Error; err != nil {
-			return err
+			return false, err
 		}
 
-		return nil
-	})
+		// ledger
+		helpers.InsertInventoryMovement(r.db, helpers.InventoryMovementPayload{
+			InventoryID:        existingInv.ID,
+			MovementID:         movementID,
+			RefType:            "INBOUND PUTAWAY",
+			RefID:              uint(barcode.InboundId),
+			ItemID:             product.ID,
+			ItemCode:           product.ItemCode,
+			ToWhsCode:          existingInv.WhsCode,
+			QtyOnhandChange:    qtyConverted,
+			QtyAvailableChange: qtyConverted,
+			NewQaStatus:        barcode.QaStatus,
+			FromLocation:       barcode.Location,
+			ToLocation:         location,
+			Reason:             detail.InboundNo + " PUTAWAY",
+			CreatedBy:          int(userID),
+		})
+	} else {
+		return false, invQuery.Error
+	}
 
-	if err != nil {
+	// Update status barcode ke "in stock"
+	if err := r.db.Model(&barcode).Updates(map[string]interface{}{
+		"status":           "in stock",
+		"putaway_location": location,
+		"putaway_qty":      barcode.Quantity,
+		"putaway_at":       time.Now().UTC(),
+		"putaway_by":       int(userID),
+		"updated_at":       time.Now().UTC(),
+		"updated_by":       int(userID),
+	}).Error; err != nil {
 		return false, err
 	}
 
@@ -855,4 +857,151 @@ func (r *InboundRepository) UpdateStatusInbound(ctx *fiber.Ctx, inboundHeaderID 
 	}
 
 	return nil
+}
+
+type ScanDataResult struct {
+	InboundBarcodeID uint       `json:"inbound_barcode_id"`
+	InboundID        uint       `json:"inbound_id"`
+	InboundDetailID  uint       `json:"inbound_detail_id"`
+	LotNumber        *string    `json:"lot_number"`
+	RawScanData      *string    `json:"raw_scan_data"`
+	ItemType         string     `json:"item_type"`
+	SKU              *string    `json:"sku"`
+	EAN              *string    `json:"ean"`
+	Product          *string    `json:"product"`
+	Brand            *string    `json:"brand"`
+	Model            *string    `json:"model"`
+	Serial           *string    `json:"serial"`
+	CartonSerial     *string    `json:"carton_serial"`
+	Batch            *string    `json:"batch"`
+	MfgDateRaw       *string    `json:"mfg_date_raw"`
+	MfgDate          *time.Time `json:"mfg_date"`
+	QtyPerCarton     *int       `json:"qty_per_carton"`
+}
+
+func (r *InboundRepository) GetScanData(inboundBarcodeID uint) (*ScanDataResult, error) {
+	query := `
+		SELECT
+			ib.id AS inbound_barcode_id,
+			ib.inbound_id,
+			ib.inbound_detail_id,
+			ib.lot_number,
+			ib.scan_data AS raw_scan_data,
+
+			CASE 
+				WHEN ib.scan_data IS NULL OR LEN(TRIM(ib.scan_data)) = 0 THEN 'INVALID - EMPTY'
+				WHEN CHARINDEX('(1)SKU=', ib.scan_data) = 0 THEN 'INVALID - UNKNOWN FORMAT'
+				WHEN CHARINDEX('(6)CARTON_SERIAL=', ib.scan_data) > 0 THEN 'CARTON'
+				ELSE 'UNIT'
+			END AS item_type,
+
+			CASE WHEN ib.scan_data IS NOT NULL 
+					  AND CHARINDEX('(1)SKU=', ib.scan_data) > 0 
+					  AND CHARINDEX('(2)', ib.scan_data) > 0 THEN
+				SUBSTRING(ib.scan_data,
+					CHARINDEX('(1)SKU=', ib.scan_data) + 7,
+					CHARINDEX('(2)', ib.scan_data) - CHARINDEX('(1)SKU=', ib.scan_data) - 7)
+			END AS sku,
+
+			CASE WHEN ib.scan_data IS NOT NULL 
+					  AND CHARINDEX('(2)EAN=', ib.scan_data) > 0 
+					  AND CHARINDEX('(3)', ib.scan_data) > 0 THEN
+				SUBSTRING(ib.scan_data,
+					CHARINDEX('(2)EAN=', ib.scan_data) + 7,
+					CHARINDEX('(3)', ib.scan_data) - CHARINDEX('(2)EAN=', ib.scan_data) - 7)
+			END AS ean,
+
+			CASE WHEN ib.scan_data IS NOT NULL 
+					  AND CHARINDEX('(3)PRODUCT=', ib.scan_data) > 0 
+					  AND CHARINDEX('(4)', ib.scan_data) > 0 THEN
+				SUBSTRING(ib.scan_data,
+					CHARINDEX('(3)PRODUCT=', ib.scan_data) + 11,
+					CHARINDEX('(4)', ib.scan_data) - CHARINDEX('(3)PRODUCT=', ib.scan_data) - 11)
+			END AS product,
+
+			CASE WHEN ib.scan_data IS NOT NULL 
+					  AND CHARINDEX('(4)BRAND=', ib.scan_data) > 0 
+					  AND CHARINDEX('(5)', ib.scan_data) > 0 THEN
+				SUBSTRING(ib.scan_data,
+					CHARINDEX('(4)BRAND=', ib.scan_data) + 9,
+					CHARINDEX('(5)', ib.scan_data) - CHARINDEX('(4)BRAND=', ib.scan_data) - 9)
+			END AS brand,
+
+			CASE WHEN ib.scan_data IS NOT NULL 
+					  AND CHARINDEX('(5)MODEL=', ib.scan_data) > 0 
+					  AND CHARINDEX('(6)', ib.scan_data) > 0 THEN
+				SUBSTRING(ib.scan_data,
+					CHARINDEX('(5)MODEL=', ib.scan_data) + 9,
+					CHARINDEX('(6)', ib.scan_data) - CHARINDEX('(5)MODEL=', ib.scan_data) - 9)
+			END AS model,
+
+			CASE WHEN CHARINDEX('(6)SERIAL=', ib.scan_data) > 0 
+					  AND CHARINDEX('(7)', ib.scan_data) > 0 THEN
+				SUBSTRING(ib.scan_data,
+					CHARINDEX('(6)SERIAL=', ib.scan_data) + 10,
+					CHARINDEX('(7)', ib.scan_data) - CHARINDEX('(6)SERIAL=', ib.scan_data) - 10)
+			END AS serial,
+
+			CASE WHEN CHARINDEX('(6)CARTON_SERIAL=', ib.scan_data) > 0 
+					  AND CHARINDEX('(7)', ib.scan_data) > 0 THEN
+				SUBSTRING(ib.scan_data,
+					CHARINDEX('(6)CARTON_SERIAL=', ib.scan_data) + 17,
+					CHARINDEX('(7)', ib.scan_data) - CHARINDEX('(6)CARTON_SERIAL=', ib.scan_data) - 17)
+			END AS carton_serial,
+
+			CASE WHEN ib.scan_data IS NOT NULL 
+					  AND CHARINDEX('(7)BATCH=', ib.scan_data) > 0 
+					  AND CHARINDEX('(8)', ib.scan_data) > 0 THEN
+				TRIM(SUBSTRING(ib.scan_data,
+					CHARINDEX('(7)BATCH=', ib.scan_data) + 9,
+					CHARINDEX('(8)', ib.scan_data) - CHARINDEX('(7)BATCH=', ib.scan_data) - 9))
+			END AS batch,
+
+			CASE WHEN ib.scan_data IS NOT NULL 
+					  AND CHARINDEX('(8)MFG_DATE=', ib.scan_data) > 0 THEN
+				TRIM(CASE
+					WHEN CHARINDEX('(9)', ib.scan_data) > 0 THEN
+						SUBSTRING(ib.scan_data,
+							CHARINDEX('(8)MFG_DATE=', ib.scan_data) + 12,
+							CHARINDEX('(9)', ib.scan_data) - CHARINDEX('(8)MFG_DATE=', ib.scan_data) - 12)
+					ELSE
+						SUBSTRING(ib.scan_data,
+							CHARINDEX('(8)MFG_DATE=', ib.scan_data) + 12,
+							LEN(ib.scan_data) - CHARINDEX('(8)MFG_DATE=', ib.scan_data) - 11)
+				END)
+			END AS mfg_date_raw,
+
+			TRY_CONVERT(DATE,
+				CASE WHEN ib.scan_data IS NOT NULL 
+						  AND CHARINDEX('(8)MFG_DATE=', ib.scan_data) > 0 THEN
+					TRIM(CASE
+						WHEN CHARINDEX('(9)', ib.scan_data) > 0 THEN
+							SUBSTRING(ib.scan_data,
+								CHARINDEX('(8)MFG_DATE=', ib.scan_data) + 12,
+								CHARINDEX('(9)', ib.scan_data) - CHARINDEX('(8)MFG_DATE=', ib.scan_data) - 12)
+						ELSE
+							SUBSTRING(ib.scan_data,
+								CHARINDEX('(8)MFG_DATE=', ib.scan_data) + 12,
+								LEN(ib.scan_data) - CHARINDEX('(8)MFG_DATE=', ib.scan_data) - 11)
+					END)
+				END
+			, 112) AS mfg_date,
+
+			CASE WHEN CHARINDEX('(9)QTY_PER_CARTON=', ib.scan_data) > 0 THEN
+				TRY_CAST(
+					TRIM(SUBSTRING(ib.scan_data,
+						CHARINDEX('(9)QTY_PER_CARTON=', ib.scan_data) + 18,
+						LEN(ib.scan_data) - CHARINDEX('(9)QTY_PER_CARTON=', ib.scan_data) - 17))
+				AS INT)
+			END AS qty_per_carton
+
+		FROM inbound_barcodes ib
+		WHERE ib.id = ?
+	`
+
+	var result ScanDataResult
+	if err := r.db.Raw(query, inboundBarcodeID).Scan(&result).Error; err != nil {
+		return nil, err
+	}
+	return &result, nil
 }

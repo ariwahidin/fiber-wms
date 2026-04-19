@@ -17,6 +17,7 @@ func SetupInventoryRoutes(app *fiber.App) {
 
 	api.Get("/", inventoryController.GetInventory)
 	api.Get("/all", inventoryController.GetAllInventoryAvailable)
+	api.Get("/grouped", inventoryController.GetGroupedInventory)
 	api.Get("/location", inventoryController.GetItemByLocation)
 	api.Get("/available/grouped", inventoryController.GetAllInventoryAvailableGrouped)
 	api.Get("/movements", inventoryController.GetInventoryMovements)
