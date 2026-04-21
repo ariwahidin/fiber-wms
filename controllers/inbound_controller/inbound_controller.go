@@ -57,24 +57,24 @@ type Inbound struct {
 }
 
 type InboundItem struct {
-	ID        int     `json:"ID"`
-	InboundID int     `json:"inbound_id"`
-	ItemCode  string  `json:"item_code"`
-	Quantity  float64 `json:"quantity"`
-	QaStatus  string  `json:"qa_status"`
-	Location  string  `json:"location"`
-	WhsCode   string  `json:"whs_code"`
-	UOM       string  `json:"uom"`
-	RecDate   string  `json:"rec_date"`
-	ProdDate  string  `json:"prod_date"`
-	ExpDate   string  `json:"exp_date"`
-	LotNumber string  `json:"lot_number"`
-	Remarks   string  `json:"remarks"`
-	IsSerial  string  `json:"is_serial"`
-	Mode      string  `json:"mode"`
-	RefId     int     `json:"ref_id"`
-	RefNo     string  `json:"ref_no"`
-	Division  string  `json:"division"`
+	ID           int     `json:"ID"`
+	InboundID    int     `json:"inbound_id"`
+	ItemCode     string  `json:"item_code"`
+	Quantity     float64 `json:"quantity"`
+	QaStatus     string  `json:"qa_status"`
+	Location     string  `json:"location"`
+	WhsCode      string  `json:"whs_code"`
+	UOM          string  `json:"uom"`
+	RecDate      string  `json:"rec_date"`
+	ProdDate     string  `json:"prod_date"`
+	ExpDate      string  `json:"exp_date"`
+	LotNumber    string  `json:"lot_number"`
+	Remarks      string  `json:"remarks"`
+	IsSerial     string  `json:"is_serial"`
+	Mode         string  `json:"mode"`
+	RefId        int     `json:"ref_id"`
+	RefNo        string  `json:"ref_no"`
+	DivisionCode string  `json:"division_code"`
 }
 
 type ItemInboundBarcode struct {
@@ -188,14 +188,14 @@ func (c *InboundController) CreateInbound(ctx *fiber.Ctx) error {
 			})
 		}
 
-		key := fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s", item.ItemCode, item.RecDate, item.ExpDate, item.LotNumber, item.ProdDate, item.Location, item.UOM, item.QaStatus)
+		key := fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%s", item.ItemCode, item.RecDate, item.ExpDate, item.LotNumber, item.ProdDate, item.Location, item.UOM, item.QaStatus, item.DivisionCode)
 
 		if itemCodes[key] {
 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 				"success": false,
 				"message": "Duplicate item found: " + item.ItemCode,
-				"error": fmt.Sprintf("Duplicate item found with ItemCode %s, rec_date %s, exp_date %s, lot_number %s, prod_date %s, location %s, uom %s, status %s",
-					item.ItemCode, item.RecDate, item.ExpDate, item.LotNumber, item.ProdDate, item.Location, item.UOM, item.QaStatus),
+				"error": fmt.Sprintf("Duplicate item found with ItemCode %s, rec_date %s, exp_date %s, lot_number %s, prod_date %s, location %s, uom %s, status %s, division %s",
+					item.ItemCode, item.RecDate, item.ExpDate, item.LotNumber, item.ProdDate, item.Location, item.UOM, item.QaStatus, item.DivisionCode),
 			})
 		}
 
@@ -390,14 +390,13 @@ func (c *InboundController) CreateInbound(ctx *fiber.Ctx) error {
 		InboundDetail.ProdDate = item.ProdDate
 		InboundDetail.ExpDate = item.ExpDate
 		InboundDetail.LotNumber = item.LotNumber
-		// InboundDetail.Remarks = item.Remarks
 		InboundDetail.RefNo = item.RefNo
 		InboundDetail.IsSerial = product.HasSerial
 		InboundDetail.RefId = int(InboundReference.ID)
 		InboundDetail.RefNo = InboundReference.RefNo
 		InboundDetail.OwnerCode = payload.OwnerCode
 		InboundDetail.WhsCode = payload.WhsCode
-		// InboundDetail.DivisionCode = item.Division
+		InboundDetail.DivisionCode = item.DivisionCode
 		InboundDetail.CreatedBy = userID
 		InboundDetail.UpdatedBy = userID
 
@@ -531,14 +530,14 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 			})
 		}
 
-		key := fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s", item.ItemCode, item.RecDate, item.ExpDate, item.LotNumber, item.ProdDate, item.Location, item.UOM, item.QaStatus)
+		key := fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%s", item.ItemCode, item.RecDate, item.ExpDate, item.LotNumber, item.ProdDate, item.Location, item.UOM, item.QaStatus, item.DivisionCode)
 
 		if itemCodes[key] {
 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 				"success": false,
 				"message": "Duplicate item found: " + item.ItemCode,
-				"error": fmt.Sprintf("Duplicate item found with ItemCode %s, rec_date %s, exp_date %s, lot_number %s, prod_date %s, location %s, uom %s, status %s",
-					item.ItemCode, item.RecDate, item.ExpDate, item.LotNumber, item.ProdDate, item.Location, item.UOM, item.QaStatus),
+				"error": fmt.Sprintf("Duplicate item found with ItemCode %s, rec_date %s, exp_date %s, lot_number %s, prod_date %s, location %s, uom %s, status %s, division %s",
+					item.ItemCode, item.RecDate, item.ExpDate, item.LotNumber, item.ProdDate, item.Location, item.UOM, item.QaStatus, item.DivisionCode),
 			})
 		}
 
@@ -702,6 +701,7 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 					RefId:         item.RefId,
 					OwnerCode:     InboundHeader.OwnerCode,
 					QaStatus:      item.QaStatus,
+					DivisionCode:  item.DivisionCode,
 					CreatedBy:     userID,
 				}
 				if err := tx.Create(&newDetail).Error; err != nil {
@@ -768,6 +768,7 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 				inboundDetail.RefId = item.RefId
 				inboundDetail.OwnerCode = InboundHeader.OwnerCode
 				inboundDetail.QaStatus = item.QaStatus
+				inboundDetail.DivisionCode = item.DivisionCode
 				inboundDetail.UpdatedBy = userID
 
 				if err := tx.Save(&inboundDetail).Error; err != nil {

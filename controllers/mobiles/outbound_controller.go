@@ -356,10 +356,33 @@ func (c *MobileOutboundController) ScanPicking(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	// helper parse field dari QR raw
+	// parseQRField := func(raw, field string) string {
+	// 	key := field + "="
+	// 	parts := strings.SplitN(raw, key, 2)
+	// 	if len(parts) < 2 {
+	// 		return ""
+	// 	}
+	// 	// trim sampai field berikutnya "(" atau end of string
+	// 	value := strings.SplitN(parts[1], "(", 2)[0]
+	// 	return strings.TrimSpace(value)
+	// }
+
 	var serialNumber string
 
+	// if product.HasSerial == "N" {
+	// 	serialNumber = product.Barcode
+	// } else {
+	// 	serialNumber = scanOutbound.SerialNo
+	// }
+
 	if product.HasSerial == "N" {
-		serialNumber = product.Barcode
+		serialNumber = func() string {
+			if scanOutbound.QrRaw != "" {
+				return scanOutbound.SerialNo
+			}
+			return scanOutbound.Barcode
+		}()
 	} else {
 		serialNumber = scanOutbound.SerialNo
 	}
