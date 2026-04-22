@@ -154,20 +154,23 @@ func (c *MobileInboundController) CheckItem(ctx *fiber.Ctx) error {
 func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 
 	var scanInbound struct {
-		ID        int     `json:"id"`
-		InboundNo string  `json:"inboundNo"`
-		Location  string  `json:"location"`
-		Barcode   string  `json:"barcode"`
-		ScanType  string  `json:"scanType"`
-		WhsCode   string  `json:"whsCode"`
-		QaStatus  string  `json:"qaStatus"`
-		Serial    string  `json:"serial"`
-		QtyScan   float64 `json:"qtyScan"`
-		ProdDate  string  `json:"prodDate"`
-		ExpDate   string  `json:"expDate"`
-		LotNo     string  `json:"lotNo"`
-		QrRaw     string  `json:"qrRaw"`
-		Uploaded  bool    `json:"uploaded"`
+		ID           int      `json:"id"`
+		InboundNo    string   `json:"inboundNo"`
+		Location     string   `json:"location"`
+		Barcode      string   `json:"barcode"`
+		ScanType     string   `json:"scanType"`
+		WhsCode      string   `json:"whsCode"`
+		QaStatus     string   `json:"qaStatus"`
+		Serial       string   `json:"serial"`
+		QtyScan      float64  `json:"qtyScan"`
+		ProdDate     string   `json:"prodDate"`
+		ExpDate      string   `json:"expDate"`
+		LotNo        string   `json:"lotNo"`
+		QrRaw        string   `json:"qrRaw"`
+		Uploaded     bool     `json:"uploaded"`
+		InnerSerials []string `json:"innerSerials"`
+		CaseNumber   string   `json:"caseNumber"`
+		ItemModel    string   `json:"itemModel"`
 	}
 
 	if err := ctx.BodyParser(&scanInbound); err != nil {
@@ -293,74 +296,214 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 	inboundDetail.UpdatedBy = int(ctx.Locals("userID").(float64))
 	inboundDetail.UpdatedAt = time.Now()
 
-	var checkInboundBarcode models.InboundBarcode
-	// if err := tx.Debug().Where("inbound_id = ? AND item_code = ? AND serial_number = ?", inboundHeader.ID, product.ItemCode, scanInbound.Serial).First(&checkInboundBarcode).Error; err != nil {
-	// 	if !errors.Is(err, gorm.ErrRecordNotFound) {
-	// 		tx.Rollback()
-	// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-	// 	}
-	// }
-	if err := tx.Debug().Where("item_code = ? AND serial_number = ?", product.ItemCode, scanInbound.Serial).First(&checkInboundBarcode).Error; err != nil {
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			tx.Rollback()
-			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-		}
-	}
-
-	var scanType = "SERIAL"
+	userID := int(ctx.Locals("userID").(float64))
+	scanType := "SERIAL"
 
 	if product.HasSerial == "N" {
 		scanType = "BARCODE"
 		scanInbound.Serial = scanInbound.Barcode
 	}
 
-	if checkInboundBarcode.ID > 0 && scanType == "SERIAL" {
-		tx.Rollback()
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Serial number already scanned", "message": "Serial number already scanned"})
-	}
+	// ── Case 1: CARTON dengan inner serial range ──────────────────────────
+	if len(scanInbound.InnerSerials) > 0 {
 
-	var inboundBarcode = models.InboundBarcode{
-		InboundId:       int(inboundHeader.ID),
-		InboundDetailId: int(inboundDetail.ID),
-		Location:        scanInbound.Location,
-		Pallet:          scanInbound.Location,
-		ItemID:          product.ID,
-		ItemCode:        product.ItemCode,
-		Barcode:         scanInbound.Barcode,
-		ScanType:        scanType,
-		WhsCode:         inboundDetail.WhsCode,
-		OwnerCode:       inboundDetail.OwnerCode,
-		DivisionCode:    inboundDetail.DivisionCode,
-		// QaStatus:        scanInbound.QaStatus,
-		QaStatus: inboundDetail.QaStatus,
-		// ScanData:     scanInbound.Serial,
-		ScanData: func() string { // ← ganti ScanData yang sudah ada
-			if scanInbound.QrRaw != "" {
-				return scanInbound.QrRaw
+		// Validasi total qty tidak melebihi plan
+		if inboundDetail.Quantity < scanInbound.QtyScan+qtyScanned {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error":   "Quantity exceeds planned receipt",
+				"message": "Quantity exceeds planned receipt",
+			})
+		}
+
+		for _, sn := range scanInbound.InnerSerials {
+			// Cek duplikat serial
+			var existing models.InboundBarcode
+			if err := tx.Where("item_code = ? AND serial_number = ?", product.ItemCode, sn).
+				First(&existing).Error; err == nil {
+				tx.Rollback()
+				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+					"error":   "Serial number already scanned: " + sn,
+					"message": "Serial number already scanned: " + sn,
+				})
 			}
-			return scanInbound.Serial
-		}(),
-		SerialNumber: scanInbound.Serial,
-		RecDate:      inboundDetail.RecDate,
-		ProdDate:     scanInbound.ProdDate,
-		ExpDate:      scanInbound.ExpDate,
-		LotNumber:    scanInbound.LotNo,
-		Quantity:     scanInbound.QtyScan,
-		Uom:          inboundDetail.Uom,
-		Status:       "pending",
-		CreatedBy:    int(ctx.Locals("userID").(float64)),
-	}
 
-	if err := tx.Create(&inboundBarcode).Error; err != nil {
-		tx.Rollback()
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+			record := buildInboundBarcode(
+				inboundHeader, inboundDetail, product, scanInbound.ItemModel,
+				scanInbound.Location, scanInbound.Barcode,
+				sn, scanType,
+				1, // qty per serial = 1
+				scanInbound.ProdDate, scanInbound.ExpDate,
+				scanInbound.LotNo, scanInbound.QrRaw,
+				userID,
+			)
+			// Simpan case number di ScanData jika ada
+			if scanInbound.CaseNumber != "" {
+				record.CaseNumber = scanInbound.CaseNumber
+			}
+
+			if err := tx.Create(&record).Error; err != nil {
+				tx.Rollback()
+				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+			}
+		}
+
+		// ── Case 2: Single scan (serial biasa atau barcode) — behavior lama ───
+	} else {
+		var checkInboundBarcode models.InboundBarcode
+		if err := tx.Debug().Where("item_code = ? AND serial_number = ?", product.ItemCode, scanInbound.Serial).
+			First(&checkInboundBarcode).Error; err != nil {
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				tx.Rollback()
+				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+			}
+		}
+
+		if checkInboundBarcode.ID > 0 && scanType == "SERIAL" {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error":   "Serial number already scanned",
+				"message": "Serial number already scanned",
+			})
+		}
+
+		record := buildInboundBarcode(
+			inboundHeader, inboundDetail, product, scanInbound.ItemModel,
+			scanInbound.Location, scanInbound.Barcode,
+			scanInbound.Serial, scanType,
+			scanInbound.QtyScan,
+			scanInbound.ProdDate, scanInbound.ExpDate,
+			scanInbound.LotNo, scanInbound.QrRaw,
+			userID,
+		)
+
+		if err := tx.Create(&record).Error; err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
 	}
 
 	if err := tx.Commit().Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Scan item success"})
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": fmt.Sprintf("Scan item success (%d records)", func() int {
+			if len(scanInbound.InnerSerials) > 0 {
+				return len(scanInbound.InnerSerials)
+			}
+			return 1
+		}()),
+	})
+
+	// var checkInboundBarcode models.InboundBarcode
+	// if err := tx.Debug().Where("item_code = ? AND serial_number = ?", product.ItemCode, scanInbound.Serial).First(&checkInboundBarcode).Error; err != nil {
+	// 	if !errors.Is(err, gorm.ErrRecordNotFound) {
+	// 		tx.Rollback()
+	// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	// 	}
+	// }
+
+	// var scanType = "SERIAL"
+	// if product.HasSerial == "N" {
+	// 	scanType = "BARCODE"
+	// 	scanInbound.Serial = scanInbound.Barcode
+	// }
+
+	// if checkInboundBarcode.ID > 0 && scanType == "SERIAL" {
+	// 	tx.Rollback()
+	// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Serial number already scanned", "message": "Serial number already scanned"})
+	// }
+
+	// var inboundBarcode = models.InboundBarcode{
+	// 	InboundId:       int(inboundHeader.ID),
+	// 	InboundDetailId: int(inboundDetail.ID),
+	// 	Location:        scanInbound.Location,
+	// 	Pallet:          scanInbound.Location,
+	// 	ItemID:          product.ID,
+	// 	ItemCode:        product.ItemCode,
+	// 	Barcode:         scanInbound.Barcode,
+	// 	ScanType:        scanType,
+	// 	WhsCode:         inboundDetail.WhsCode,
+	// 	OwnerCode:       inboundDetail.OwnerCode,
+	// 	DivisionCode:    inboundDetail.DivisionCode,
+	// 	QaStatus:        inboundDetail.QaStatus,
+	// 	ScanData: func() string {
+	// 		if scanInbound.QrRaw != "" {
+	// 			return scanInbound.QrRaw
+	// 		}
+	// 		return scanInbound.Serial
+	// 	}(),
+	// 	SerialNumber: scanInbound.Serial,
+	// 	RecDate:      inboundDetail.RecDate,
+	// 	ProdDate:     scanInbound.ProdDate,
+	// 	ExpDate:      scanInbound.ExpDate,
+	// 	LotNumber:    scanInbound.LotNo,
+	// 	Quantity:     scanInbound.QtyScan,
+	// 	Uom:          inboundDetail.Uom,
+	// 	Status:       "pending",
+	// 	CreatedBy:    int(ctx.Locals("userID").(float64)),
+	// }
+
+	// if err := tx.Create(&inboundBarcode).Error; err != nil {
+	// 	tx.Rollback()
+	// 	return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	// }
+
+	// if err := tx.Commit().Error; err != nil {
+	// 	return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	// }
+
+	// return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Scan item success"})
+}
+
+func buildInboundBarcode(
+	header models.InboundHeader,
+	detail models.InboundDetail,
+	product models.Product,
+	model string,
+	location string,
+	barcode string,
+	serial string,
+	scanType string,
+	qty float64,
+	prodDate string,
+	expDate string,
+	lotNo string,
+	qrRaw string,
+	createdBy int,
+) models.InboundBarcode {
+	return models.InboundBarcode{
+		InboundId:       int(header.ID),
+		InboundDetailId: int(detail.ID),
+		Location:        location,
+		Pallet:          location,
+		ItemID:          product.ID,
+		ItemCode:        product.ItemCode,
+		ItemModel:       model,
+		Barcode:         barcode,
+		ScanType:        scanType,
+		WhsCode:         detail.WhsCode,
+		OwnerCode:       detail.OwnerCode,
+		DivisionCode:    detail.DivisionCode,
+		QaStatus:        detail.QaStatus,
+		ScanData: func() string {
+			if qrRaw != "" {
+				return qrRaw
+			}
+			return serial
+		}(),
+		SerialNumber: serial,
+		RecDate:      detail.RecDate,
+		ProdDate:     prodDate,
+		ExpDate:      expDate,
+		LotNumber:    lotNo,
+		Quantity:     qty,
+		Uom:          detail.Uom,
+		Status:       "pending",
+		CreatedBy:    createdBy,
+	}
 }
 
 func (c *MobileInboundController) GetInboundDetail(ctx *fiber.Ctx) error {

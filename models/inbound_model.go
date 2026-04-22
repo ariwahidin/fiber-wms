@@ -137,6 +137,7 @@ type InboundBarcode struct {
 	ExpDate         string         `json:"exp_date" gorm:"default:null"`
 	LotNumber       string         `json:"lot_number" gorm:"default:null"`
 	CaseNumber      string         `json:"case_number" gorm:"default:null"`
+	ItemModel       string         `json:"item_model" gorm:"default:null"`
 	Quantity        float64        `json:"quantity"`
 	Uom             string         `json:"uom"`
 	WhsCode         string         `json:"whs_code"`

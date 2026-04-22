@@ -229,6 +229,7 @@ type OutboundBarcode struct {
 	ItemID           int     `json:"item_id"`
 	ItemCode         string  `json:"item_code"`
 	Barcode          string  `json:"barcode"`
+	ItemModel        string  `json:"item_model"`
 	Uom              string  `json:"uom"`
 	SerialNumber     string  `json:"serial_number"`
 	RecDate          string  `json:"rec_date" gorm:"default:null"`

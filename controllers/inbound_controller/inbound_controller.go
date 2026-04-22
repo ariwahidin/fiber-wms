@@ -368,11 +368,11 @@ func (c *InboundController) CreateInbound(ctx *fiber.Ctx) error {
 		}
 
 		if !InventoryPolicy.RequireExpiryDate {
-			item.ExpDate = item.RecDate
+			// item.ExpDate = item.RecDate
 		}
 
 		if !InventoryPolicy.UseProductionDate {
-			item.ProdDate = item.RecDate
+			// item.ProdDate = item.RecDate
 		}
 
 		InboundDetail.InboundNo = payload.InboundNo
