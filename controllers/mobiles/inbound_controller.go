@@ -76,6 +76,7 @@ func (c *MobileInboundController) CheckItem(ctx *fiber.Ctx) error {
 		InboundNo string `json:"inboundNo"`
 		Location  string `json:"location"`
 		Barcode   string `json:"barcode"`
+		Sku       string `json:"sku"`
 	}
 
 	if err := ctx.BodyParser(&scanInbound); err != nil {
@@ -88,10 +89,48 @@ func (c *MobileInboundController) CheckItem(ctx *fiber.Ctx) error {
 	}
 
 	var uomConversion models.UomConversion
-	if err := c.DB.Where("ean = ?", scanInbound.Barcode).
-		First(&uomConversion).Error; err != nil {
-		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Item not found in UOM conversion", "message": "Item not found in UOM conversion"})
+
+	if scanInbound.Sku != "" {
+		// Cari by item_code
+		if err := c.DB.Where("item_code = ?", scanInbound.Sku).First(&uomConversion).Error; err != nil {
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Item not found in UOM conversion", "message": "Item not found in UOM conversion"})
+		}
+
+		// Jika ean masih pakai item_code sebagai placeholder → update ke EAN real
+		if uomConversion.Ean == scanInbound.Sku {
+			if err := c.DB.Model(&uomConversion).Update("ean", scanInbound.Barcode).Error; err != nil {
+				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to update EAN", "message": err.Error()})
+			}
+
+			// Update juga barcode & gmc di products
+			if err := c.DB.Model(&models.Product{}).
+				Where("item_code = ? AND barcode = ? AND gmc = ?", scanInbound.Sku, scanInbound.Sku, scanInbound.Sku).
+				Updates(map[string]interface{}{
+					"barcode": scanInbound.Barcode,
+					"gmc":     scanInbound.Barcode,
+				}).Error; err != nil {
+				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to update product barcode", "message": err.Error()})
+			}
+
+			// Update barcode di inbound_details yang masih pakai item_code sebagai placeholder
+			if err := c.DB.Model(&models.InboundDetail{}).
+				Where("inbound_no = ? AND item_code = ? AND barcode = ?", scanInbound.InboundNo, scanInbound.Sku, scanInbound.Sku).
+				Update("barcode", scanInbound.Barcode).Error; err != nil {
+				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to update inbound detail barcode", "message": err.Error()})
+			}
+		}
+
+	} else {
+		// Flow normal: cari by EAN hasil scan
+		if err := c.DB.Where("ean = ?", scanInbound.Barcode).First(&uomConversion).Error; err != nil {
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Item not found in UOM conversion", "message": "Item not found in UOM conversion"})
+		}
 	}
+
+	// if err := c.DB.Where("ean = ?", scanInbound.Barcode).
+	// 	First(&uomConversion).Error; err != nil {
+	// 	return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Item not found in UOM conversion", "message": "Item not found in UOM conversion"})
+	// }
 
 	var inventory models.Inventory
 	if err := c.DB.Where("pallet = ?", scanInbound.Location).First(&inventory).Error; err != nil {
@@ -335,6 +374,7 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 				1, // qty per serial = 1
 				scanInbound.ProdDate, scanInbound.ExpDate,
 				scanInbound.LotNo, scanInbound.QrRaw,
+				scanInbound.CaseNumber,
 				userID,
 			)
 			// Simpan case number di ScanData jika ada
@@ -374,6 +414,7 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 			scanInbound.QtyScan,
 			scanInbound.ProdDate, scanInbound.ExpDate,
 			scanInbound.LotNo, scanInbound.QrRaw,
+			scanInbound.CaseNumber,
 			userID,
 		)
 
@@ -472,6 +513,7 @@ func buildInboundBarcode(
 	expDate string,
 	lotNo string,
 	qrRaw string,
+	caseNumber string,
 	createdBy int,
 ) models.InboundBarcode {
 	return models.InboundBarcode{
@@ -494,6 +536,7 @@ func buildInboundBarcode(
 			}
 			return serial
 		}(),
+		CaseNumber:   caseNumber,
 		SerialNumber: serial,
 		RecDate:      detail.RecDate,
 		ProdDate:     prodDate,
