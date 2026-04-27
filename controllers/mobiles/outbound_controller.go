@@ -521,6 +521,21 @@ func (c *MobileOutboundController) ScanPicking(ctx *fiber.Ctx) error {
 		}
 
 	} else {
+
+		if scanOutbound.CaseNumber != "" {
+			// Validasi case number unik per outbound
+			var existingCaseNumber []models.OutboundBarcode
+			if err := c.DB.Where("outbound_id = ? AND item_code = ? AND case_number = ?", outboundHeader.ID, product.ItemCode, scanOutbound.CaseNumber).Find(&existingCaseNumber).Error; err != nil {
+				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+			}
+			if len(existingCaseNumber) > 0 {
+				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+					"error":   "Carton number already scanned: " + scanOutbound.CaseNumber,
+					"message": "Carton number already scanned: " + scanOutbound.CaseNumber,
+				})
+			}
+		}
+
 		outboundBarcode := models.OutboundBarcode{
 			OutboundId:       outboundHeader.ID,
 			OutboundNo:       outboundHeader.OutboundNo,

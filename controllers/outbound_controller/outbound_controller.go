@@ -1071,7 +1071,7 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 		if len(inventories) == 0 {
 			tx.Rollback()
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-				"error": "Insufficient stock available",
+				"error": "Insufficient stock available for item " + outboundDetail.ItemCode,
 			})
 		}
 
