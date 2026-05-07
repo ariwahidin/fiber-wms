@@ -21,10 +21,18 @@ func NewReportQueryController(db *gorm.DB, queryDB *gorm.DB) *ReportQueryControl
 
 // ─── Input Structs ────────────────────────────────────────────────────────────
 
+// var reportQueryInput struct {
+// 	Name      string `json:"name" validate:"required,min=1"`
+// 	Query     string `json:"query" validate:"required"`
+// 	SortOrder int    `json:"sort_order"`
+// }
+
 var reportQueryInput struct {
-	Name      string `json:"name" validate:"required,min=1"`
-	Query     string `json:"query" validate:"required"`
-	SortOrder int    `json:"sort_order"`
+	Name          string `json:"name" validate:"required,min=1"`
+	Query         string `json:"query" validate:"required"`
+	SortOrder     int    `json:"sort_order"`
+	ExcelTitle    string `json:"excel_title"`
+	ExcelSubtitle string `json:"excel_subtitle"`
 }
 
 var outputModeInput struct {
@@ -88,11 +96,20 @@ func (c *ReportQueryController) Create(ctx *fiber.Ctx) error {
 		Select("COALESCE(MAX(sort_order), -1)").
 		Scan(&maxOrder)
 
+	// rq := report_mailer.ReportQuery{
+	// 	ReportID:  uint(reportID),
+	// 	Name:      reportQueryInput.Name,
+	// 	Query:     reportQueryInput.Query,
+	// 	SortOrder: maxOrder + 1,
+	// }
+
 	rq := report_mailer.ReportQuery{
-		ReportID:  uint(reportID),
-		Name:      reportQueryInput.Name,
-		Query:     reportQueryInput.Query,
-		SortOrder: maxOrder + 1,
+		ReportID:      uint(reportID),
+		Name:          reportQueryInput.Name,
+		Query:         reportQueryInput.Query,
+		SortOrder:     maxOrder + 1,
+		ExcelTitle:    reportQueryInput.ExcelTitle,
+		ExcelSubtitle: reportQueryInput.ExcelSubtitle,
 	}
 
 	if err := c.DB.Create(&rq).Error; err != nil {
@@ -141,6 +158,8 @@ func (c *ReportQueryController) Update(ctx *fiber.Ctx) error {
 	rq.Name = reportQueryInput.Name
 	rq.Query = reportQueryInput.Query
 	rq.SortOrder = reportQueryInput.SortOrder
+	rq.ExcelTitle = reportQueryInput.ExcelTitle
+	rq.ExcelSubtitle = reportQueryInput.ExcelSubtitle
 
 	if err := c.DB.Save(&rq).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})

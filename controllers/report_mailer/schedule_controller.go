@@ -11,18 +11,10 @@ import (
 	"gorm.io/gorm"
 )
 
-// type ScheduleController struct {
-// 	DB *gorm.DB
-// }
-
 type ScheduleController struct {
 	DB      *gorm.DB
 	QueryDB *gorm.DB // ← tambah
 }
-
-// func NewScheduleController(db *gorm.DB) *ScheduleController {
-// 	return &ScheduleController{DB: db}
-// }
 
 func NewScheduleController(db *gorm.DB, queryDB *gorm.DB) *ScheduleController {
 	return &ScheduleController{DB: db, QueryDB: queryDB}

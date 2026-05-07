@@ -19,18 +19,6 @@ func NewGenerateController(db *gorm.DB) *GenerateController {
 	return &GenerateController{DB: db}
 }
 
-// POST /api/v1/report-builder/generate
-//
-// Body:
-//
-//	{
-//	  "layout_id": 1,
-//	  "format": "excel",       // excel | csv | pdf
-//	  "filters": {
-//	    "owner_code": "OWNER01",
-//	    "rec_date": "2026-01-01,2026-03-10"   // BETWEEN
-//	  }
-//	}
 func (c *GenerateController) Generate(ctx *fiber.Ctx) error {
 	var input report_builder.ReqGenerateReport
 	if err := ctx.BodyParser(&input); err != nil {

@@ -9,14 +9,6 @@ import (
 	"gorm.io/gorm"
 )
 
-// type ReportController struct {
-// 	DB *gorm.DB
-// }
-
-// func NewReportController(db *gorm.DB) *ReportController {
-// 	return &ReportController{DB: db}
-// }
-
 type ReportController struct {
 	DB      *gorm.DB
 	QueryDB *gorm.DB // read-only DB khusus eksekusi query report
@@ -100,12 +92,6 @@ func (c *ReportController) Create(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	// if err := rm_services.ValidateSelectOnly(reportInput.Query); err != nil {
-	// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-	// 		"error": "Query tidak aman: " + err.Error(),
-	// 	})
-	// }
-
 	// Validasi email config ada
 	var emailConfig report_mailer.EmailConfig
 	if err := c.DB.First(&emailConfig, reportInput.EmailConfigID).Error; err != nil {
@@ -115,9 +101,8 @@ func (c *ReportController) Create(ctx *fiber.Ctx) error {
 	userID := int(ctx.Locals("userID").(float64))
 
 	report := report_mailer.Report{
-		Name:        reportInput.Name,
-		Description: reportInput.Description,
-		// Query:         reportInput.Query,
+		Name:          reportInput.Name,
+		Description:   reportInput.Description,
 		EmailConfigID: reportInput.EmailConfigID,
 		ExcelTitle:    reportInput.ExcelTitle,
 		ExcelSubtitle: reportInput.ExcelSubtitle,
@@ -171,7 +156,6 @@ func (c *ReportController) Update(ctx *fiber.Ctx) error {
 
 	report.Name = reportInput.Name
 	report.Description = reportInput.Description
-	// report.Query = reportInput.Query
 	report.EmailConfigID = reportInput.EmailConfigID
 	report.ExcelTitle = reportInput.ExcelTitle
 	report.ExcelSubtitle = reportInput.ExcelSubtitle
