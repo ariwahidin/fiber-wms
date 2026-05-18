@@ -196,6 +196,7 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 		ID           int      `json:"id"`
 		InboundNo    string   `json:"inboundNo"`
 		Location     string   `json:"location"`
+		Sku          string   `json:"sku"`
 		Barcode      string   `json:"barcode"`
 		ScanType     string   `json:"scanType"`
 		WhsCode      string   `json:"whsCode"`
@@ -251,13 +252,21 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 	}
 
 	var uomConversion models.UomConversion
-	if err := tx.Where("ean = ?", scanInbound.Barcode).First(&uomConversion).Error; err != nil {
-		tx.Rollback()
-		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Item not found in UOM conversion", "message": "Item not found in UOM conversion"})
+
+	if scanInbound.Sku != "" {
+		if err := tx.Where("item_code = ? AND ean = ?", scanInbound.Sku, scanInbound.Barcode).First(&uomConversion).Error; err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Item not found in UOM conversion", "message": "Item not found in UOM conversion"})
+		}
+	} else {
+		if err := tx.Where("ean = ?", scanInbound.Barcode).First(&uomConversion).Error; err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Item not found in UOM conversion", "message": "Item not found in UOM conversion"})
+		}
 	}
 
 	var product models.Product
-	if err := tx.Where("item_code = ?", uomConversion.ItemCode).First(&product).Error; err != nil {
+	if err := tx.Where("item_code = ? AND owner_code = ? AND barcode = ?", uomConversion.ItemCode, inboundHeader.OwnerCode, scanInbound.Barcode).First(&product).Error; err != nil {
 		tx.Rollback()
 		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Product not found", "message": "Product not found"})
 	}
@@ -273,7 +282,7 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 	}
 
 	queryInboundDetail := tx.Debug().Model(&models.InboundDetail{}).
-		Where("inbound_no = ? AND item_code = ?", scanInbound.InboundNo, product.ItemCode)
+		Where("inbound_no = ? AND item_code = ? ", scanInbound.InboundNo, product.ItemCode)
 
 	if inventoryPolicy.ValidateReceiveScan {
 		if inventoryPolicy.RequireExpiryDate {
@@ -338,10 +347,10 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 	userID := int(ctx.Locals("userID").(float64))
 	scanType := "SERIAL"
 
-	if product.HasSerial == "N" {
-		scanType = "BARCODE"
-		scanInbound.Serial = scanInbound.Barcode
-	}
+	// if product.HasSerial == "N" {
+	// 	scanType = "BARCODE"
+	// 	scanInbound.Serial = scanInbound.Barcode
+	// }
 
 	// ── Case 1: CARTON dengan inner serial range ──────────────────────────
 	if len(scanInbound.InnerSerials) > 0 {
@@ -358,13 +367,18 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 		for _, sn := range scanInbound.InnerSerials {
 			// Cek duplikat serial
 			var existing models.InboundBarcode
-			if err := tx.Where("item_code = ? AND serial_number = ?", product.ItemCode, sn).
-				First(&existing).Error; err == nil {
-				tx.Rollback()
-				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-					"error":   "Serial number already scanned: " + sn,
-					"message": "Serial number already scanned: " + sn,
-				})
+
+			if scanInbound.Serial != "" && product.HasSerial == "Y" {
+
+				if err := tx.Where("item_code = ? AND serial_number = ?", product.ItemCode, sn).
+					First(&existing).Error; err == nil {
+					tx.Rollback()
+					return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+						"error":   "Serial number already scanned: " + sn,
+						"message": "Serial number already scanned: " + sn,
+					})
+				}
+
 			}
 
 			record := buildInboundBarcode(
@@ -391,11 +405,14 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 		// ── Case 2: Single scan (serial biasa atau barcode) — behavior lama ───
 	} else {
 		var checkInboundBarcode models.InboundBarcode
-		if err := tx.Debug().Where("item_code = ? AND serial_number = ?", product.ItemCode, scanInbound.Serial).
-			First(&checkInboundBarcode).Error; err != nil {
-			if !errors.Is(err, gorm.ErrRecordNotFound) {
-				tx.Rollback()
-				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		if product.HasSerial == "Y" || scanInbound.Serial != "" {
+
+			if err := tx.Debug().Where("item_code = ? AND barcode = ? AND serial_number = ?", product.ItemCode, scanInbound.Barcode, scanInbound.Serial).
+				First(&checkInboundBarcode).Error; err != nil {
+				if !errors.Is(err, gorm.ErrRecordNotFound) {
+					tx.Rollback()
+					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+				}
 			}
 		}
 

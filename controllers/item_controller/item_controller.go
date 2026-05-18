@@ -161,14 +161,63 @@ func (c *ProductController) UpdateProduct(ctx *fiber.Ctx) error {
 	}
 
 	// Check if key fields changed — block if transactions exist
-	if input.ItemCode != product.ItemCode || input.Uom != product.Uom || input.GMC != product.Barcode {
-		var inboundDetail models.InboundDetail
-		err := c.DB.Where("item_id = ?", id).First(&inboundDetail).Error
-		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+	// if input.ItemCode != product.ItemCode || input.Uom != product.Uom || input.GMC != product.Barcode {
+	// 	var inboundDetail models.InboundDetail
+	// 	err := c.DB.Where("item_id = ?", id).First(&inboundDetail).Error
+	// 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+	// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	// 	}
+	// 	if inboundDetail.ID > 0 {
+	// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Item already used in transaction"})
+	// 	}
+	// }
+
+	// Check if key fields changed — block if transactions exist
+	if input.ItemCode != product.ItemCode || input.Uom != product.Uom || input.GMC != product.GMC {
+		var inboundDetails []models.InboundDetail
+		if err := c.DB.Where("item_id = ?", id).Find(&inboundDetails).Error; err != nil {
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
-		if inboundDetail.ID > 0 {
-			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Item already used in transaction"})
+
+		if len(inboundDetails) > 0 {
+			// Kumpulkan semua inbound_no yang terlibat
+			var inboundNos []string
+			for _, d := range inboundDetails {
+				inboundNos = append(inboundNos, d.InboundNo)
+			}
+
+			// Cek apakah ada header yang sudah complete — kalau ada, block
+			var completeCount int64
+			if err := c.DB.Model(&models.InboundHeader{}).
+				Where("inbound_no IN ? AND status = ?", inboundNos, "complete").
+				Count(&completeCount).Error; err != nil {
+				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+			}
+			// if completeCount > 0 {
+			// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Item already used in completed transaction"})
+			// }
+
+			// Ambil inbound_no yang belum complete
+			var incompleteHeaders []models.InboundHeader
+			if err := c.DB.Select("inbound_no").
+				Where("inbound_no IN ? AND status != ?", inboundNos, "complete").
+				Find(&incompleteHeaders).Error; err != nil {
+				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+			}
+
+			if len(incompleteHeaders) > 0 {
+				var incompleteNos []string
+				for _, h := range incompleteHeaders {
+					incompleteNos = append(incompleteNos, h.InboundNo)
+				}
+
+				// Update barcode hanya di detail yang belum complete
+				if err := c.DB.Model(&models.InboundDetail{}).
+					Where("item_id = ? AND inbound_no IN ?", id, incompleteNos).
+					Update("barcode", input.GMC).Error; err != nil {
+					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+				}
+			}
 		}
 	}
 
@@ -232,6 +281,13 @@ func (c *ProductController) UpdateProduct(ctx *fiber.Ctx) error {
 			UpdatedBy:      userID,
 		}
 		c.DB.Create(&newConv)
+	}
+
+	// Update semua inventory dengan ean baru jika ean diubah tapi yang stock available > 0
+	if input.GMC != product.GMC {
+		c.DB.Model(&models.Inventory{}).Where("item_code = ? AND qty_available > 0", product.ItemCode).Updates(map[string]interface{}{
+			"barcode": input.GMC,
+		})
 	}
 
 	// Return updated product
