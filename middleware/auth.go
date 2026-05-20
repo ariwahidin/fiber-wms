@@ -150,6 +150,8 @@ func AuthMiddleware(ctx *fiber.Ctx) error {
 			db.Save(&userSession)
 		}
 
+		fmt.Println("Session valid, userID:", userID, "sessionID:", sessionID)
+
 		return ctx.Next() // Lanjut ke handler berikutnya
 	} else {
 		fmt.Println("Token tidak valid")

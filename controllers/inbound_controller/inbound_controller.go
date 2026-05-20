@@ -447,6 +447,8 @@ func (c *InboundController) CreateInbound(ctx *fiber.Ctx) error {
 func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 	inbound_no := ctx.Params("inbound_no")
 
+	fmt.Printf("UpdateInboundByID called with inbound_no=%s\n", inbound_no)
+
 	var payload Inbound
 
 	if err := ctx.BodyParser(&payload); err != nil {
@@ -549,6 +551,7 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 
 	// Start transaction
 	tx := c.DB.Begin()
+	log.Printf("[UpdateInbound] START inbound_no=%s userID=%d", inbound_no, userID)
 	if tx.Error != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": tx.Error.Error()})
 	}
@@ -570,6 +573,7 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 		}
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
+	log.Printf("[UpdateInbound] InboundHeader found id=%d status=%s", InboundHeader.ID, InboundHeader.Status)
 
 	var supplier models.Supplier
 	if err := tx.First(&supplier, "supplier_code = ?", payload.Supplier).Error; err != nil {
@@ -620,6 +624,7 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 	if InboundHeader.Status == "open" {
 		// Update/Create References
 		for _, item := range payload.References {
+
 			var InboundReference models.InboundReference
 			if err := tx.First(&InboundReference, "id = ?", item.ID).Error; err != nil {
 				if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -646,6 +651,8 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 
 		// Update/Create Items
 		for _, item := range payloadItem {
+
+			log.Printf("[UpdateInbound] Processing item=%s id=%d", item.ItemCode, item.ID)
 			var product models.Product
 			if err := tx.First(&product, "item_code = ?", item.ItemCode).Error; err != nil {
 				tx.Rollback()
@@ -711,9 +718,11 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 			} else if err == nil {
 
 				inboundBarcode, err := inboundRepo.GetInboundBarcodeByOutboundDetailID(uint(inboundDetail.ID))
+				log.Printf("[UpdateInbound] GetInboundBarcode detailID=%d err=%v barcodeID=%d", inboundDetail.ID, err, inboundBarcode.ID)
 				if err != nil {
 
 					if errors.Is(err, gorm.ErrRecordNotFound) {
+						log.Printf("[UpdateInbound] Barcode not found for detailID=%d, CONTINUE (skipping update)", inboundDetail.ID)
 						continue
 					}
 
@@ -787,11 +796,14 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 		message = "Update Inbound Header " + InboundHeader.InboundNo + " successfully"
 	}
 
+	log.Printf("[UpdateInbound] About to COMMIT")
 	// Commit transaction
 	if err := tx.Commit().Error; err != nil {
 		tx.Rollback()
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
+
+	log.Printf("[UpdateInbound] COMMIT SUCCESS")
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": message})
 }
