@@ -5,6 +5,7 @@ import (
 	"fiber-app/models"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -201,55 +202,6 @@ type OutboundList struct {
 
 func (r *OutboundRepository) GetAllOutboundList() ([]OutboundList, error) {
 	var outboundList []OutboundList
-
-	// 	sql := ` WITH od AS
-	// 	 (select outbound_id, count(outbound_id) as total_item, sum(p.cbm) as total_cbm,
-	//     sum(quantity) as qty_req
-	//     from outbound_details od
-	// 	inner join products as p on od.item_id = p.id
-	//     group by outbound_id),
-	//    ps AS(
-	// 		SELECT outbound_id, COUNT(item_id) AS total_item,
-	// 		SUM(quantity) AS qty_plan
-	// 		FROM outbound_pickings
-	// 		GROUP BY outbound_id
-	// 	),
-	// 	kd AS(
-	// 		SELECT outbound_id, SUM(quantity) AS qty_pack
-	// 		FROM outbound_barcodes
-	// 		GROUP BY outbound_id
-	// 	),
-	// 	ord AS (
-	// 		SELECT
-	// 		order_no, outbound_id, outbound_no
-	// 		FROM
-	// 		order_details
-	// 	)
-	//    select a.id, a.outbound_no,
-	// 			a.shipment_id,
-	// 			a.status, a.owner_code,
-	// 			a.shipment_id,
-	//             a.outbound_date,
-	// 			ord.order_no,
-	// 			a.customer_code,
-	//             od.total_item, od.qty_req, COALESCE(ps.qty_plan, 0) AS qty_plan,
-	//             COALESCE(kd.qty_pack, 0) AS qty_pack,
-	//             cs.customer_name,
-	// 			a.deliv_to,
-	// 			cd.customer_name as deliv_to_name,
-	// 			cd.cust_addr1 as deliv_address,
-	// 			cd.cust_city as deliv_city,
-	// 			a.qty_koli,
-	// 			od.total_cbm,
-	// 			od.total_item
-	//             from outbound_headers a
-	//             left join od on a.id = od.outbound_id
-	//             LEFT JOIN ps ON a.id = ps.outbound_id
-	//             LEFT JOIN kd ON a.id = kd.outbound_id
-	//             LEFT JOIN customers cs ON a.customer_code = cs.customer_code
-	// 			LEFT JOIN customers cd ON a.deliv_to = cd.customer_code
-	// 			LEFT JOIN ord ON a.id = ord.outbound_id
-	// 			order by a.id desc`
 
 	sql := `WITH od AS (
 	-- select * from outbound_details
@@ -1298,3 +1250,310 @@ func (r *OutboundRepository) GetOutboundBarcodeByOutboundID(outboundID uint) ([]
 
 	return result, nil
 }
+
+// OutboundFilterParams adalah parameter filter untuk GetOutboundListWithFilter
+type OutboundFilterParams struct {
+	StartDate  string   // format: yyyy-MM-dd
+	EndDate    string   // format: yyyy-MM-dd
+	Search     string   // search outbound_no, shipment_id, customer_name, order_no
+	SearchItem string   // search item_code, barcode, item_name di outbound_details + products
+	Statuses   []string // filter by status: open, picking, packing, completed, cancel
+}
+
+func (r *OutboundRepository) GetOutboundListWithFilter(params OutboundFilterParams) ([]OutboundList, error) {
+	var outboundList []OutboundList
+	var args []interface{}
+
+	// Date range
+	startDate := "DATEADD(day, -7, CAST(GETDATE() AS DATE))"
+	endDate := "CAST(GETDATE() AS DATE)"
+	if params.StartDate != "" {
+		startDate = "?"
+		args = append(args, params.StartDate)
+	}
+	if params.EndDate != "" {
+		endDate = "?"
+		args = append(args, params.EndDate)
+	}
+
+	// Status filter
+	statusWhere := ""
+	if len(params.Statuses) > 0 {
+		placeholders := make([]string, len(params.Statuses))
+		for i, s := range params.Statuses {
+			placeholders[i] = "?"
+			args = append(args, s)
+		}
+		statusWhere = "AND status IN (" + strings.Join(placeholders, ", ") + ")"
+	}
+
+	// Header search (di base CTE)
+	baseSearch := ""
+	if params.Search != "" {
+		baseSearch = "AND (outbound_no LIKE ? OR shipment_id LIKE ?)"
+		like := "%" + params.Search + "%"
+		args = append(args, like, like)
+	}
+
+	// Item search (join + where)
+	itemJoin := ""
+	itemWhere := ""
+	if params.SearchItem != "" {
+		itemJoin = `
+        INNER JOIN outbound_details od_s ON a.id = od_s.outbound_id
+        INNER JOIN products p_s ON od_s.item_id = p_s.id`
+		itemWhere = "AND (od_s.item_code LIKE ? OR od_s.barcode LIKE ? OR p_s.item_name LIKE ?)"
+		like := "%" + params.SearchItem + "%"
+		args = append(args, like, like, like)
+	}
+
+	// Outer search (customer_name, order_no) — setelah join
+	outerSearch := ""
+	if params.Search != "" {
+		outerSearch = "OR cs.customer_name LIKE ? OR ord.order_no LIKE ?"
+		like := "%" + params.Search + "%"
+		args = append(args, like, like)
+	}
+
+	query := `
+    WITH base AS (
+        SELECT id, outbound_no, shipment_id, status, owner_code,
+               outbound_date, order_type, customer_code, deliv_to,
+               qty_koli, [source]
+        FROM outbound_headers
+        WHERE deleted_at IS NULL
+          AND outbound_date >= ` + startDate + `
+          AND outbound_date <= ` + endDate + `
+          ` + statusWhere + `
+          ` + baseSearch + `
+    ),
+    od AS (
+        SELECT od.outbound_id,
+            COUNT(od.outbound_id)  AS total_item,
+            SUM(p.cbm)             AS total_cbm,
+            SUM(od.quantity)       AS qty_req
+        FROM outbound_details od
+        INNER JOIN products AS p ON od.item_id = p.id
+        WHERE od.outbound_id IN (SELECT id FROM base)
+        GROUP BY od.outbound_id
+    ),
+    ps AS (
+        SELECT outbound_id,
+            COUNT(item_id)   AS total_item,
+            SUM(qty_display) AS qty_plan
+        FROM outbound_pickings
+        WHERE outbound_id IN (SELECT id FROM base)
+        GROUP BY outbound_id
+    ),
+    obc AS (
+        SELECT a.outbound_id,
+            a.quantity / c.conversion_rate AS qty_display
+        FROM outbound_barcodes a
+        INNER JOIN outbound_details b ON a.outbound_detail_id = b.id
+        INNER JOIN uom_conversions c  ON a.item_code = c.item_code AND b.uom = c.from_uom
+        WHERE a.outbound_id IN (SELECT id FROM base)
+    ),
+    kd AS (
+        SELECT outbound_id, SUM(qty_display) AS qty_pack
+        FROM obc
+        GROUP BY outbound_id
+    ),
+    ord AS (
+        SELECT outbound_id,
+            STRING_AGG(order_no, ', ') AS order_no
+        FROM order_details
+        WHERE outbound_id IN (SELECT id FROM base)
+        GROUP BY outbound_id
+    )
+    SELECT
+        a.id,
+        a.outbound_no,
+        a.shipment_id,
+        a.status,
+        a.owner_code,
+        a.outbound_date,
+        a.order_type,
+        ord.order_no,
+        a.customer_code,
+        od.total_item,
+        od.qty_req,
+        COALESCE(ps.qty_plan, 0) AS qty_plan,
+        COALESCE(kd.qty_pack, 0) AS qty_pack,
+        cs.customer_name,
+        a.deliv_to,
+        cd.customer_name AS deliv_to_name,
+        cd.cust_addr1    AS deliv_address,
+        cd.cust_city     AS deliv_city,
+        a.qty_koli,
+        od.total_cbm,
+        a.[source]
+    FROM base a
+    LEFT JOIN od  ON a.id = od.outbound_id
+    LEFT JOIN ps  ON a.id = ps.outbound_id
+    LEFT JOIN kd  ON a.id = kd.outbound_id
+    LEFT JOIN customers cs ON a.customer_code = cs.customer_code
+    LEFT JOIN customers cd ON a.deliv_to = cd.customer_code
+    LEFT JOIN ord ON a.id = ord.outbound_id
+    ` + itemJoin + `
+    WHERE (1=1 ` + outerSearch + `)
+    ` + itemWhere + `
+    ORDER BY a.id DESC`
+
+	if err := r.db.Raw(query, args...).Scan(&outboundList).Error; err != nil {
+		return nil, err
+	}
+
+	return outboundList, nil
+}
+
+// GetOutboundListWithFilter — fungsi baru, tidak menyentuh GetAllOutboundList
+// func (r *OutboundRepository) GetOutboundListWithFilter(params OutboundFilterParams) ([]OutboundList, error) {
+// 	var outboundList []OutboundList
+
+// 	// Default date range: 7 hari ke belakang jika tidak diisi
+// 	if params.StartDate == "" {
+// 		params.StartDate = "DATEADD(day, -7, CAST(GETDATE() AS DATE))"
+// 	} else {
+// 		params.StartDate = fmt.Sprintf("'%s'", params.StartDate)
+// 	}
+
+// 	if params.EndDate == "" {
+// 		params.EndDate = "CAST(GETDATE() AS DATE)"
+// 	} else {
+// 		params.EndDate = fmt.Sprintf("'%s'", params.EndDate)
+// 	}
+
+// 	// Tambahan JOIN + WHERE clause search item (join ke outbound_details + products)
+// 	// Join ke base CTE (bukan outbound_headers langsung)
+// 	itemJoin := ""
+// 	itemWhere := ""
+// 	if params.SearchItem != "" {
+// 		itemJoin = `
+// 		INNER JOIN outbound_details od_s ON a.id = od_s.outbound_id
+// 		INNER JOIN products p_s ON od_s.item_id = p_s.id`
+// 		itemWhere = fmt.Sprintf(`
+// 		AND (
+// 			od_s.item_code LIKE '%%%s%%'
+// 			OR od_s.barcode LIKE '%%%s%%'
+// 			OR p_s.item_name LIKE '%%%s%%'
+// 		)`, params.SearchItem, params.SearchItem, params.SearchItem)
+// 	}
+
+// 	// Tambahan WHERE clause filter status (multi-select)
+// 	statusWhere := ""
+// 	if len(params.Statuses) > 0 {
+// 		quoted := make([]string, len(params.Statuses))
+// 		for i, s := range params.Statuses {
+// 			quoted[i] = fmt.Sprintf("'%s'", s)
+// 		}
+// 		statusWhere = fmt.Sprintf("AND a.status IN (%s)", strings.Join(quoted, ", "))
+// 	}
+
+// 	// headerSearch: outbound_no & shipment_id bisa di-filter di CTE base (sargable).
+// 	// customer_name di-filter di WHERE akhir setelah join customers.
+// 	baseSearch := ""
+// 	outerSearch := ""
+// 	if params.Search != "" {
+// 		s := params.Search
+// 		baseSearch = fmt.Sprintf(`
+// 		  AND (
+// 		    outbound_no LIKE '%%%s%%'
+// 		    OR shipment_id LIKE '%%%s%%'
+// 		  )`, s, s)
+// 		outerSearch = fmt.Sprintf(`
+// 		  OR cs.customer_name LIKE '%%%s%%'
+// 		  OR ord.order_no LIKE '%%%s%%'`, s, s)
+// 	}
+
+// 	sql := fmt.Sprintf(`
+// 	-- Pre-filter header IDs dulu — semua CTE scope ke sini
+// 	WITH base AS (
+// 		SELECT id, outbound_no, shipment_id, status, owner_code,
+// 		       outbound_date, order_type, customer_code, deliv_to,
+// 		       qty_koli, [source]
+// 		FROM outbound_headers
+// 		WHERE deleted_at IS NULL
+// 		  AND outbound_date >= %s
+// 		  AND outbound_date <= %s
+// 		  %s
+// 		  %s
+// 	),
+// 	od AS (
+// 		SELECT od.outbound_id,
+// 			COUNT(od.outbound_id)  AS total_item,
+// 			SUM(p.cbm)             AS total_cbm,
+// 			SUM(od.quantity)       AS qty_req
+// 		FROM outbound_details od
+// 		INNER JOIN products AS p ON od.item_id = p.id
+// 		WHERE od.outbound_id IN (SELECT id FROM base)
+// 		GROUP BY od.outbound_id
+// 	),
+// 	ps AS (
+// 		SELECT outbound_id,
+// 			COUNT(item_id)   AS total_item,
+// 			SUM(qty_display) AS qty_plan
+// 		FROM outbound_pickings
+// 		WHERE outbound_id IN (SELECT id FROM base)
+// 		GROUP BY outbound_id
+// 	),
+// 	obc AS (
+// 		SELECT a.outbound_id,
+// 			a.quantity / c.conversion_rate AS qty_display
+// 		FROM outbound_barcodes a
+// 		INNER JOIN outbound_details b ON a.outbound_detail_id = b.id
+// 		INNER JOIN uom_conversions c  ON a.item_code = c.item_code AND b.uom = c.from_uom
+// 		WHERE a.outbound_id IN (SELECT id FROM base)
+// 	),
+// 	kd AS (
+// 		SELECT outbound_id, SUM(qty_display) AS qty_pack
+// 		FROM obc
+// 		GROUP BY outbound_id
+// 	),
+// 	ord AS (
+// 		SELECT outbound_id,
+// 			STRING_AGG(order_no, ', ') AS order_no
+// 		FROM order_details
+// 		WHERE outbound_id IN (SELECT id FROM base)
+// 		GROUP BY outbound_id
+// 	)
+// 	SELECT
+// 		a.id,
+// 		a.outbound_no,
+// 		a.shipment_id,
+// 		a.status,
+// 		a.owner_code,
+// 		a.outbound_date,
+// 		a.order_type,
+// 		ord.order_no,
+// 		a.customer_code,
+// 		od.total_item,
+// 		od.qty_req,
+// 		COALESCE(ps.qty_plan, 0) AS qty_plan,
+// 		COALESCE(kd.qty_pack, 0) AS qty_pack,
+// 		cs.customer_name,
+// 		a.deliv_to,
+// 		cd.customer_name AS deliv_to_name,
+// 		cd.cust_addr1    AS deliv_address,
+// 		cd.cust_city     AS deliv_city,
+// 		a.qty_koli,
+// 		od.total_cbm,
+// 		a.[source]
+// 	FROM base a
+// 	LEFT JOIN od  ON a.id = od.outbound_id
+// 	LEFT JOIN ps  ON a.id = ps.outbound_id
+// 	LEFT JOIN kd  ON a.id = kd.outbound_id
+// 	LEFT JOIN customers cs ON a.customer_code = cs.customer_code
+// 	LEFT JOIN customers cd ON a.deliv_to = cd.customer_code
+// 	LEFT JOIN ord ON a.id = ord.outbound_id
+// 	%s
+// 	WHERE (1=1 %s %s)
+// 	%s
+// 	ORDER BY a.id DESC
+// 	`, params.StartDate, params.EndDate, statusWhere, baseSearch, itemJoin, outerSearch, itemWhere)
+
+// 	if err := r.db.Raw(sql).Scan(&outboundList).Error; err != nil {
+// 		return nil, err
+// 	}
+
+// 	return outboundList, nil
+// }

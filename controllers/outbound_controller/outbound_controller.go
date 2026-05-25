@@ -436,6 +436,43 @@ func (c *OutboundController) GetOutboundList(ctx *fiber.Ctx) error {
 		"data":    rawOutboundList,
 	})
 }
+
+func (c *OutboundController) GetOutboundListFilter(ctx *fiber.Ctx) error {
+	// Parse statuses dari query string "open,picking,packing"
+	var statuses []string
+	if raw := ctx.Query("statuses"); raw != "" {
+		for _, s := range strings.Split(raw, ",") {
+			s = strings.TrimSpace(s)
+			if s != "" {
+				statuses = append(statuses, s)
+			}
+		}
+	}
+
+	params := repositories.OutboundFilterParams{
+		StartDate:  ctx.Query("start_date"),
+		EndDate:    ctx.Query("end_date"),
+		Search:     ctx.Query("search"),
+		SearchItem: ctx.Query("search_item"),
+		Statuses:   statuses,
+	}
+
+	outboundRepo := repositories.NewOutboundRepository(c.DB)
+	list, err := outboundRepo.GetOutboundListWithFilter(params)
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": err.Error(),
+		})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": "Outbound found",
+		"data":    list,
+	})
+}
+
 func (c *OutboundController) GetOutboundListComplete(ctx *fiber.Ctx) error {
 
 	outboundRepo := repositories.NewOutboundRepository(c.DB)

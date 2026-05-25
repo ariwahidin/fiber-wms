@@ -23,6 +23,7 @@ func SetupOutboundRoutes(app *fiber.App) {
 	api.Post("/upload-ecommerce-excel", outboundController.CreateOutboundFromEcommerceExcel)
 	api.Post("/", outboundController.CreateOutbound)
 	api.Get("/", outboundController.GetOutboundList)
+	api.Get("/filter", outboundController.GetOutboundListFilter)
 	api.Get("/scan-details/:outbound_no", outboundController.GetOutboundBarcodeByOutboundNo)
 	api.Get("/vas", outboundController.GetOutboundVasSummary)
 	api.Get("/:outbound_no/vas-items", outboundController.GetOutboundVasByID)
