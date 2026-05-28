@@ -39,17 +39,99 @@ func (c *MobileInventoryController) GetItemsByLocation(ctx *fiber.Ctx) error {
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "data": inventories})
 }
 
+// func (c *MobileInventoryController) GetItemsByLocationAndBarcode(ctx *fiber.Ctx) error {
+
+// 	type request struct {
+// 		Location string `json:"location" validate:"required"`
+// 		Barcode  string `json:"barcode"`
+// 		Sku      string `json:"sku"` // ← tambah
+// 	}
+
+// 	type resultInventory struct {
+// 		ID              int64   `json:"ID"`
+// 		InboundID       int64   `json:"inbound_id"`
+// 		InboundDetailID int64   `json:"inbound_detail_id"`
+// 		Barcode         string  `json:"barcode"`
+// 		SerialNumber    string  `json:"serial_number"`
+// 		Pallet          string  `json:"pallet"`
+// 		Location        string  `json:"location"`
+// 		QaStatus        string  `json:"qa_status"`
+// 		WhsCode         string  `json:"whs_code"`
+// 		QtyAvailable    float64 `json:"qty_available"`
+// 		QtyAllocated    float64 `json:"qty_allocated"`
+// 		RecDate         string  `json:"rec_date"`
+// 		LotNumber       string  `json:"lot_number"`
+// 		ProdDate        string  `json:"prod_date"`
+// 		ExpDate         string  `json:"exp_date"`
+// 		Uom             string  `json:"uom"`
+// 		QtyDisplay      float64 `json:"qty_display"`
+// 		UomDisplay      string  `json:"uom_display"`
+// 		EanDisplay      string  `json:"ean_display"`
+// 		OwnerCode       string  `json:"owner_code"`
+// 	}
+
+// 	var req request
+// 	if err := ctx.BodyParser(&req); err != nil {
+// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request body"})
+// 	}
+
+// 	if req.Location == "" {
+// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Location is required"})
+// 	}
+
+// 	var inventories []resultInventory
+// 	uomRepo := repositories.NewUomRepository(c.DB)
+// 	if req.Barcode != "" {
+
+// 		uomConvByBarcode, err := uomRepo.GetUomConversionByEan(req.Barcode)
+// 		if err != nil {
+// 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+// 		}
+
+// 		if err := c.DB.
+// 			Table("inventories").
+// 			Select("inventories.*, qty_available / ? AS qty_display, ? AS uom_display, ? AS ean_display", uomConvByBarcode.Rate, uomConvByBarcode.Uom, req.Barcode).
+// 			Where("location = ? AND barcode = ? AND qty_available > 0", req.Location, uomConvByBarcode.BaseEan).Find(&inventories).Error; err != nil {
+// 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+// 		}
+// 	} else if req.Sku != "" {
+// 		// SKU mode — query by item_code langsung
+// 		if err := c.DB.
+// 			Table("inventories").
+// 			Select("inventories.*, qty_available AS qty_display, uom AS uom_display, barcode AS ean_display").
+// 			Where("location = ? AND item_code = ? AND qty_available > 0", req.Location, req.Sku).
+// 			Find(&inventories).Error; err != nil {
+// 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+// 		}
+
+// 	} else {
+// 		// Tidak ada filter item — tampilkan semua by location
+// 		if err := c.DB.
+// 			Table("inventories").
+// 			Select("inventories.*, qty_available AS qty_display, uom AS uom_display, barcode AS ean_display").
+// 			Where("location = ? AND qty_available > 0", req.Location).
+// 			Find(&inventories).Error; err != nil {
+// 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+// 		}
+// 	}
+
+// 	var totalAllocated float64 = 0
+// 	for _, inv := range inventories {
+// 		totalAllocated += inv.QtyAllocated
+// 	}
+
+// 	fmt.Println("Total Allocated : ", totalAllocated)
+
+// 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "data": inventories})
+// }
+
 func (c *MobileInventoryController) GetItemsByLocationAndBarcode(ctx *fiber.Ctx) error {
 
-	// type request struct {
-	// 	Location string `json:"location" validate:"required"`
-	// 	Barcode  string `json:"barcode"`
-	// }
-
 	type request struct {
-		Location string `json:"location" validate:"required"`
+		Location string `json:"location"`
 		Barcode  string `json:"barcode"`
-		Sku      string `json:"sku"` // ← tambah
+		Sku      string `json:"sku"`
+		Pallet   string `json:"pallet"`
 	}
 
 	type resultInventory struct {
@@ -73,6 +155,8 @@ func (c *MobileInventoryController) GetItemsByLocationAndBarcode(ctx *fiber.Ctx)
 		UomDisplay      string  `json:"uom_display"`
 		EanDisplay      string  `json:"ean_display"`
 		OwnerCode       string  `json:"owner_code"`
+		ItemCode        string  `json:"item_code"`
+		ItemName        string  `json:"item_name"` // ← tambah
 	}
 
 	var req request
@@ -80,14 +164,32 @@ func (c *MobileInventoryController) GetItemsByLocationAndBarcode(ctx *fiber.Ctx)
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request body"})
 	}
 
-	if req.Location == "" {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Location is required"})
+	// Validasi: harus ada salah satu — location atau pallet
+	if req.Location == "" && req.Pallet == "" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Location or pallet is required"})
 	}
 
 	var inventories []resultInventory
 	uomRepo := repositories.NewUomRepository(c.DB)
-	if req.Barcode != "" {
 
+	// ── Branch: Pallet mode ───────────────────────────────────────────────────
+	if req.Pallet != "" {
+		// Pindahkan semua item by pallet, join ke items untuk item_name
+		if err := c.DB.
+			Table("inventories").
+			Select(`inventories.*,
+				qty_available AS qty_display,
+				products.uom AS uom_display,
+				inventories.barcode AS ean_display,
+				COALESCE(products.item_name, '') AS item_name`).
+			Joins("LEFT JOIN products ON products.item_code = inventories.item_code").
+			Where("inventories.pallet = ? AND inventories.qty_available > 0", req.Pallet).
+			Find(&inventories).Error; err != nil {
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+
+		// ── Branch: Barcode (EAN) mode ────────────────────────────────────────────
+	} else if req.Barcode != "" {
 		uomConvByBarcode, err := uomRepo.GetUomConversionByEan(req.Barcode)
 		if err != nil {
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
@@ -95,38 +197,50 @@ func (c *MobileInventoryController) GetItemsByLocationAndBarcode(ctx *fiber.Ctx)
 
 		if err := c.DB.
 			Table("inventories").
-			Select("inventories.*, qty_available / ? AS qty_display, ? AS uom_display, ? AS ean_display", uomConvByBarcode.Rate, uomConvByBarcode.Uom, req.Barcode).
-			Where("location = ? AND barcode = ? AND qty_available > 0", req.Location, uomConvByBarcode.BaseEan).Find(&inventories).Error; err != nil {
-			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-		}
-	} else if req.Sku != "" {
-		// SKU mode — query by item_code langsung
-		if err := c.DB.
-			Table("inventories").
-			Select("inventories.*, qty_available AS qty_display, uom AS uom_display, barcode AS ean_display").
-			Where("location = ? AND item_code = ? AND qty_available > 0", req.Location, req.Sku).
+			Select(`inventories.*,
+				qty_available / ? AS qty_display,
+				? AS uom_display,
+				? AS ean_display,
+				COALESCE(products.item_name, '') AS item_name`,
+				uomConvByBarcode.Rate, uomConvByBarcode.Uom, req.Barcode).
+			Joins("LEFT JOIN products ON products.item_code = inventories.item_code").
+			Where("inventories.location = ? AND inventories.barcode = ? AND inventories.qty_available > 0",
+				req.Location, uomConvByBarcode.BaseEan).
 			Find(&inventories).Error; err != nil {
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
 
-	} else {
-		// Tidak ada filter item — tampilkan semua by location
+		// ── Branch: SKU mode ──────────────────────────────────────────────────────
+	} else if req.Sku != "" {
 		if err := c.DB.
 			Table("inventories").
-			Select("inventories.*, qty_available AS qty_display, uom AS uom_display, barcode AS ean_display").
-			Where("location = ? AND qty_available > 0", req.Location).
+			Select(`inventories.*,
+				qty_available AS qty_display,
+				uom AS uom_display,
+				barcode AS ean_display,
+				COALESCE(products.item_name, '') AS item_name`).
+			Joins("LEFT JOIN products ON products.item_code = inventories.item_code").
+			Where("inventories.location = ? AND inventories.item_code = ? AND inventories.qty_available > 0",
+				req.Location, req.Sku).
+			Find(&inventories).Error; err != nil {
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+
+		// ── Branch: Location only — tampilkan semua ───────────────────────────────
+	} else {
+		if err := c.DB.
+			Table("inventories").
+			Select(`inventories.*,
+				qty_available AS qty_display,
+				products.uom AS uom_display,
+				inventories.barcode AS ean_display,
+				COALESCE(products.item_name, '') AS item_name`).
+			Joins("LEFT JOIN products ON products.item_code = inventories.item_code").
+			Where("inventories.location = ? AND inventories.qty_available > 0", req.Location).
 			Find(&inventories).Error; err != nil {
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
 	}
-	// else {
-	// 	if err := c.DB.
-	// 		Table("inventories").
-	// 		Select("inventories.*, qty_available AS qty_display, uom AS uom_display, barcode AS ean_display").
-	// 		Where("location = ? AND qty_available > 0", req.Location).Find(&inventories).Error; err != nil {
-	// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-	// 	}
-	// }
 
 	var totalAllocated float64 = 0
 	for _, inv := range inventories {
@@ -134,10 +248,6 @@ func (c *MobileInventoryController) GetItemsByLocationAndBarcode(ctx *fiber.Ctx)
 	}
 
 	fmt.Println("Total Allocated : ", totalAllocated)
-
-	// if totalAllocated > 0 {
-	// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Item already allocated"})
-	// }
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "data": inventories})
 }
@@ -148,7 +258,9 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 		FromLocation  string `json:"from_location"`
 		ToLocation    string `json:"to_location"`
 		ListInventory []struct {
-			ID int `json:"id"`
+			ID       int    `json:"id"`
+			Location string `json:"location"`
+			Pallet   string `json:"pallet"`
 		} `json:"list_inventory"`
 	}
 
@@ -160,12 +272,16 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 
 	movementID := uuid.NewString()
 
-	if input.FromLocation == "" || input.ToLocation == "" {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "From Location and To Location are required"})
-	}
+	// if input.FromLocation == "" || input.ToLocation == "" {
+	// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "From Location and To Location are required"})
+	// }
 
-	if input.FromLocation == input.ToLocation {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "From Location and To Location cannot be the same"})
+	// if input.FromLocation == input.ToLocation {
+	// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "From Location and To Location cannot be the same"})
+	// }
+
+	if input.ToLocation == "" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "To Location is required"})
 	}
 
 	if len(input.ListInventory) == 0 {
@@ -193,24 +309,20 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 	for _, inv := range input.ListInventory {
 
 		var inventory models.Inventory
-		if err := tx.Where("id = ? AND location = ? AND qty_available > 0", inv.ID, input.FromLocation).First(&inventory).Error; err != nil {
+		if err := tx.Where("id = ? AND location = ? AND qty_available > 0", inv.ID, inv.Location).First(&inventory).Error; err != nil {
 			tx.Rollback()
 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Inventory not found or not available"})
 		}
 
-		// if inventory.QtyAllocated > 0 {
+		// if inventory.Location != input.FromLocation {
 		// 	tx.Rollback()
-		// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Inventory already allocated"})
+		// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Inventory not found or not available"})
 		// }
 
-		if inventory.Location != input.FromLocation {
+		if inventory.QtyAvailable <= 0 {
 			tx.Rollback()
 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Inventory not found or not available"})
 		}
-
-		// if inventory.QtyAvailable < input.QtyTransfer {
-
-		// }
 
 		var newInventory models.Inventory
 		newInventory.OwnerCode = inventory.OwnerCode
@@ -259,7 +371,7 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 			QtyShippedChange:   0,
 			FromWhsCode:        inventory.WhsCode,
 			ToWhsCode:          newInventory.WhsCode,
-			FromLocation:       input.FromLocation,
+			FromLocation:       inventory.Location,
 			ToLocation:         input.ToLocation,
 			OldQaStatus:        inventory.QaStatus,
 			NewQaStatus:        newInventory.QaStatus,
@@ -310,7 +422,7 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 			QtyShippedChange:   0,
 			FromWhsCode:        oldInventory.WhsCode,
 			ToWhsCode:          newInventory.WhsCode,
-			FromLocation:       input.FromLocation,
+			FromLocation:       inventory.Location,
 			ToLocation:         input.ToLocation,
 			OldQaStatus:        oldInventory.QaStatus,
 			NewQaStatus:        newInventory.QaStatus,
@@ -341,6 +453,7 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 func (c *MobileInventoryController) ConfirmTransferByInventoryID(ctx *fiber.Ctx) error {
 	movementID := uuid.NewString()
 	var input struct {
+		FromPallet   string  `json:"from_pallet"`
 		FromLocation string  `json:"from_location"`
 		ToLocation   string  `json:"to_location"`
 		InventoryID  int     `json:"inventory_id"`
@@ -356,8 +469,8 @@ func (c *MobileInventoryController) ConfirmTransferByInventoryID(ctx *fiber.Ctx)
 	fmt.Println("Input : ", input)
 	// return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Confirm transfer successfully"})
 
-	if input.FromLocation == "" || input.ToLocation == "" || input.InventoryID == 0 || input.QtyTransfer == 0 {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "From Location, To Location, Inventory ID and Qty Transfer are required"})
+	if input.FromPallet == "" || input.FromLocation == "" || input.ToLocation == "" || input.InventoryID == 0 || input.QtyTransfer == 0 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "From Pallet, From Location, To Location, Inventory ID and Qty Transfer are required"})
 	}
 
 	if input.FromLocation == input.ToLocation {
@@ -366,8 +479,8 @@ func (c *MobileInventoryController) ConfirmTransferByInventoryID(ctx *fiber.Ctx)
 
 	inventoryID := input.InventoryID
 
-	if input.FromLocation == "" || input.ToLocation == "" || inventoryID == 0 || input.QtyTransfer == 0 {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "From Location, To Location, Inventory ID and Qty Transfer are required"})
+	if input.FromPallet == "" || input.FromLocation == "" || input.ToLocation == "" || inventoryID == 0 || input.QtyTransfer == 0 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "From Pallet, From Location, To Location, Inventory ID and Qty Transfer are required"})
 	}
 
 	// start db transaction
@@ -423,11 +536,6 @@ func (c *MobileInventoryController) ConfirmTransferByInventoryID(ctx *fiber.Ctx)
 	if inventory.Location != input.FromLocation {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Inventory not found or not available"})
 	}
-
-	// if inventory.QtyAllocated > 0 {
-	// 	tx.Rollback()
-	// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Inventory already allocated"})
-	// }
 
 	if input.QtyTransfer > inventory.QtyAvailable {
 		tx.Rollback()
