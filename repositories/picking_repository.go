@@ -226,17 +226,24 @@ func (r *OutboundPickingRepository) IsPackingComplete(outboundNo string) (bool, 
 	var res Result
 
 	err := r.DB.Raw(`
+WITH od AS(
 		SELECT 
-		SUM(d.quantity) AS total,
-		SUM(c.qty) AS complete
+		h.outbound_no,
+		SUM(d.quantity) AS total
 		FROM outbound_details d
 		INNER JOIN outbound_headers h ON h.id = d.outbound_id
-		LEFT JOIN (SELECT SUM(quantity) as qty, outbound_no 
-		FROM outbound_barcodes 
-		WHERE outbound_no = ?
-		GROUP BY outbound_no) c ON h.outbound_no = c.outbound_no
 		WHERE h.outbound_no = ?
 		AND d.deleted_at IS NULL
+		GROUP BY h.outbound_no
+		),
+ob AS (
+	SELECT SUM(quantity) as complete, outbound_no 
+		FROM outbound_barcodes 
+		WHERE outbound_no = ?
+		GROUP BY outbound_no
+)
+select total, complete FROM od
+left join ob on od.outbound_no = ob.outbound_no
     `, outboundNo, outboundNo).Scan(&res).Error
 
 	if err != nil {
