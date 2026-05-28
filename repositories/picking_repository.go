@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fiber-app/models"
 	"fmt"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -214,4 +215,58 @@ func (r *OutboundPickingRepository) ConfirmPicking(outboundNo string, userID int
 	}
 
 	return tx.Commit().Error
+}
+
+func (r *OutboundPickingRepository) IsPackingComplete(outboundNo string) (bool, error) {
+	type Result struct {
+		Total    int
+		Complete int
+	}
+
+	var res Result
+
+	err := r.DB.Raw(`
+		SELECT 
+		SUM(d.quantity) AS total,
+		SUM(c.qty) AS complete
+		FROM outbound_details d
+		INNER JOIN outbound_headers h ON h.id = d.outbound_id
+		LEFT JOIN (SELECT SUM(quantity) as qty, outbound_no 
+		FROM outbound_barcodes 
+		WHERE outbound_no = ?
+		GROUP BY outbound_no) c ON h.outbound_no = c.outbound_no
+		WHERE h.outbound_no = ?
+		AND d.deleted_at IS NULL
+    `, outboundNo, outboundNo).Scan(&res).Error
+
+	if err != nil {
+		return false, err
+	}
+	if res.Total == 0 {
+		return false, fmt.Errorf("no detail found for outbound %s", outboundNo)
+	}
+
+	return res.Complete == res.Total, nil
+}
+
+func (r *OutboundPickingRepository) ConfirmPacking(outboundNo string, userID int) error {
+	now := time.Now()
+
+	result := r.DB.Model(&models.OutboundHeader{}).
+		Where("outbound_no = ?", outboundNo).
+		Updates(map[string]interface{}{
+			"packing_complete_time": now,
+			"packing_complete_by":   userID,
+			"status":                "packed",
+			"raw_status":            "PACKED",
+		})
+
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("outbound %s not found", outboundNo)
+	}
+
+	return nil
 }

@@ -2260,3 +2260,37 @@ func (c *MobileOutboundController) ScanPickingBatch(ctx *fiber.Ctx) error {
 		"results": results,
 	})
 }
+
+func (c *MobileOutboundController) ConfirmPacking(ctx *fiber.Ctx) error {
+	outboundNo := ctx.Params("outbound_no")
+
+	repo := repositories.NewOutboundPickingRepository(c.DB)
+
+	isComplete, err := repo.IsPackingComplete(outboundNo)
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": err.Error(),
+		})
+	}
+	if !isComplete {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "Not all items have been packed yet. Finish packing first.",
+		})
+	}
+
+	userID := int(ctx.Locals("userID").(float64))
+
+	if err := repo.ConfirmPacking(outboundNo, userID); err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to confirm packing: " + err.Error(),
+		})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": fmt.Sprintf("Packing %s successfully confirmed", outboundNo),
+	})
+}

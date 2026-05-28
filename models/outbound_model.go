@@ -9,54 +9,56 @@ import (
 
 type OutboundHeader struct {
 	gorm.Model
-	ID                uint      `json:"ID"`
-	OutboundNo        string    `json:"outbound_no" gorm:"unique"`
-	OutboundDate      string    `json:"outbound_date"`
-	OwnerCode         string    `json:"owner_code" validate:"required" gorm:"not null"`
-	ShipmentID        string    `json:"shipment_id" gorm:"unique"`
-	CustomerCode      string    `json:"customer_code"`
-	WhsCode           string    `json:"whs_code"`
-	Status            string    `json:"status" gorm:"default:'draft'"`
-	RawStatus         string    `json:"raw_status" gorm:"default:'DRAFT'"`
-	DraftTime         time.Time `json:"draft_time" gorm:"default:null"`
-	ConfirmTime       time.Time `json:"confirm_time" gorm:"default:null"`
-	ConfirmBy         int       `json:"confirm_by" gorm:"default:null"`
-	CompleteTime      time.Time `json:"complete_time" gorm:"default:null"`
-	CompleteBy        int       `json:"complete_by" gorm:"default:null"`
-	ChangeToDraftTime time.Time `json:"change_to_draft_time" gorm:"default:null"`
-	ChangeToDraftBy   int       `json:"change_to_draft_by"`
-	User_Def1         string    `json:"user_def1"`
-	User_Def2         string    `json:"user_def2"`
-	User_Def3         string    `json:"user_def3"`
-	User_Def4         string    `json:"user_def4"`
-	User_Def5         string    `json:"user_def5"`
-	Remarks           string    `json:"remarks"`
-	PickerName        string    `json:"picker_name"`
-	CustAddress       string    `json:"cust_address"`
-	CustCity          string    `json:"cust_city"`
-	OrderType         string    `json:"order_type"`
-	PlanPickupDate    string    `json:"plan_pickup_date"`
-	PlanPickupTime    string    `json:"plan_pickup_time"`
-	RcvDoDate         string    `json:"rcv_do_date"`
-	RcvDoTime         string    `json:"rcv_do_time"`
-	StartPickTime     string    `json:"start_pick_time"`
-	EndPickTime       string    `json:"end_pick_time"`
-	DelivTo           string    `json:"deliv_to"`
-	DelivAddress      string    `json:"deliv_address"`
-	DelivCity         string    `json:"deliv_city"`
-	Driver            string    `json:"driver"`
-	QtyKoli           int       `json:"qty_koli"`
-	QtyKoliSeal       int       `json:"qty_koli_seal"`
-	TruckSize         string    `json:"truck_size"`
-	TruckNo           string    `json:"truck_no"`
-	TransporterCode   string    `json:"transporter_code"`
-	Integration       bool      `json:"integration" gorm:"default:false"`
-	Source            string    `json:"source" gorm:"default:'MANUAL'"`
-	AwbNo             string    `json:"awb_no"`
-	CreatedBy         int
-	UpdatedBy         int
-	DeletedBy         int
-	OutboundDetails   []OutboundDetail `gorm:"foreignKey:OutboundID;references:ID;constraint:OnDelete:CASCADE" json:"items"`
+	ID                  uint      `json:"ID"`
+	OutboundNo          string    `json:"outbound_no" gorm:"unique"`
+	OutboundDate        string    `json:"outbound_date"`
+	OwnerCode           string    `json:"owner_code" validate:"required" gorm:"not null"`
+	ShipmentID          string    `json:"shipment_id" gorm:"unique"`
+	CustomerCode        string    `json:"customer_code"`
+	WhsCode             string    `json:"whs_code"`
+	Status              string    `json:"status" gorm:"default:'draft'"`
+	RawStatus           string    `json:"raw_status" gorm:"default:'DRAFT'"`
+	DraftTime           time.Time `json:"draft_time" gorm:"default:null"`
+	ConfirmTime         time.Time `json:"confirm_time" gorm:"default:null"`
+	ConfirmBy           int       `json:"confirm_by" gorm:"default:null"`
+	CompleteTime        time.Time `json:"complete_time" gorm:"default:null"`
+	CompleteBy          int       `json:"complete_by" gorm:"default:null"`
+	PackingCompleteTime time.Time `json:"packing_complete_time" gorm:"default:null"`
+	PackingCompleteBy   int       `json:"packing_complete_by" gorm:"default:null"`
+	ChangeToDraftTime   time.Time `json:"change_to_draft_time" gorm:"default:null"`
+	ChangeToDraftBy     int       `json:"change_to_draft_by"`
+	User_Def1           string    `json:"user_def1"`
+	User_Def2           string    `json:"user_def2"`
+	User_Def3           string    `json:"user_def3"`
+	User_Def4           string    `json:"user_def4"`
+	User_Def5           string    `json:"user_def5"`
+	Remarks             string    `json:"remarks"`
+	PickerName          string    `json:"picker_name"`
+	CustAddress         string    `json:"cust_address"`
+	CustCity            string    `json:"cust_city"`
+	OrderType           string    `json:"order_type"`
+	PlanPickupDate      string    `json:"plan_pickup_date"`
+	PlanPickupTime      string    `json:"plan_pickup_time"`
+	RcvDoDate           string    `json:"rcv_do_date"`
+	RcvDoTime           string    `json:"rcv_do_time"`
+	StartPickTime       string    `json:"start_pick_time"`
+	EndPickTime         string    `json:"end_pick_time"`
+	DelivTo             string    `json:"deliv_to"`
+	DelivAddress        string    `json:"deliv_address"`
+	DelivCity           string    `json:"deliv_city"`
+	Driver              string    `json:"driver"`
+	QtyKoli             int       `json:"qty_koli"`
+	QtyKoliSeal         int       `json:"qty_koli_seal"`
+	TruckSize           string    `json:"truck_size"`
+	TruckNo             string    `json:"truck_no"`
+	TransporterCode     string    `json:"transporter_code"`
+	Integration         bool      `json:"integration" gorm:"default:false"`
+	Source              string    `json:"source" gorm:"default:'MANUAL'"`
+	AwbNo               string    `json:"awb_no"`
+	CreatedBy           int
+	UpdatedBy           int
+	DeletedBy           int
+	OutboundDetails     []OutboundDetail `gorm:"foreignKey:OutboundID;references:ID;constraint:OnDelete:CASCADE" json:"items"`
 }
 
 type OutboundDetail struct {

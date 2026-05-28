@@ -1290,9 +1290,9 @@ func (r *OutboundRepository) GetOutboundListWithFilter(params OutboundFilterPara
 	// Header search (di base CTE)
 	baseSearch := ""
 	if params.Search != "" {
-		baseSearch = "AND (outbound_no LIKE ? OR shipment_id LIKE ?)"
+		baseSearch = "AND (outbound_no LIKE ? OR shipment_id LIKE ? OR customer_code LIKE ?)"
 		like := "%" + params.Search + "%"
-		args = append(args, like, like)
+		args = append(args, like, like, like)
 	}
 
 	// Item search (join + where)
@@ -1310,9 +1310,9 @@ func (r *OutboundRepository) GetOutboundListWithFilter(params OutboundFilterPara
 	// Outer search (customer_name, order_no) — setelah join
 	outerSearch := ""
 	if params.Search != "" {
-		outerSearch = "OR cs.customer_name LIKE ? OR ord.order_no LIKE ?"
+		outerSearch = "OR cs.customer_name LIKE ? OR ord.order_no LIKE ? OR cs.customer_code LIKE ?"
 		like := "%" + params.Search + "%"
-		args = append(args, like, like)
+		args = append(args, like, like, like)
 	}
 
 	query := `

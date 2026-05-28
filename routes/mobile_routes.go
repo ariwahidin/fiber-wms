@@ -86,15 +86,13 @@ func SetupMobileOutboundRoutes(app *fiber.App) {
 
 	// SealCarton
 	api.Post("/outbound/picking/seal-container/:outbound_no", mobileOutboundController.SealCarton)
-
 	api.Get("/outbound/picking/:outbound_no/cartons/next", mobileOutboundController.NewCarton)
-
-	// picking := api.Group("/wms/picking")
 	api.Get("/outbound/picking/scans/:outbound_picking_id", mobileOutboundController.GetPickingScans)
 	api.Get("/outbound/picking/:outbound_no", mobileOutboundController.GetPickingSheet)
 	api.Post("/outbound/picking/:outbound_no/scan", mobileOutboundController.SubmitPickingScan)
 	api.Delete("/outbound/picking/scans/:scan_id", mobileOutboundController.DeletePickingScan)
 	api.Post("/outbound/picking/:outbound_no/confirm", mobileOutboundController.ConfirmPicking)
+	api.Post("/outbound/packing/confirm/:outbound_no", mobileOutboundController.ConfirmPacking)
 }
 
 func SetupMobileShippingGuestRoutes(app *fiber.App, shippingGuestController *mobiles.ShippingGuestController) {
