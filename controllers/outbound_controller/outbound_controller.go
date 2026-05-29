@@ -1067,7 +1067,6 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 			Area         string
 		}
 
-		// var inventories []models.Inventory
 		var inventories []InventoryWithLocation
 
 		if err := queryInventory.

@@ -24,26 +24,27 @@ func NewProductController(DB *gorm.DB) *ProductController {
 
 // Use a struct (not package-level var) to avoid shared state between requests
 type productInputStruct struct {
-	ID         uint    `json:"id"`
-	ItemCode   string  `json:"item_code" validate:"required,min=3"`
-	ItemName   string  `json:"item_name" validate:"required,min=3"`
-	UnitModel  string  `json:"unit_model"`
-	CBM        float64 `json:"cbm"`
-	GMC        string  `json:"gmc" validate:"required,min=6"`
-	Width      float64 `json:"width"`
-	Length     float64 `json:"length"`
-	Height     float64 `json:"height"`
-	Weight     float64 `json:"weight"`
-	Color      string  `json:"color"`
-	Group      string  `json:"group"`
-	Category   string  `json:"category"`
-	Serial     string  `json:"serial" validate:"required,min=1"`
-	Waranty    string  `json:"waranty" validate:"required,min=1"`
-	Adaptor    string  `json:"adaptor" validate:"required,min=1"`
-	ManualBook string  `json:"manual_book" validate:"required,min=1"`
-	Uom        string  `json:"uom" validate:"required,min=1"`
-	OwnerCode  string  `json:"owner_code" validate:"required,min=3"`
-	UserDef1   string  `json:"user_def1"`
+	ID           uint    `json:"id"`
+	ItemCode     string  `json:"item_code" validate:"required,min=3"`
+	ItemName     string  `json:"item_name" validate:"required,min=3"`
+	UnitModel    string  `json:"unit_model"`
+	CBM          float64 `json:"cbm"`
+	GMC          string  `json:"gmc" validate:"required,min=6"`
+	Width        float64 `json:"width"`
+	Length       float64 `json:"length"`
+	Height       float64 `json:"height"`
+	Weight       float64 `json:"weight"`
+	Color        string  `json:"color"`
+	Group        string  `json:"group"`
+	QtyPerCarton int     `json:"qty_per_carton"`
+	Category     string  `json:"category"`
+	Serial       string  `json:"serial" validate:"required,min=1"`
+	Waranty      string  `json:"waranty" validate:"required,min=1"`
+	Adaptor      string  `json:"adaptor" validate:"required,min=1"`
+	ManualBook   string  `json:"manual_book" validate:"required,min=1"`
+	Uom          string  `json:"uom" validate:"required,min=1"`
+	OwnerCode    string  `json:"owner_code" validate:"required,min=3"`
+	UserDef1     string  `json:"user_def1"`
 }
 
 func (c *ProductController) CreateProduct(ctx *fiber.Ctx) error {
@@ -73,27 +74,28 @@ func (c *ProductController) CreateProduct(ctx *fiber.Ctx) error {
 	userID := int(ctx.Locals("userID").(float64))
 
 	product := models.Product{
-		ItemCode:   input.ItemCode,
-		ItemName:   input.ItemName,
-		UnitModel:  input.UnitModel,
-		CBM:        input.CBM,
-		Barcode:    input.GMC,
-		GMC:        input.GMC,
-		Width:      input.Width,
-		Length:     input.Length,
-		Height:     input.Height,
-		Weight:     input.Weight,
-		Color:      input.Color,
-		Group:      input.Group,
-		Category:   input.Category,
-		HasSerial:  input.Serial,
-		HasWaranty: input.Waranty,
-		HasAdaptor: input.Adaptor,
-		ManualBook: input.ManualBook,
-		Uom:        input.Uom,
-		OwnerCode:  input.OwnerCode,
-		UserDef1:   input.UserDef1,
-		CreatedBy:  userID,
+		ItemCode:     input.ItemCode,
+		ItemName:     input.ItemName,
+		UnitModel:    input.UnitModel,
+		CBM:          input.CBM,
+		Barcode:      input.GMC,
+		GMC:          input.GMC,
+		Width:        input.Width,
+		Length:       input.Length,
+		Height:       input.Height,
+		Weight:       input.Weight,
+		Color:        input.Color,
+		Group:        input.Group,
+		QtyPerCarton: input.QtyPerCarton,
+		Category:     input.Category,
+		HasSerial:    input.Serial,
+		HasWaranty:   input.Waranty,
+		HasAdaptor:   input.Adaptor,
+		ManualBook:   input.ManualBook,
+		Uom:          input.Uom,
+		OwnerCode:    input.OwnerCode,
+		UserDef1:     input.UserDef1,
+		CreatedBy:    userID,
 	}
 
 	if err := c.DB.Create(&product).Error; err != nil {
@@ -161,18 +163,6 @@ func (c *ProductController) UpdateProduct(ctx *fiber.Ctx) error {
 	}
 
 	// Check if key fields changed — block if transactions exist
-	// if input.ItemCode != product.ItemCode || input.Uom != product.Uom || input.GMC != product.Barcode {
-	// 	var inboundDetail models.InboundDetail
-	// 	err := c.DB.Where("item_id = ?", id).First(&inboundDetail).Error
-	// 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-	// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-	// 	}
-	// 	if inboundDetail.ID > 0 {
-	// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Item already used in transaction"})
-	// 	}
-	// }
-
-	// Check if key fields changed — block if transactions exist
 	if input.ItemCode != product.ItemCode || input.Uom != product.Uom || input.GMC != product.GMC {
 		var inboundDetails []models.InboundDetail
 		if err := c.DB.Where("item_id = ?", id).Find(&inboundDetails).Error; err != nil {
@@ -193,9 +183,6 @@ func (c *ProductController) UpdateProduct(ctx *fiber.Ctx) error {
 				Count(&completeCount).Error; err != nil {
 				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 			}
-			// if completeCount > 0 {
-			// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Item already used in completed transaction"})
-			// }
 
 			// Ambil inbound_no yang belum complete
 			var incompleteHeaders []models.InboundHeader
@@ -230,28 +217,29 @@ func (c *ProductController) UpdateProduct(ctx *fiber.Ctx) error {
 	userID := int(ctx.Locals("userID").(float64))
 
 	if err := c.DB.Model(&models.Product{}).Where("id = ?", id).Updates(map[string]interface{}{
-		"item_code":   input.ItemCode,
-		"item_name":   input.ItemName,
-		"unit_model":  input.UnitModel,
-		"cbm":         input.CBM,
-		"gmc":         input.GMC,
-		"barcode":     input.GMC,
-		"group":       input.Group,
-		"category":    input.Category,
-		"width":       input.Width,
-		"length":      input.Length,
-		"height":      input.Height,
-		"weight":      input.Weight,
-		"color":       input.Color,
-		"has_serial":  input.Serial,
-		"has_waranty": input.Waranty,
-		"has_adaptor": input.Adaptor,
-		"manual_book": input.ManualBook,
-		"uom":         input.Uom,
-		"owner_code":  input.OwnerCode,
-		"user_def1":   input.UserDef1,
-		"updated_at":  time.Now(),
-		"updated_by":  userID,
+		"item_code":      input.ItemCode,
+		"item_name":      input.ItemName,
+		"unit_model":     input.UnitModel,
+		"cbm":            input.CBM,
+		"gmc":            input.GMC,
+		"barcode":        input.GMC,
+		"group":          input.Group,
+		"category":       input.Category,
+		"width":          input.Width,
+		"length":         input.Length,
+		"height":         input.Height,
+		"weight":         input.Weight,
+		"color":          input.Color,
+		"qty_per_carton": input.QtyPerCarton,
+		"has_serial":     input.Serial,
+		"has_waranty":    input.Waranty,
+		"has_adaptor":    input.Adaptor,
+		"manual_book":    input.ManualBook,
+		"uom":            input.Uom,
+		"owner_code":     input.OwnerCode,
+		"user_def1":      input.UserDef1,
+		"updated_at":     time.Now(),
+		"updated_by":     userID,
 	}).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}

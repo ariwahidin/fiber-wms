@@ -251,24 +251,32 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	var product models.Product
 	var uomConversion models.UomConversion
 
 	if scanInbound.Sku != "" {
-		if err := tx.Where("item_code = ? AND ean = ?", scanInbound.Sku, scanInbound.Barcode).First(&uomConversion).Error; err != nil {
-			tx.Rollback()
-			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Item not found in UOM conversion", "message": "Item not found in UOM conversion"})
-		}
-	} else {
-		if err := tx.Where("ean = ?", scanInbound.Barcode).First(&uomConversion).Error; err != nil {
-			tx.Rollback()
-			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Item not found in UOM conversion", "message": "Item not found in UOM conversion"})
-		}
-	}
 
-	var product models.Product
-	if err := tx.Where("item_code = ? AND owner_code = ? AND barcode = ?", uomConversion.ItemCode, inboundHeader.OwnerCode, scanInbound.Barcode).First(&product).Error; err != nil {
-		tx.Rollback()
-		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Product not found", "message": "Product not found"})
+		if err := tx.Where("item_code = ? AND owner_code = ?", scanInbound.Sku, inboundHeader.OwnerCode).First(&product).Error; err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Product not found", "message": "Product not found"})
+		}
+
+		if err := tx.Where("item_code = ? AND ean = ?", scanInbound.Sku, product.Barcode).First(&uomConversion).Error; err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Item not found in UOM conversion", "message": "Item not found in UOM conversion"})
+		}
+
+	} else {
+
+		if err := tx.Where("owner_code = ? AND barcode = ?", inboundHeader.OwnerCode, scanInbound.Barcode).First(&product).Error; err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Product not found", "message": "Product not found"})
+		}
+
+		if err := tx.Where("ean = ?", product.Barcode).First(&uomConversion).Error; err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Item not found in UOM conversion", "message": "Item not found in UOM conversion"})
+		}
 	}
 
 	if inventoryPolicy.UseFEFO && scanInbound.ExpDate == "" {
@@ -383,7 +391,7 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 
 			record := buildInboundBarcode(
 				inboundHeader, inboundDetail, product, scanInbound.ItemModel,
-				scanInbound.Location, scanInbound.Barcode,
+				scanInbound.Location, product.Barcode,
 				sn, scanType,
 				1, // qty per serial = 1
 				scanInbound.ProdDate, scanInbound.ExpDate,
@@ -407,7 +415,7 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 		var checkInboundBarcode models.InboundBarcode
 		if product.HasSerial == "Y" || scanInbound.Serial != "" {
 
-			if err := tx.Debug().Where("item_code = ? AND barcode = ? AND serial_number = ?", product.ItemCode, scanInbound.Barcode, scanInbound.Serial).
+			if err := tx.Debug().Where("item_code = ? AND barcode = ? AND serial_number = ?", product.ItemCode, product.Barcode, scanInbound.Serial).
 				First(&checkInboundBarcode).Error; err != nil {
 				if !errors.Is(err, gorm.ErrRecordNotFound) {
 					tx.Rollback()
@@ -439,7 +447,7 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 
 		record := buildInboundBarcode(
 			inboundHeader, inboundDetail, product, scanInbound.ItemModel,
-			scanInbound.Location, scanInbound.Barcode,
+			scanInbound.Location, product.Barcode,
 			scanInbound.Serial, scanType,
 			scanInbound.QtyScan,
 			scanInbound.ProdDate, scanInbound.ExpDate,

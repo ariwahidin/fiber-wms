@@ -14,6 +14,7 @@ type Product struct {
 	ItemName      string  `json:"item_name"`
 	UnitModel     string  `json:"unit_model"`
 	Barcode       string  `json:"barcode"`
+	QtyPerCarton  int     `json:"qty_per_carton" gorm:"default:0"`
 	GMC           string  `json:"gmc"`
 	Width         float64 `json:"width" gorm:"default:0"`
 	Length        float64 `json:"length" gorm:"default:0"`

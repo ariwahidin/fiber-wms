@@ -21,6 +21,7 @@ import (
 	"fiber-app/controllers/truck_controller"
 	"fiber-app/controllers/vas_controller"
 	"fiber-app/database"
+	"fiber-app/middleware"
 	"fiber-app/migration"
 	"fiber-app/routes"
 	scheduler "fiber-app/shceduler"
@@ -80,17 +81,6 @@ func main() {
 	app := fiber.New()
 	config.SetupCORS(app)
 
-	// ambil MAIN_ROUTES dari .env
-
-	// healthcheck
-	// app.Get(mainRoutes+"/health", func(c *fiber.Ctx) error {
-	// 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
-	// 		"status":  "ok",
-	// 		"message": "Fiber WMS is healthy",
-	// 	})
-	// })
-	// healthcheck
-
 	// middleware logger custom
 	app.Use(func(c *fiber.Ctx) error {
 		start := time.Now()
@@ -127,21 +117,11 @@ func main() {
 	})
 
 	// Pastikan database ada
-	// database.EnsureDatabaseExists(config.DBName)
 	database.EnsureDatabaseExists(config.DBUnit)
-
-	// Connect to database
-	// mainDB, err := database.OpenMasterDB()
 
 	if err != nil {
 		log.Fatalf(" Failed to connect to database: %v", err)
 	}
-
-	// Auto migrate models
-	// err = migration.Migrate(mainDB)
-	// if err != nil {
-	// 	log.Fatalf("Failed to auto migrate: %v", err)
-	// }
 
 	unitDB, err := database.OpenDatabaseConnection(config.DBUnit)
 
@@ -168,8 +148,6 @@ func main() {
 		fmt.Println("✅ Migrated unit database successfully")
 	}
 
-	// database.SeedUnit(mainDB)
-
 	idgen.Init()
 	idgen.AutoGenerateSnowflakeID(unitDB)
 	database.RunSeeders(unitDB)
@@ -177,6 +155,7 @@ func main() {
 
 	// Setup CORS middleware
 	config.SetupCORS(app)
+	app.Use(middleware.ConsoleLogger())
 
 	mainRoutes := os.Getenv("MAIN_ROUTES") // /api/v1
 	app.Get(mainRoutes+"/health", func(c *fiber.Ctx) error {
@@ -224,9 +203,7 @@ func main() {
 	routes.SetupHandlingRoutes(app)
 	routes.SetupUserRoutes(app)
 	routes.SetupMenuRoutes(app)
-
 	routes.SetupWarehouseRoutes(app)
-	// routes.SetupInventoryRoutes(app)
 	routes.SetupMobileInboundRoutes(app)
 	routes.SetupMobileOutboundRoutes(app)
 	routes.SetupMobilePackingRoutes(app)
@@ -234,23 +211,12 @@ func main() {
 	routes.SetupMobileInventoryRoutes(app)
 	owner.SetupOwnerRoutes(app)
 	routes.SetupStockTakeRoutes(app)
-
 	routes.SetupIntegrationRoutes(app)
 	routes.SetupMasterCartonRoutes(app)
 
-	// Setup controller
-
-	// itemPackagingCtrl.SetupRoutes(app)
-
-	// Setup Main Controller 2025-12-28 14:38 (ari.wahidin)
-	// mainCtrl := controllers.NewController(unitDB)
-
-	// rm_services.InitScheduler(reportDB)
 	rm_services.InitScheduler(unitDB, reportDB)
 	reportmailer.SetupEmailConfigRoutes(app, unitDB)
-	// reportmailer.SetupReportRoutes(app, unitDB)
 	reportmailer.SetupReportRoutes(app, unitDB, reportDB)
-	// reportmailer.SetupScheduleRoutes(app, unitDB)
 	reportmailer.SetupScheduleRoutes(app, unitDB, reportDB)
 	reportmailer.SetupSendHistoryRoutes(app, unitDB)
 	reportmailer.SetupReportQueryRoutes(app, unitDB, reportDB)
@@ -259,34 +225,9 @@ func main() {
 	integration_service.InitIntegrationScheduler(unitDB, reportDB)
 	report_builder.SetupReportBuilderRoutes(app, unitDB)
 
-	// routes.SetupRfInboundRoutes(app, RfInboundController)
-	// routes.SetupOutboundRoutes(app, db)
-	// routes.SetupStockTakeRoutes(app, db)
-	// routes.SetupRfOutboundRoutes(app, db)
-
-	// routes.SetupMobileShippingGuestRoutes(app, mobiles.NewShippingGuestController(db))
-	// Route login (tidak perlu middleware auth)
-
-	// api.Post(config.MAIN_ROUTES+"/login", authController.Login)
-	// api.Get(config.MAIN_ROUTES+"/logout", authController.Logout)
-	// api.Get(config.MAIN_ROUTES+"/isLoggedIn", middleware.AuthMiddleware, authController.IsLoggedIn)
-	// api := app.Group(config.MAIN_ROUTES)
-	// api.Post("/configurations/create-db", middleware.AuthMiddleware, database.CreateDatabase)
-	// api.Post("/configurations/get-all-table", middleware.AuthMiddleware, database.GetAllTables())
-	// api.Get("/configurations/get-all-bu", database.GetAllBusinessUnit)
-	// api.Post("/configurations/db-migrate", database.MigrateDB)
-
 	shopee_controller.SetupShopeeRoutes(app) // tanpa middleware auth karena Shopee yang akses
 	port := config.APP_PORT
 	fmt.Println("🚀 Server berjalan di port " + port)
-
-	// jalankan pprof server di goroutine terpisah
-	// go func() {
-	// 	fmt.Println("pprof aktif di http://localhost:6060/debug/pprof/")
-	// 	log.Println(http.ListenAndServe("localhost:6060", nil))
-	// }()
-
-	// go scheduler.StartShopeeScheduler(unitDB, reportDB)
 
 	go func() {
 		time.Sleep(3 * time.Second)

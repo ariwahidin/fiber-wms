@@ -349,6 +349,7 @@ OHD AS (
         CASE
             WHEN oh.[status] = 'picking' THEN 'on_picking'
             WHEN oh.[status] = 'packing' THEN 'on_packing'
+			WHEN oh.[status] = 'packed' AND (ot.[status] = 'open' OR ot.[status] IS NULL) THEN 'ready_to_ship'
             WHEN oh.[status] = 'complete' AND (ot.[status] = 'open' OR ot.[status] IS NULL) THEN 'ready_to_ship'
             WHEN oh.[status] = 'complete' AND (ot.[status] = 'loaded') THEN 'shipped'
             ELSE oh.[status]
