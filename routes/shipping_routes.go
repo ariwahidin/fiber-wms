@@ -21,6 +21,7 @@ func SetupShippingRoutes(app *fiber.App) {
 
 	api.Post("/", shippingController.CreateOrder)
 	api.Get("/", shippingController.GetListOrder)
+	api.Get("/filter", shippingController.GetListOrderFilter)
 	api.Patch("/status", shippingController.UpdateOrderStatus)
 	api.Get("/list", shippingController.GetOutboundList)
 	api.Get("/:order_no", shippingController.GetOrderByNo)

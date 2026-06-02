@@ -1,6 +1,9 @@
 package repositories
 
 import (
+	"fmt"
+	"strings"
+
 	"gorm.io/gorm"
 )
 
@@ -289,4 +292,174 @@ func (r *ShippingRepository) CalculatVasOutbound(outboundID int) ([]VasCalculate
 	}
 
 	return result, nil
+}
+
+// OrderListFilter — sama persis dengan OrderList yang sudah ada,
+// ditambah field ShipmentIDs agar frontend bisa tahu DO mana yang match.
+type OrderListFilter struct {
+	ID              int     `json:"ID"`
+	OrderNo         string  `json:"order_no"`
+	Status          string  `json:"status"`
+	OrderDate       string  `json:"order_date"`
+	OrderType       string  `json:"order_type"`
+	Driver          string  `json:"driver"`
+	TruckNo         string  `json:"truck_no"`
+	TruckSize       string  `json:"truck_size"`
+	TransporterName string  `json:"transporter_name"`
+	TotalDO         int     `json:"total_do"`
+	TotalKoli       int     `json:"total_koli"`
+	TotalItem       int     `json:"total_item"`
+	TotalQty        int     `json:"total_qty"`
+	TotalCBM        float64 `json:"total_cbm"`
+	TotalDrop       int     `json:"total_drop"`
+	// Comma-separated list of shipment_id yang match search_do (kosong jika tidak search)
+	MatchedDOs string `json:"matched_dos,omitempty"`
+}
+
+func (r *ShippingRepository) GetOrderSummaryListFilter(
+	startDate, endDate, search, searchDO string,
+	statuses []string,
+) ([]OrderListFilter, error) {
+	var orderList []OrderListFilter
+
+	// ── Bangun klausa WHERE dinamis ───────────────────────────────────────────
+	// Kita kumpulkan kondisi dan args terpisah agar SQL tetap bersih
+	// dan aman dari SQL injection (pakai placeholder ?).
+
+	whereClauses := []string{
+		"oh.deleted_at IS NULL",
+		"CAST(oh.order_date AS DATE) BETWEEN ? AND ?",
+	}
+	args := []interface{}{startDate, endDate}
+
+	// Filter status (multi)
+	if len(statuses) > 0 {
+		// Bangun IN (?, ?, ...)
+		placeholders := make([]string, len(statuses))
+		for i, s := range statuses {
+			placeholders[i] = "?"
+			args = append(args, s)
+		}
+		whereClauses = append(whereClauses, fmt.Sprintf("oh.status IN (%s)", strings.Join(placeholders, ",")))
+	}
+
+	// Filter search header
+	if search != "" {
+		like := "%" + search + "%"
+		whereClauses = append(whereClauses,
+			"(oh.order_no LIKE ? OR oh.transporter_name LIKE ? OR oh.truck_no LIKE ? OR oh.driver LIKE ?)")
+		args = append(args, like, like, like, like)
+	}
+
+	// Filter search_do — EXISTS subquery ke order_details
+	// shipment_id di order_details = nomor DO
+	if searchDO != "" {
+		like := "%" + searchDO + "%"
+		whereClauses = append(whereClauses, `EXISTS (
+			SELECT 1
+			FROM order_details od_do
+			WHERE od_do.order_id   = oh.id
+			  AND od_do.deleted_at IS NULL
+			  AND od_do.shipment_id LIKE ?
+		)`)
+		args = append(args, like)
+	}
+
+	whereSQL := strings.Join(whereClauses, "\n    AND ")
+
+	// ── SELECT matched_dos ────────────────────────────────────────────────────
+	// Jika searchDO aktif: tampilkan shipment_id yang match di field matched_dos
+	// agar frontend bisa render info "DO ini ditemukan di SPK ini".
+	// Jika tidak aktif: kolom tetap ada tapi kosong (GROUP_CONCAT return NULL → "").
+	matchedDOsSelect := ""
+	var matchedArgs []interface{}
+	if searchDO != "" {
+		like := "%" + searchDO + "%"
+		matchedDOsSelect = `,
+	(
+		SELECT GROUP_CONCAT(DISTINCT od_m.shipment_id ORDER BY od_m.shipment_id SEPARATOR ', ')
+		FROM order_details od_m
+		WHERE od_m.order_id    = oh.id
+		  AND od_m.deleted_at  IS NULL
+		  AND od_m.shipment_id LIKE ?
+	) AS matched_dos`
+		matchedArgs = append(matchedArgs, like)
+	} else {
+		matchedDOsSelect = `,'' AS matched_dos`
+	}
+
+	// ── Full SQL ──────────────────────────────────────────────────────────────
+	// Ikuti pola GetOrderSummaryList yang sudah ada:
+	//   CTE obh  → aggregasi per order dari order_details + outbound_pickings
+	//   CTE dlv  → count distinct deliv_to (total drop point)
+	// Tambahan: WHERE dinamis + matched_dos
+
+	sql := fmt.Sprintf(`
+WITH obh AS (
+	SELECT
+		a.order_id,
+		COUNT(a.shipment_id)               AS total_do,
+		SUM(a.qty_koli)                    AS total_koli,
+		SUM(a.total_item)                  AS total_item,
+		ROUND(SUM(a.total_cbm), 4)         AS total_cbm,
+		SUM(op.quantity)                   AS total_qty
+	FROM order_details a
+	LEFT JOIN (
+		SELECT outbound_id, SUM(quantity) AS quantity
+		FROM outbound_pickings
+		GROUP BY outbound_id
+	) op ON a.outbound_id = op.outbound_id
+	WHERE a.deleted_at IS NULL
+	GROUP BY a.order_id
+),
+dlv AS (
+	SELECT
+		a.order_id,
+		COUNT(DISTINCT a.deliv_to) AS total_drop
+	FROM order_details a
+	WHERE a.deleted_at IS NULL
+	GROUP BY a.order_id
+)
+ 
+SELECT
+	oh.id,
+	oh.order_no,
+	oh.status,
+	oh.order_date,
+	oh.order_type,
+	oh.driver,
+	oh.truck_no,
+	oh.truck_size,
+	oh.transporter_name,
+	COALESCE(obh.total_do,   0)    AS total_do,
+	COALESCE(obh.total_koli, 0)    AS total_koli,
+	COALESCE(obh.total_item, 0)    AS total_item,
+	COALESCE(obh.total_qty,  0)    AS total_qty,
+	COALESCE(obh.total_cbm,  0)    AS total_cbm,
+	COALESCE(dlv.total_drop, 0)    AS total_drop
+	%s
+FROM order_headers oh
+LEFT JOIN obh ON oh.id = obh.order_id
+LEFT JOIN dlv ON oh.id = dlv.order_id
+WHERE %s
+ORDER BY oh.order_no DESC`,
+		matchedDOsSelect,
+		whereSQL,
+	)
+
+	// ── Gabungkan args: matchedArgs (subquery SELECT) dulu, lalu WHERE args ──
+	// Urutan harus sesuai dengan posisi ? dalam SQL:
+	// 1. ? di matched_dos subquery (SELECT clause) — sebelum WHERE
+	// 2. ? di WHERE clause
+	finalArgs := append(matchedArgs, args...)
+
+	if err := r.db.Raw(sql, finalArgs...).Scan(&orderList).Error; err != nil {
+		return nil, err
+	}
+
+	if orderList == nil {
+		orderList = []OrderListFilter{}
+	}
+
+	return orderList, nil
 }

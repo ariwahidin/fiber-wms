@@ -7,6 +7,7 @@ import (
 	integration_service "fiber-app/services/integration_service"
 	"fiber-app/types"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -580,5 +581,165 @@ func (c *ShippingController) UpdateOrderStatus(ctx *fiber.Ctx) error {
 		"success":       true,
 		"message":       fmt.Sprintf("%d order(s) updated to '%s'", result.RowsAffected, payload.Status),
 		"rows_affected": result.RowsAffected,
+	})
+}
+
+// OrderSummaryFilterRow — struct hasil query ringkasan order untuk list page.
+// Sesuaikan field dengan kolom aktual di tabel order_headers dan order_details.
+type OrderSummaryFilterRow struct {
+	ID              interface{} `json:"ID"`
+	OrderNo         string      `json:"order_no"`
+	OrderDate       string      `json:"order_date"`
+	Status          string      `json:"status"`
+	Driver          string      `json:"driver"`
+	TransporterCode string      `json:"transporter_code"`
+	TransporterName string      `json:"transporter_name"`
+	TruckType       string      `json:"truck_type"`
+	TruckSize       string      `json:"truck_size"`
+	TruckNo         string      `json:"truck_no"`
+	LoadDate        string      `json:"load_date"`
+	OrderType       string      `json:"order_type"`
+	Remarks         string      `json:"remarks"`
+	TotalDO         int         `json:"total_do"`   // COUNT(DISTINCT order_details.id)
+	TotalDrop       int         `json:"total_drop"` // COUNT(DISTINCT deliv_to)
+	TotalKoli       int         `json:"total_koli"`
+	TotalItem       int         `json:"total_item"`
+	TotalQty        int         `json:"total_qty"`
+	TotalCBM        float64     `json:"total_cbm"`
+}
+
+func (c *ShippingController) GetListOrderFilter(ctx *fiber.Ctx) error {
+	// ── 1. Parse query params ─────────────────────────────────────────────────
+
+	const layout = "2006-01-02"
+	now := time.Now()
+
+	// Default: 7 hari ke belakang
+	startDate := now.AddDate(0, 0, -7).Format(layout)
+	endDate := now.Format(layout)
+
+	if v := ctx.Query("start_date"); v != "" {
+		startDate = v
+	}
+	if v := ctx.Query("end_date"); v != "" {
+		endDate = v
+	}
+
+	search := strings.TrimSpace(ctx.Query("search"))      // order header fields
+	searchDO := strings.TrimSpace(ctx.Query("search_do")) // DO No di dalam items
+
+	// statuses: "open,loaded" → ["open","loaded"]
+	var statusList []string
+	if v := ctx.Query("statuses"); v != "" {
+		for _, s := range strings.Split(v, ",") {
+			if t := strings.TrimSpace(s); t != "" {
+				statusList = append(statusList, t)
+			}
+		}
+	}
+
+	// ── 2. Build query ────────────────────────────────────────────────────────
+	//
+	// Kita query langsung ke DB pakai raw GORM builder agar fleksibel.
+	// order_headers  → oh
+	// order_details  → od
+	//
+	// Jika search_do aktif: filter ke order yang punya setidaknya 1 baris
+	// di order_details dengan shipment_id LIKE '%search_do%'.
+
+	db := c.DB
+
+	// SELECT clause — aggregasi dari order_details
+	query := db.Table("order_headers oh").
+		Select(`
+			oh.id                  AS id,
+			oh.order_no            AS order_no,
+			oh.order_date          AS order_date,
+			oh.status              AS status,
+			oh.driver              AS driver,
+			oh.transporter_code    AS transporter_code,
+			oh.transporter_name    AS transporter_name,
+			oh.truck_type          AS truck_type,
+			oh.truck_size          AS truck_size,
+			oh.truck_no            AS truck_no,
+			oh.load_date           AS load_date,
+			oh.order_type          AS order_type,
+			oh.remarks             AS remarks,
+			COUNT(DISTINCT od.id)        AS total_do,
+			COUNT(DISTINCT od.deliv_to)  AS total_drop,
+			COALESCE(SUM(od.qty_koli),  0) AS total_koli,
+			COALESCE(SUM(od.total_item),0) AS total_item,
+			COALESCE(SUM(od.total_qty), 0) AS total_qty,
+			COALESCE(SUM(od.total_cbm), 0) AS total_cbm
+		`).
+		Joins("LEFT JOIN order_details od ON od.order_id = oh.id AND od.deleted_at IS NULL").
+		Where("oh.deleted_at IS NULL").
+		// Date range — filter by order_date (cast ke DATE agar jam tidak pengaruh)
+		Where("CAST(oh.order_date AS DATE) BETWEEN ? AND ?", startDate, endDate).
+		Group("oh.id, oh.order_no, oh.order_date, oh.status, oh.driver, oh.transporter_code, oh.transporter_name, oh.truck_type, oh.truck_size, oh.truck_no, oh.load_date, oh.order_type, oh.remarks").
+		Order("oh.order_date DESC, oh.id DESC")
+
+	// Filter status (multi)
+	if len(statusList) > 0 {
+		query = query.Where("oh.status IN ?", statusList)
+	}
+
+	// Filter search header (order_no, transporter, truck_no, driver)
+	if search != "" {
+		like := "%" + search + "%"
+		query = query.Where(
+			"oh.order_no LIKE ? OR oh.transporter_name LIKE ? OR oh.truck_no LIKE ? OR oh.driver LIKE ?",
+			like, like, like, like,
+		)
+	}
+
+	// ── Filter search_do ──────────────────────────────────────────────────────
+	// Gunakan EXISTS subquery agar tidak menggandakan baris & tetap bisa
+	// GROUP BY dengan benar.
+	// shipment_id di order_details = DO No.
+	if searchDO != "" {
+		like := "%" + searchDO + "%"
+		query = query.Where(
+			`EXISTS (
+				SELECT 1
+				FROM order_details od2
+				WHERE od2.order_id    = oh.id
+				  AND od2.deleted_at  IS NULL
+				  AND od2.shipment_id LIKE ?
+			)`,
+			like,
+		)
+	}
+
+	// ── 3. Execute ────────────────────────────────────────────────────────────
+
+	var results []OrderSummaryFilterRow
+	if err := query.Scan(&results).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to fetch orders",
+			"error":   err.Error(),
+		})
+	}
+
+	// Kembalikan slice kosong bukan null agar frontend tidak perlu nil-check
+	if results == nil {
+		results = []OrderSummaryFilterRow{}
+	}
+
+	// Tambahkan no urut (sama seperti endpoint lama)
+	type OrderSummaryWithNo struct {
+		OrderSummaryFilterRow
+		No int `json:"no"`
+	}
+	withNo := make([]OrderSummaryWithNo, len(results))
+	for i, r := range results {
+		withNo[i] = OrderSummaryWithNo{OrderSummaryFilterRow: r, No: i + 1}
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": "Orders found",
+		"data":    withNo,
 	})
 }
