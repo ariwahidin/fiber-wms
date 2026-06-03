@@ -378,7 +378,7 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 
 			if scanInbound.Serial != "" && product.HasSerial == "Y" {
 
-				if err := tx.Where("item_code = ? AND serial_number = ?", product.ItemCode, sn).
+				if err := tx.Where("item_code = ? AND serial_number = ? AND inbound_id = ?", product.ItemCode, sn, inboundHeader.ID).
 					First(&existing).Error; err == nil {
 					tx.Rollback()
 					return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
@@ -415,7 +415,7 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 		var checkInboundBarcode models.InboundBarcode
 		if product.HasSerial == "Y" || scanInbound.Serial != "" {
 
-			if err := tx.Debug().Where("item_code = ? AND barcode = ? AND serial_number = ?", product.ItemCode, product.Barcode, scanInbound.Serial).
+			if err := tx.Debug().Where("item_code = ? AND barcode = ? AND serial_number = ? AND inbound_id = ?", product.ItemCode, product.Barcode, scanInbound.Serial, inboundHeader.ID).
 				First(&checkInboundBarcode).Error; err != nil {
 				if !errors.Is(err, gorm.ErrRecordNotFound) {
 					tx.Rollback()
@@ -434,10 +434,12 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 
 		// Check Case Number Already Scanned
 		if scanInbound.CaseNumber != "" {
+
 			var existingCaseNumber models.InboundBarcode
-			if err := tx.Where("item_code = ? AND case_number = ?", product.ItemCode, scanInbound.CaseNumber).
+			if err := tx.Where("item_code = ? AND case_number = ? AND inbound_id = ?", product.ItemCode, scanInbound.CaseNumber, inboundHeader.ID).
 				First(&existingCaseNumber).Error; err == nil {
 				tx.Rollback()
+
 				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 					"error":   "Carton number already scanned: " + scanInbound.CaseNumber,
 					"message": "Carton number already scanned: " + scanInbound.CaseNumber,

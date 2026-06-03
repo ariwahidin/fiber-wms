@@ -36,6 +36,7 @@ import (
 	notification_ctrl "fiber-app/controllers/notification_ctrl"
 	report_builder "fiber-app/controllers/report_builder"
 	reportmailer "fiber-app/controllers/report_mailer"
+	rpt_builder_ctrl "fiber-app/controllers/rpt_builder"
 	integration_service "fiber-app/services/integration_service"
 	rm_services "fiber-app/services/report_mailer"
 
@@ -224,6 +225,7 @@ func main() {
 	integration_ctrl.SetupIntegrationRoutes(app, unitDB, reportDB)
 	integration_service.InitIntegrationScheduler(unitDB, reportDB)
 	report_builder.SetupReportBuilderRoutes(app, unitDB)
+	rpt_builder_ctrl.SetupRptBuilderRoutes(app, unitDB, reportDB)
 
 	shopee_controller.SetupShopeeRoutes(app) // tanpa middleware auth karena Shopee yang akses
 	port := config.APP_PORT

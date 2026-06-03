@@ -7,6 +7,8 @@ import (
 	"fiber-app/models/report_builder"
 	"fiber-app/models/report_mailer"
 
+	rpt_builder2 "fiber-app/models/rpt_builder"
+
 	"gorm.io/gorm"
 )
 
@@ -104,5 +106,12 @@ func MigrateBusinessUnit(db *gorm.DB) error {
 
 		&models.InventoryAdjustment{},
 		&models.AdjustmentReasonCode{},
+
+		&rpt_builder2.Rpt2Template{},
+		&rpt_builder2.Rpt2Sheet{},
+		&rpt_builder2.Rpt2Column{},
+		&rpt_builder2.Rpt2Param{},
+		&rpt_builder2.Rpt2UserColumnPref{},
+		&rpt_builder2.Rpt2DownloadLog{},
 	)
 }
