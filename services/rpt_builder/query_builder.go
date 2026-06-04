@@ -7,23 +7,36 @@ import (
 )
 
 var namedParamRegex = regexp.MustCompile(`:([a-zA-Z_][a-zA-Z0-9_]*)`)
+var stripStringsRegex = regexp.MustCompile(`'[^']*'`)
 
-// BuildQuery mengganti named params (:key) di SQL dengan ? dan mengumpulkan args.
-// Urutan args mengikuti urutan kemunculan param di SQL.
+// extractNamedParams scan named params hanya dari luar string literals
+func extractNamedParams(query string) []string {
+	stripped := stripStringsRegex.ReplaceAllString(query, "''")
+	matches := namedParamRegex.FindAllStringSubmatch(stripped, -1)
+
+	var params []string
+	seen := map[string]bool{}
+	for _, m := range matches {
+		name := m[1]
+		if !seen[name] {
+			params = append(params, name)
+			seen[name] = true
+		}
+	}
+	return params
+}
+
 func BuildQuery(sqlQuery string, params map[string]string) (string, []interface{}, error) {
 	if err := ValidateQuery(sqlQuery); err != nil {
 		return "", nil, err
 	}
 
-	matches := namedParamRegex.FindAllStringSubmatch(sqlQuery, -1)
+	paramNames := extractNamedParams(sqlQuery)
 
 	query := sqlQuery
 	var args []interface{}
 
-	for _, match := range matches {
-		fullMatch := match[0]
-		paramName := match[1]
-
+	for _, paramName := range paramNames {
 		if err := validateParamKey(paramName); err != nil {
 			return "", nil, err
 		}
@@ -33,7 +46,7 @@ func BuildQuery(sqlQuery string, params map[string]string) (string, []interface{
 			return "", nil, fmt.Errorf("missing required param: '%s'", paramName)
 		}
 
-		query = strings.Replace(query, fullMatch, "?", 1)
+		query = strings.Replace(query, ":"+paramName, "?", 1)
 		args = append(args, val)
 	}
 

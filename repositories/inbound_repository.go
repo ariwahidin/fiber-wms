@@ -837,6 +837,14 @@ func (r *InboundRepository) UpdateStatusInbound(ctx *fiber.Ctx, inboundHeaderID 
 		PutawayAt: &now,
 		PutawayBy: userID,
 	}
+
+	if statusInbound == "checking" && inboundHeader.CheckingAt == nil {
+		updateData.CheckingAt = &now
+		updateData.CheckingBy = userID
+		updateData.PutawayAt = nil
+		updateData.PutawayBy = 0
+	}
+
 	if err := r.db.Debug().Model(&models.InboundHeader{}).
 		Where("id = ?", inboundHeaderID).
 		Updates(updateData).Error; err != nil {
