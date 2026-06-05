@@ -376,14 +376,15 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 			// Cek duplikat serial
 			var existing models.InboundBarcode
 
-			if scanInbound.Serial != "" && product.HasSerial == "Y" {
+			// if scanInbound.Serial != "" && product.HasSerial == "Y" {
+			if scanInbound.Serial != "" {
 
-				if err := tx.Where("item_code = ? AND serial_number = ? AND inbound_id = ?", product.ItemCode, sn, inboundHeader.ID).
+				if err := tx.Where("item_code = ? AND serial_number = ? AND inbound_id = ? AND case_number = ?", product.ItemCode, sn, inboundHeader.ID, scanInbound.CaseNumber).
 					First(&existing).Error; err == nil {
 					tx.Rollback()
 					return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-						"error":   "Serial number already scanned: " + sn,
-						"message": "Serial number already scanned: " + sn,
+						"error":   "Serial number already scanned: " + sn + " in carton " + scanInbound.CaseNumber,
+						"message": "Serial number already scanned: " + sn + " in carton " + scanInbound.CaseNumber,
 					})
 				}
 
