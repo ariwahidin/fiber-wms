@@ -7,6 +7,7 @@ import (
 	"fiber-app/repositories"
 	"fmt"
 	"log"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -1092,24 +1093,17 @@ func (c *InboundController) GetInboundByID(ctx *fiber.Ctx) error {
 	inbound_no := ctx.Params("inbound_no")
 	limit := ctx.QueryInt("limit", 5000)
 
-	// if limit > 5000 {
-	// 	limit = 5000
-	// }
-
 	var inbound models.InboundHeader
 	fmt.Println("GetInboundByID inbound_no:", inbound_no)
 
-	// Hitung total detail jika dibutuhkan
 	var totalDetails int64
 	c.DB.Model(&models.InboundDetail{}).
 		Where("inbound_no = ?", inbound_no).
 		Count(&totalDetails)
 
-	// Load data dengan preload terbatas
 	if err := c.DB.Debug().
 		Preload("InboundReferences").
-		Preload("Received").
-		Preload("Received.Product").
+		// Received dihapus dari sini
 		Preload("Details", func(db *gorm.DB) *gorm.DB {
 			return db.Limit(limit).Order("id ASC")
 		}).
@@ -1127,7 +1121,6 @@ func (c *InboundController) GetInboundByID(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	// Tambahkan informasi total detail
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
 		"success":       true,
 		"data":          inbound,
@@ -1136,6 +1129,354 @@ func (c *InboundController) GetInboundByID(ctx *fiber.Ctx) error {
 		"details_total": totalDetails,
 	})
 }
+
+func (c *InboundController) GetReceivedByInboundNo(ctx *fiber.Ctx) error {
+	inbound_no := ctx.Params("inbound_no")
+	page := ctx.QueryInt("page", 1)
+	limit := ctx.QueryInt("limit", 100)
+	offset := (page - 1) * limit
+	search := ctx.Query("search", "")
+	pallet := ctx.Query("pallet", "")
+	caseNumber := ctx.Query("case_number", "")
+
+	// Base query
+	query := c.DB.Model(&models.InboundBarcode{}).
+		Where("inbound_id = (SELECT id FROM inbound_headers WHERE inbound_no = ? AND deleted_at IS NULL)", inbound_no).
+		Where("deleted_at IS NULL")
+
+	// Filter opsional
+	if pallet != "" {
+		query = query.Where("pallet = ?", pallet)
+	}
+	if caseNumber != "" {
+		query = query.Where("case_number = ?", caseNumber)
+	}
+	if search != "" {
+		like := "%" + search + "%"
+		query = query.Where(
+			"item_code LIKE ? OR barcode LIKE ? OR serial_number LIKE ? OR pallet LIKE ? OR case_number LIKE ? OR lot_number LIKE ?",
+			like, like, like, like, like, like,
+		)
+	}
+
+	var total int64
+	query.Count(&total)
+
+	var received []models.InboundBarcode
+	if err := query.
+		Preload("Product").
+		Order("id ASC").
+		Limit(limit).
+		Offset(offset).
+		Find(&received).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	totalPages := int(math.Ceil(float64(total) / float64(limit)))
+	if totalPages == 0 {
+		totalPages = 1
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"data":    received,
+		"meta": fiber.Map{
+			"page":        page,
+			"limit":       limit,
+			"total":       total,
+			"total_pages": totalPages,
+		},
+	})
+}
+
+func (c *InboundController) GetPalletSummary(ctx *fiber.Ctx) error {
+	inbound_no := ctx.Params("inbound_no")
+
+	type PalletSummary struct {
+		Pallet       string  `json:"pallet"`
+		ItemCount    int64   `json:"item_count"`
+		CartonCount  int64   `json:"carton_count"`
+		TotalQty     float64 `json:"total_qty"`
+		PendingCount int64   `json:"pending_count"`
+		InStockCount int64   `json:"in_stock_count"`
+	}
+
+	var result []PalletSummary
+	err := c.DB.Raw(`
+	SELECT 
+		pallet,
+		COUNT(*) as item_count,
+		COUNT(DISTINCT NULLIF(case_number, '')) as carton_count,
+		SUM(quantity) as total_qty,
+		SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending_count,
+		SUM(CASE WHEN status = 'in stock' THEN 1 ELSE 0 END) as in_stock_count
+	FROM inbound_barcodes
+	WHERE inbound_id = (
+		SELECT id FROM inbound_headers 
+		WHERE inbound_no = ? AND deleted_at IS NULL
+	)
+	AND deleted_at IS NULL
+	GROUP BY pallet
+	ORDER BY 
+		CAST(SUBSTRING(pallet, CHARINDEX('-', pallet, LEN(pallet) - CHARINDEX('-', REVERSE(pallet)) + 1) + 1, LEN(pallet)) AS INT) DESC
+    `, inbound_no).Scan(&result).Error
+
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"data":    result,
+	})
+}
+
+func (c *InboundController) GetCartonSummary(ctx *fiber.Ctx) error {
+	inbound_no := ctx.Params("inbound_no")
+	page := ctx.QueryInt("page", 1)
+	limit := ctx.QueryInt("limit", 50)
+	offset := (page - 1) * limit
+	search := ctx.Query("search", "")
+
+	// Build WHERE tambahan untuk search
+	searchWhere := ""
+	searchArgs := []interface{}{inbound_no}
+	if search != "" {
+		searchWhere = "AND (case_number LIKE ? OR pallet LIKE ?)"
+		like := "%" + search + "%"
+		searchArgs = append(searchArgs, like, like)
+	}
+
+	type CartonSummary struct {
+		CaseNumber string  `json:"case_number"`
+		Pallet     string  `json:"pallet"`
+		ItemCount  int64   `json:"item_count"`
+		TotalQty   float64 `json:"total_qty"`
+		AllInStock int     `json:"all_in_stock"`
+	}
+
+	var total int64
+	countArgs := append([]interface{}{}, searchArgs...)
+	c.DB.Raw(`
+        SELECT COUNT(DISTINCT case_number)
+        FROM inbound_barcodes
+        WHERE inbound_id = (
+            SELECT id FROM inbound_headers
+            WHERE inbound_no = ? AND deleted_at IS NULL
+        )
+        AND deleted_at IS NULL
+        AND case_number != ''
+        `+searchWhere,
+		countArgs...,
+	).Scan(&total)
+
+	dataArgs := append(searchArgs, offset, limit)
+	var result []CartonSummary
+	err := c.DB.Raw(`
+        SELECT
+            case_number,
+            MAX(pallet) as pallet,
+            COUNT(*) as item_count,
+            SUM(quantity) as total_qty,
+            CASE WHEN SUM(CASE WHEN status != 'in stock' THEN 1 ELSE 0 END) = 0
+                 THEN 1 ELSE 0 END as all_in_stock
+        FROM inbound_barcodes
+        WHERE inbound_id = (
+            SELECT id FROM inbound_headers
+            WHERE inbound_no = ? AND deleted_at IS NULL
+        )
+        AND deleted_at IS NULL
+        AND case_number != ''
+        `+searchWhere+`
+        GROUP BY case_number
+        ORDER BY case_number DESC
+        OFFSET ? ROWS FETCH NEXT ? ROWS ONLY
+    `, dataArgs...).Scan(&result).Error
+
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	totalPages := int(math.Ceil(float64(total) / float64(limit)))
+	if totalPages == 0 {
+		totalPages = 1
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"data":    result,
+		"meta": fiber.Map{
+			"page":        page,
+			"limit":       limit,
+			"total":       total,
+			"total_pages": totalPages,
+		},
+	})
+}
+
+// func (c *InboundController) GetCartonSummary(ctx *fiber.Ctx) error {
+// 	inbound_no := ctx.Params("inbound_no")
+// 	page := ctx.QueryInt("page", 1)
+// 	limit := ctx.QueryInt("limit", 50)
+// 	offset := (page - 1) * limit
+
+// 	type CartonSummary struct {
+// 		CaseNumber string  `json:"case_number"`
+// 		Pallet     string  `json:"pallet"`
+// 		ItemCount  int64   `json:"item_count"`
+// 		TotalQty   float64 `json:"total_qty"`
+// 		AllInStock int     `json:"all_in_stock"`
+// 	}
+
+// 	var total int64
+// 	c.DB.Raw(`
+//         SELECT COUNT(DISTINCT case_number)
+//         FROM inbound_barcodes
+//         WHERE inbound_id = (
+//             SELECT id FROM inbound_headers
+//             WHERE inbound_no = ? AND deleted_at IS NULL
+//         )
+//         AND deleted_at IS NULL
+//         AND case_number != ''
+//     `, inbound_no).Scan(&total)
+
+// 	var result []CartonSummary
+// 	err := c.DB.Raw(`
+//         SELECT
+//             case_number,
+//             MAX(pallet) as pallet,
+//             COUNT(*) as item_count,
+//             SUM(quantity) as total_qty,
+//             CASE WHEN SUM(CASE WHEN status != 'in stock' THEN 1 ELSE 0 END) = 0
+//                  THEN 1 ELSE 0 END as all_in_stock
+//         FROM inbound_barcodes
+//         WHERE inbound_id = (
+//             SELECT id FROM inbound_headers
+//             WHERE inbound_no = ? AND deleted_at IS NULL
+//         )
+//         AND deleted_at IS NULL
+//         AND case_number != ''
+//         GROUP BY case_number
+//         ORDER BY case_number ASC
+//         OFFSET ? ROWS FETCH NEXT ? ROWS ONLY
+//     `, inbound_no, offset, limit).Scan(&result).Error
+
+// 	if err != nil {
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+// 			"error": err.Error(),
+// 		})
+// 	}
+
+// 	totalPages := int(math.Ceil(float64(total) / float64(limit)))
+// 	if totalPages == 0 {
+// 		totalPages = 1
+// 	}
+
+// 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+// 		"success": true,
+// 		"data":    result,
+// 		"meta": fiber.Map{
+// 			"page":        page,
+// 			"limit":       limit,
+// 			"total":       total,
+// 			"total_pages": totalPages,
+// 		},
+// 	})
+// }
+
+// func (c *InboundController) GetCartonSummary(ctx *fiber.Ctx) error {
+// 	inbound_no := ctx.Params("inbound_no")
+
+// 	type CartonSummary struct {
+// 		CaseNumber string  `json:"case_number"`
+// 		Pallet     string  `json:"pallet"`
+// 		ItemCount  int64   `json:"item_count"`
+// 		TotalQty   float64 `json:"total_qty"`
+// 		AllInStock int     `json:"all_in_stock"`
+// 	}
+
+// 	var result []CartonSummary
+// 	err := c.DB.Raw(`
+//         SELECT
+//             case_number,
+//             MAX(pallet) as pallet,
+//             COUNT(*) as item_count,
+//             SUM(quantity) as total_qty,
+//             CASE WHEN SUM(CASE WHEN status != 'in stock' THEN 1 ELSE 0 END) = 0
+//      THEN 1 ELSE 0 END as all_in_stock
+//         FROM inbound_barcodes
+//         WHERE inbound_id = (
+//             SELECT id FROM inbound_headers
+//             WHERE inbound_no = ? AND deleted_at IS NULL
+//         )
+//         AND deleted_at IS NULL
+//         AND case_number != ''
+//         GROUP BY case_number
+//         ORDER BY case_number ASC
+//     `, inbound_no).Scan(&result).Error
+
+// 	if err != nil {
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+// 	}
+
+// 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+// 		"success": true,
+// 		"data":    result,
+// 	})
+// }
+
+// func (c *InboundController) GetInboundByID(ctx *fiber.Ctx) error {
+// 	inbound_no := ctx.Params("inbound_no")
+// 	limit := ctx.QueryInt("limit", 5000)
+
+// 	// if limit > 5000 {
+// 	// 	limit = 5000
+// 	// }
+
+// 	var inbound models.InboundHeader
+// 	fmt.Println("GetInboundByID inbound_no:", inbound_no)
+
+// 	// Hitung total detail jika dibutuhkan
+// 	var totalDetails int64
+// 	c.DB.Model(&models.InboundDetail{}).
+// 		Where("inbound_no = ?", inbound_no).
+// 		Count(&totalDetails)
+
+// 	// Load data dengan preload terbatas
+// 	if err := c.DB.Debug().
+// 		Preload("InboundReferences").
+// 		Preload("Received").
+// 		Preload("Received.Product").
+// 		Preload("Details", func(db *gorm.DB) *gorm.DB {
+// 			return db.Limit(limit).Order("id ASC")
+// 		}).
+// 		First(&inbound, "inbound_no = ?", inbound_no).Error; err != nil {
+
+// 		if errors.Is(err, gorm.ErrRecordNotFound) {
+// 			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Inbound not found"})
+// 		}
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+// 	}
+
+// 	inboundRepo := repositories.NewInboundRepository(c.DB)
+// 	inbounDetails, err := inboundRepo.GetInboundDetailByInboundID(inbound.ID)
+// 	if err != nil {
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+// 	}
+
+// 	// Tambahkan informasi total detail
+// 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+// 		"success":       true,
+// 		"data":          inbound,
+// 		"details":       inbounDetails,
+// 		"details_limit": limit,
+// 		"details_total": totalDetails,
+// 	})
+// }
 
 func (c *InboundController) GetItem(ctx *fiber.Ctx) error {
 
