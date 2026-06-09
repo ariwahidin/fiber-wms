@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-playground/validator"
@@ -930,5 +931,202 @@ func (c *InventoryController) GetItemByLocation(ctx *fiber.Ctx) error {
 		"success": true,
 		"message": "Inventory by location retrieved successfully",
 		"data":    inventories,
+	})
+}
+
+// GetCartonInventory returns inventory grouped by carton_number,
+// filtered by item_code (required), and optionally division_code, pallet, location.
+//
+// Route: GET /inventory/cartons?item_code=xxx&division_code=xxx&pallet=xxx&location=xxx
+func (c *InventoryController) GetCartonInventory(ctx *fiber.Ctx) error {
+	itemCode := strings.TrimSpace(ctx.Query("item_code"))
+	if itemCode == "" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"error":   "item_code is required",
+		})
+	}
+
+	query := c.DB.Preload("Product").
+		Where("qty_available > ? AND item_code = ?", 0, itemCode)
+
+	if division := strings.TrimSpace(ctx.Query("division_code")); division != "" {
+		query = query.Where("division_code = ?", division)
+	}
+	if pallet := strings.TrimSpace(ctx.Query("pallet")); pallet != "" {
+		query = query.Where("pallet = ?", pallet)
+	}
+	if location := strings.TrimSpace(ctx.Query("location")); location != "" {
+		query = query.Where("location = ?", location)
+	}
+
+	var inventories []models.Inventory
+	if err := query.
+		Order("carton_number ASC, id ASC").
+		Find(&inventories).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"error":   "Failed to fetch carton inventories",
+		})
+	}
+
+	// Group by carton_number
+	type CartonGroup struct {
+		CartonNumber string             `json:"carton_number"`
+		ItemCode     string             `json:"item_code"`
+		ItemName     string             `json:"item_name"`
+		WhsCode      string             `json:"whs_code"`
+		Location     string             `json:"location"`
+		DivisionCode string             `json:"division_code"`
+		QaStatus     string             `json:"qa_status"`
+		OwnerCode    string             `json:"owner_code"`
+		Uom          string             `json:"uom"`
+		LotNumber    string             `json:"lot_number"`
+		Pallet       string             `json:"pallet"`
+		RecDate      string             `json:"rec_date"`
+		ProdDate     string             `json:"prod_date"`
+		ExpDate      string             `json:"exp_date"`
+		QtyAvailable float64            `json:"qty_available"`
+		Records      []models.Inventory `json:"records"`
+	}
+
+	groupMap := make(map[string]*CartonGroup)
+	groupOrder := []string{}
+
+	for _, inv := range inventories {
+		key := inv.CartonNumber
+		if key == "" {
+			key = fmt.Sprintf("__no_carton_%d__", inv.ID)
+		}
+
+		if _, exists := groupMap[key]; !exists {
+			groupMap[key] = &CartonGroup{
+				CartonNumber: inv.CartonNumber,
+				ItemCode:     inv.ItemCode,
+				ItemName:     inv.Product.ItemName,
+				WhsCode:      inv.WhsCode,
+				Location:     inv.Location,
+				DivisionCode: inv.DivisionCode,
+				QaStatus:     inv.QaStatus,
+				OwnerCode:    inv.OwnerCode,
+				Uom:          inv.Uom,
+				LotNumber:    inv.LotNumber,
+				Pallet:       inv.Pallet,
+				RecDate:      inv.RecDate,
+				ProdDate:     inv.ProdDate,
+				ExpDate:      inv.ExpDate,
+				QtyAvailable: 0,
+				Records:      []models.Inventory{},
+			}
+			groupOrder = append(groupOrder, key)
+		}
+
+		groupMap[key].QtyAvailable += inv.QtyAvailable
+		groupMap[key].Records = append(groupMap[key].Records, inv)
+	}
+
+	result := make([]*CartonGroup, 0, len(groupOrder))
+	for _, key := range groupOrder {
+		result = append(result, groupMap[key])
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"data": fiber.Map{
+			"cartons": result,
+			"total":   len(result),
+		},
+	})
+}
+
+func (c *InventoryController) GetInventoryGroupedByItem(ctx *fiber.Ctx) error {
+	itemCode := ctx.Query("item_code")
+	if itemCode == "" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "item_code is required",
+		})
+	}
+
+	type InventoryGrouped struct {
+		WhsCode           string  `json:"whs_code"`
+		Location          string  `json:"location"`
+		ItemCode          string  `json:"item_code"`
+		ItemName          string  `json:"item_name"`
+		Barcode           string  `json:"barcode"`
+		QaStatus          string  `json:"qa_status"`
+		DivisionCode      string  `json:"division_code"`
+		OwnerCode         string  `json:"owner_code"`
+		Uom               string  `json:"uom"`
+		RecDate           string  `json:"rec_date"`
+		ProdDate          string  `json:"prod_date"`
+		ExpDate           string  `json:"exp_date"`
+		LotNumber         string  `json:"lot_number"`
+		Pallet            string  `json:"pallet"`
+		CartonNumber      string  `json:"carton_number"`
+		TotalQtyAvailable float64 `json:"qty_available"`
+		RecordCount       int     `json:"record_count"`
+	}
+
+	var inventories []InventoryGrouped
+	result := c.DB.Table("inventories").
+		Select(`
+            inventories.whs_code,
+            inventories.location,
+            inventories.item_code,
+            products.item_name,
+            inventories.barcode,
+            inventories.qa_status,
+            inventories.division_code,
+            inventories.owner_code,
+            inventories.uom,
+            inventories.rec_date,
+            inventories.prod_date,
+            inventories.exp_date,
+            inventories.lot_number,
+            inventories.pallet,
+            inventories.carton_number,
+            SUM(inventories.qty_available) as total_qty_available,
+            COUNT(*) as record_count
+        `).
+		Joins("LEFT JOIN products ON inventories.item_id = products.id").
+		Where("inventories.deleted_at IS NULL").
+		Where("inventories.qty_onhand > ?", 0).
+		Where("inventories.item_code = ?", itemCode).
+		Group(`
+            inventories.whs_code,
+            inventories.location,
+            inventories.item_code,
+            products.item_name,
+            inventories.barcode,
+            inventories.qa_status,
+            inventories.division_code,
+            inventories.owner_code,
+            inventories.uom,
+            inventories.rec_date,
+            inventories.prod_date,
+            inventories.exp_date,
+            inventories.lot_number,
+            inventories.pallet,
+            inventories.carton_number
+        `).
+		Order("inventories.whs_code ASC, inventories.location ASC").
+		Find(&inventories)
+
+	if result.Error != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to retrieve inventory",
+			"error":   result.Error.Error(),
+		})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": "Inventory retrieved successfully",
+		"data": fiber.Map{
+			"inventories": inventories,
+		},
+		"total": len(inventories),
 	})
 }

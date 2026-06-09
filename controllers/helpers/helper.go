@@ -20,3 +20,12 @@ func IsValidEmail(email string) bool {
 	}
 	return true
 }
+
+// helper function, taruh di file utils/helpers
+func chunkInts(slice []int, size int) [][]int {
+	var chunks [][]int
+	for size < len(slice) {
+		slice, chunks = slice[size:], append(chunks, slice[:size])
+	}
+	return append(chunks, slice)
+}
