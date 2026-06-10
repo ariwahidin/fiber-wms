@@ -139,6 +139,8 @@ func (c *MobileInventoryController) GetItemsByLocationAndBarcode(ctx *fiber.Ctx)
 		InboundID       int64   `json:"inbound_id"`
 		InboundDetailID int64   `json:"inbound_detail_id"`
 		Barcode         string  `json:"barcode"`
+		DivisionCode    string  `json:"division_code"`
+		CartonNumber    string  `json:"carton_number"`
 		SerialNumber    string  `json:"serial_number"`
 		Pallet          string  `json:"pallet"`
 		Location        string  `json:"location"`
@@ -252,6 +254,201 @@ func (c *MobileInventoryController) GetItemsByLocationAndBarcode(ctx *fiber.Ctx)
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "data": inventories})
 }
 
+// func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fiber.Ctx) error {
+
+// 	var input struct {
+// 		FromLocation  string `json:"from_location"`
+// 		ToLocation    string `json:"to_location"`
+// 		ListInventory []struct {
+// 			ID       int    `json:"id"`
+// 			Location string `json:"location"`
+// 			Pallet   string `json:"pallet"`
+// 		} `json:"list_inventory"`
+// 	}
+
+// 	if err := ctx.BodyParser(&input); err != nil {
+// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+// 	}
+
+// 	fmt.Println("Input : ", input)
+
+// 	movementID := uuid.NewString()
+
+// 	if input.ToLocation == "" {
+// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "To Location is required"})
+// 	}
+
+// 	if len(input.ListInventory) == 0 {
+// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "List Inventory is required"})
+// 	}
+
+// 	// check ToLocation is registered
+// 	var location models.Location
+// 	if err := c.DB.Where("location_code = ?", input.ToLocation).First(&location).Error; err != nil {
+// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "To Location is not registered"})
+// 	}
+
+// 	// start db transaction
+// 	tx := c.DB.Begin()
+// 	if tx.Error != nil {
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": tx.Error.Error()})
+// 	}
+
+// 	defer func() {
+// 		if r := recover(); r != nil {
+// 			tx.Rollback()
+// 		}
+// 	}()
+
+// 	for _, inv := range input.ListInventory {
+
+// 		var inventory models.Inventory
+// 		if err := tx.Where("id = ? AND location = ? AND qty_available > 0", inv.ID, inv.Location).First(&inventory).Error; err != nil {
+// 			tx.Rollback()
+// 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Inventory not found or not available"})
+// 		}
+
+// 		// if inventory.Location != input.FromLocation {
+// 		// 	tx.Rollback()
+// 		// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Inventory not found or not available"})
+// 		// }
+
+// 		if inventory.Location == input.ToLocation {
+// 			tx.Rollback()
+// 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "From Location : " + inventory.Location + " and To Location : " + input.ToLocation + " cannot be the same"})
+// 		}
+
+// 		if inventory.QtyAvailable <= 0 {
+// 			tx.Rollback()
+// 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Inventory not found or not available"})
+// 		}
+
+// 		var newInventory models.Inventory
+// 		newInventory.OwnerCode = inventory.OwnerCode
+// 		newInventory.DivisionCode = inventory.DivisionCode
+// 		newInventory.Uom = inventory.Uom
+// 		newInventory.InboundID = inventory.InboundID
+// 		newInventory.InboundDetailId = inventory.InboundDetailId
+// 		newInventory.ItemId = inventory.ItemId
+// 		newInventory.ItemCode = inventory.ItemCode
+// 		newInventory.Barcode = inventory.Barcode
+// 		newInventory.WhsCode = inventory.WhsCode
+// 		newInventory.Pallet = inventory.Pallet
+// 		newInventory.Location = input.ToLocation
+// 		newInventory.QaStatus = inventory.QaStatus
+// 		newInventory.QtyOrigin = inventory.QtyAvailable
+// 		newInventory.QtyOnhand = inventory.QtyAvailable
+// 		newInventory.QtyAvailable = inventory.QtyAvailable
+// 		newInventory.Trans = "TRANSFER"
+// 		newInventory.IsTransfer = true
+// 		newInventory.TransferFrom = inventory.ID
+// 		newInventory.RecDate = inventory.RecDate
+// 		newInventory.ExpDate = inventory.ExpDate
+// 		newInventory.ProdDate = inventory.ProdDate
+// 		newInventory.LotNumber = inventory.LotNumber
+// 		newInventory.InventoryNumber = inventory.InventoryNumber
+// 		newInventory.CreatedAt = time.Now()
+// 		newInventory.CreatedBy = int(ctx.Locals("userID").(float64))
+
+// 		if err := tx.Create(&newInventory).Error; err != nil {
+// 			tx.Rollback()
+// 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+// 		}
+
+// 		// Record destination inventory movement
+// 		destMovement := models.InventoryMovement{
+// 			MovementID:         movementID,
+// 			InventoryID:        newInventory.ID,
+// 			RefType:            "TRANSFER",
+// 			RefID:              inventory.ID,
+// 			ItemID:             newInventory.ItemId,
+// 			ItemCode:           newInventory.ItemCode,
+// 			QtyOnhandChange:    newInventory.QtyAvailable,
+// 			QtyAvailableChange: newInventory.QtyAvailable,
+// 			QtyAllocatedChange: 0,
+// 			QtySuspendChange:   0,
+// 			QtyShippedChange:   0,
+// 			FromWhsCode:        inventory.WhsCode,
+// 			ToWhsCode:          newInventory.WhsCode,
+// 			FromLocation:       inventory.Location,
+// 			ToLocation:         input.ToLocation,
+// 			OldQaStatus:        inventory.QaStatus,
+// 			NewQaStatus:        newInventory.QaStatus,
+// 			FromDivision:       inventory.DivisionCode,
+// 			ToDivision:         newInventory.DivisionCode,
+// 			Reason:             "TRANSFER USING SCANNER",
+// 			CreatedBy:          int(ctx.Locals("userID").(float64)),
+// 			CreatedAt:          time.Now(),
+// 		}
+
+// 		if err := tx.Create(&destMovement).Error; err != nil {
+// 			tx.Rollback()
+// 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+// 				"success": false,
+// 				"error":   err.Error(),
+// 			})
+// 		}
+
+// 		var oldInventory models.Inventory
+// 		if err := tx.Where("id = ?", inv.ID).First(&oldInventory).Error; err != nil {
+// 			tx.Rollback()
+// 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+// 		}
+
+// 		oldInventory.QtyOrigin = oldInventory.QtyOrigin - inventory.QtyAvailable
+// 		oldInventory.QtyOnhand = oldInventory.QtyOnhand - inventory.QtyAvailable
+// 		oldInventory.QtyAvailable = oldInventory.QtyAvailable - inventory.QtyAvailable
+// 		oldInventory.UpdatedAt = time.Now()
+// 		oldInventory.UpdatedBy = int(ctx.Locals("userID").(float64))
+
+// 		if err := tx.Select("qty_origin", "qty_onhand", "qty_available", "updated_at", "updated_by").Updates(&oldInventory).Error; err != nil {
+// 			tx.Rollback()
+// 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+// 		}
+
+// 		// Record source inventory movement
+// 		sourceMovement := models.InventoryMovement{
+// 			MovementID:         movementID,
+// 			InventoryID:        oldInventory.ID,
+// 			RefType:            "TRANSFER",
+// 			RefID:              newInventory.ID,
+// 			ItemID:             oldInventory.ItemId,
+// 			ItemCode:           oldInventory.ItemCode,
+// 			QtyOnhandChange:    -inventory.QtyAvailable,
+// 			QtyAvailableChange: -inventory.QtyAvailable,
+// 			QtyAllocatedChange: 0,
+// 			QtySuspendChange:   0,
+// 			QtyShippedChange:   0,
+// 			FromWhsCode:        oldInventory.WhsCode,
+// 			ToWhsCode:          newInventory.WhsCode,
+// 			FromLocation:       inventory.Location,
+// 			ToLocation:         input.ToLocation,
+// 			OldQaStatus:        oldInventory.QaStatus,
+// 			NewQaStatus:        newInventory.QaStatus,
+// 			FromDivision:       inventory.DivisionCode,
+// 			ToDivision:         newInventory.DivisionCode,
+// 			Reason:             "TRANSFER USING SCANNER",
+// 			CreatedBy:          int(ctx.Locals("userID").(float64)),
+// 			CreatedAt:          time.Now(),
+// 		}
+
+// 		if err := tx.Create(&sourceMovement).Error; err != nil {
+// 			tx.Rollback()
+// 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+// 				"success": false,
+// 				"error":   "Failed to record source movement",
+// 			})
+// 		}
+
+// 	}
+
+// 	if err := tx.Commit().Error; err != nil {
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+// 	}
+
+// 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Confirm putaway successfully"})
+// }
+
 func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fiber.Ctx) error {
 
 	var input struct {
@@ -271,14 +468,6 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 	fmt.Println("Input : ", input)
 
 	movementID := uuid.NewString()
-
-	// if input.FromLocation == "" || input.ToLocation == "" {
-	// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "From Location and To Location are required"})
-	// }
-
-	// if input.FromLocation == input.ToLocation {
-	// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "From Location and To Location cannot be the same"})
-	// }
 
 	if input.ToLocation == "" {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "To Location is required"})
@@ -306,6 +495,72 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 		}
 	}()
 
+	// ── Pre-fetch: hitung total item per pallet di DB ─────────────────────────
+	// Kumpulkan distinct pallet dari input
+	palletSet := map[string]bool{}
+	for _, inv := range input.ListInventory {
+		if inv.Pallet != "" {
+			palletSet[inv.Pallet] = true
+		}
+	}
+	palletIDs := make([]string, 0, len(palletSet))
+	for p := range palletSet {
+		palletIDs = append(palletIDs, p)
+	}
+
+	// Hitung total qty_available > 0 per pallet di DB (semua item, bukan hanya yang di-transfer)
+	type palletCount struct {
+		Pallet string
+		Total  int
+	}
+	var palletCounts []palletCount
+	if err := tx.Model(&models.Inventory{}).
+		Select("pallet, COUNT(*) as total").
+		Where("pallet IN ? AND qty_available > 0", palletIDs).
+		Group("pallet").
+		Scan(&palletCounts).Error; err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	// Map: pallet → total item di DB
+	dbPalletTotal := map[string]int{}
+	for _, pc := range palletCounts {
+		dbPalletTotal[pc.Pallet] = pc.Total
+	}
+
+	// Hitung berapa item per pallet yang ada di input (yang akan di-transfer)
+	inputPalletCount := map[string]int{}
+	for _, inv := range input.ListInventory {
+		inputPalletCount[inv.Pallet]++
+	}
+
+	// Cache pallet baru per pallet lama (supaya semua item dari pallet yang sama
+	// dapat pallet baru yang sama, bukan generate baru tiap item)
+	inventoryRepo := repositories.NewInventoryRepository(tx)
+	newPalletCache := map[string]string{}
+
+	resolveNewPallet := func(oldPallet string) (string, error) {
+		// Cek apakah pallet ini perlu di-split
+		isSplit := inputPalletCount[oldPallet] < dbPalletTotal[oldPallet]
+		if !isSplit {
+			// Semua item pallet ini ikut transfer → pakai pallet lama
+			return oldPallet, nil
+		}
+		// Perlu split → cek cache dulu
+		if cached, ok := newPalletCache[oldPallet]; ok {
+			return cached, nil
+		}
+		// Generate pallet baru
+		newPallet, err := inventoryRepo.GeneratePalletID()
+		if err != nil {
+			return "", err
+		}
+		newPalletCache[oldPallet] = newPallet
+		return newPallet, nil
+	}
+	// ─────────────────────────────────────────────────────────────────────────
+
 	for _, inv := range input.ListInventory {
 
 		var inventory models.Inventory
@@ -314,14 +569,21 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Inventory not found or not available"})
 		}
 
-		// if inventory.Location != input.FromLocation {
-		// 	tx.Rollback()
-		// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Inventory not found or not available"})
-		// }
+		if inventory.Location == input.ToLocation {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "From Location : " + inventory.Location + " and To Location : " + input.ToLocation + " cannot be the same"})
+		}
 
 		if inventory.QtyAvailable <= 0 {
 			tx.Rollback()
 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Inventory not found or not available"})
+		}
+
+		// Resolve pallet untuk inventory ini (split atau tetap)
+		assignedPallet, err := resolveNewPallet(inv.Pallet)
+		if err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
 
 		var newInventory models.Inventory
@@ -334,7 +596,7 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 		newInventory.ItemCode = inventory.ItemCode
 		newInventory.Barcode = inventory.Barcode
 		newInventory.WhsCode = inventory.WhsCode
-		newInventory.Pallet = inventory.Pallet
+		newInventory.Pallet = assignedPallet // ← pakai hasil resolve
 		newInventory.Location = input.ToLocation
 		newInventory.QaStatus = inventory.QaStatus
 		newInventory.QtyOrigin = inventory.QtyAvailable
@@ -348,6 +610,7 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 		newInventory.ProdDate = inventory.ProdDate
 		newInventory.LotNumber = inventory.LotNumber
 		newInventory.InventoryNumber = inventory.InventoryNumber
+		newInventory.CartonNumber = inventory.CartonNumber
 		newInventory.CreatedAt = time.Now()
 		newInventory.CreatedBy = int(ctx.Locals("userID").(float64))
 
@@ -440,14 +703,13 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 				"error":   "Failed to record source movement",
 			})
 		}
-
 	}
 
 	if err := tx.Commit().Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Confirm putaway successfully"})
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Confirm transfer successfully"})
 }
 
 func (c *MobileInventoryController) ConfirmTransferByInventoryID(ctx *fiber.Ctx) error {
