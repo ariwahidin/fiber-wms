@@ -888,8 +888,6 @@ func (r *OutboundRepository) GetPackingItemsList(outboundID int, packingNo strin
 				a.pack_ctn_no,
                 b.barcode,
                 b.item_name,
-                b.cbm,
-                a.serial_number,
                 e.outbound_no,
                 e.customer_code,
                 e.outbound_date,
@@ -899,14 +897,7 @@ func (r *OutboundRepository) GetPackingItemsList(outboundID int, packingNo strin
                 h.transporter_code,
 				a.uom_scan,
 				SUM(a.qty_data_scan) as qty_scan,
-				a.barcode_data_scan as barcode_scan,
-				b.user_def1,
-				a.ctn_length,
-				a.ctn_width,
-				a.ctn_height,
-				a.ctn_max_weight,
-				a.ctn_tare_weight,
-				a.ctn_volume
+				a.barcode_data_scan as barcode_scan
         FROM outbound_barcodes a
         INNER JOIN products b ON a.item_id = b.id
         INNER JOIN outbound_packings c ON a.packing_id = c.id
@@ -939,20 +930,12 @@ func (r *OutboundRepository) GetPackingItemsList(outboundID int, packingNo strin
                 e.plan_pickup_time,
                 g.customer_name,
                 h.transporter_code,
-                a.serial_number,
                 a.packing_no,
                 c.created_at,
 				a.uom_scan,
 				a.barcode_data_scan,
-				a.pack_ctn_no,
-				b.user_def1,
-				a.ctn_length,
-				a.ctn_width,
-				a.ctn_height,
-				a.ctn_max_weight,
-				a.ctn_tare_weight,
-				a.ctn_volume
-        ORDER BY a.pack_ctn_no ASC
+				a.pack_ctn_no
+		ORDER BY CAST(a.pack_ctn_no AS INT) ASC
 	`
 
 	if err := r.db.Debug().Raw(sql, outboundID, packingNo).Scan(&result).Error; err != nil {
