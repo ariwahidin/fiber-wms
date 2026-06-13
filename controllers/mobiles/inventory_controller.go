@@ -191,7 +191,7 @@ func (c *MobileInventoryController) GetItemsByLocationAndBarcode(ctx *fiber.Ctx)
 		}
 
 		// ── Branch: Barcode (EAN) mode ────────────────────────────────────────────
-	} else if req.Barcode != "" {
+	} else if req.Barcode != "" && req.Location != "" && req.Sku == "" {
 		uomConvByBarcode, err := uomRepo.GetUomConversionByEan(req.Barcode)
 		if err != nil {
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
@@ -213,13 +213,13 @@ func (c *MobileInventoryController) GetItemsByLocationAndBarcode(ctx *fiber.Ctx)
 		}
 
 		// ── Branch: SKU mode ──────────────────────────────────────────────────────
-	} else if req.Sku != "" {
+	} else if req.Sku != "" && req.Location != "" && req.Barcode != "" {
 		if err := c.DB.
 			Table("inventories").
 			Select(`inventories.*,
 				qty_available AS qty_display,
-				uom AS uom_display,
-				barcode AS ean_display,
+				inventories.uom AS uom_display,
+				products.barcode AS ean_display,
 				COALESCE(products.item_name, '') AS item_name`).
 			Joins("LEFT JOIN products ON products.item_code = inventories.item_code").
 			Where("inventories.location = ? AND inventories.item_code = ? AND inventories.qty_available > 0",
@@ -1080,6 +1080,106 @@ func (c *MobileInventoryController) GetItemsByBarcode(ctx *fiber.Ctx) error {
 	})
 }
 
+func (c *MobileInventoryController) GetInventoryByItem(ctx *fiber.Ctx) error {
+
+	type request struct {
+		Barcode string `json:"barcode"` // bisa EAN atau item_code
+	}
+
+	type resultInventory struct {
+		ID           int64   `json:"ID"`
+		Barcode      string  `json:"barcode"`
+		DivisionCode string  `json:"division_code"`
+		SerialNumber string  `json:"serial_number"`
+		Pallet       string  `json:"pallet"`
+		Location     string  `json:"location"`
+		QaStatus     string  `json:"qa_status"`
+		WhsCode      string  `json:"whs_code"`
+		QtyAvailable float64 `json:"qty_available"`
+		RecDate      string  `json:"rec_date"`
+		LotNumber    string  `json:"lot_number"`
+		ProdDate     string  `json:"prod_date"`
+		ExpDate      string  `json:"exp_date"`
+		QtyDisplay   float64 `json:"qty_display"`
+		UomDisplay   string  `json:"uom_display"`
+		EanDisplay   string  `json:"ean_display"`
+		OwnerCode    string  `json:"owner_code"`
+		ItemCode     string  `json:"item_code"`
+		ItemName     string  `json:"item_name"`
+	}
+
+	var req request
+	if err := ctx.BodyParser(&req); err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"error":   "Invalid request body",
+		})
+	}
+
+	if req.Barcode == "" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"error":   "Barcode or item code is required",
+		})
+	}
+
+	var inventories []resultInventory
+	uomRepo := repositories.NewUomRepository(c.DB)
+
+	// ── Coba lookup sebagai EAN dulu via uom_conversion ───────────────────────
+	uomConv, err := uomRepo.GetUomConversionByEan(req.Barcode)
+
+	if err == nil && uomConv.BaseEan != "" {
+		// ── EAN mode: barcode ditemukan di uom_conversion ─────────────────────
+		if err := c.DB.
+			Table("inventories").
+			Select(`inventories.*,
+				inventories.qty_available / ? AS qty_display,
+				? AS uom_display,
+				? AS ean_display,
+				COALESCE(products.item_name, '') AS item_name`,
+				uomConv.Rate, uomConv.Uom, req.Barcode).
+			Joins("LEFT JOIN products ON products.item_code = inventories.item_code").
+			Where("inventories.barcode = ? AND inventories.qty_available > 0", uomConv.BaseEan).
+			Find(&inventories).Error; err != nil {
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"success": false,
+				"error":   err.Error(),
+			})
+		}
+	} else {
+		// ── Item code / base EAN mode: fallback langsung ke inventories ───────
+		if err := c.DB.
+			Table("inventories").
+			Select(`inventories.*,
+				inventories.qty_available AS qty_display,
+				products.uom AS uom_display,
+				inventories.barcode AS ean_display,
+				COALESCE(products.item_name, '') AS item_name`).
+			Joins("LEFT JOIN products ON products.item_code = inventories.item_code").
+			Where("(inventories.barcode = ? OR inventories.item_code = ?) AND inventories.qty_available > 0",
+				req.Barcode, req.Barcode).
+			Find(&inventories).Error; err != nil {
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"success": false,
+				"error":   err.Error(),
+			})
+		}
+	}
+
+	if len(inventories) == 0 {
+		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"success": false,
+			"message": "Item not found",
+		})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"data":    inventories,
+	})
+}
+
 type RegisterProductRequest struct {
 	OwnerCode   string `json:"owner_code"`
 	SKU         string `json:"sku"`
@@ -1359,5 +1459,100 @@ func (c *MobileInventoryController) DeleteProduct(ctx *fiber.Ctx) error {
 		"success": true,
 		"message": "Product deleted successfully",
 		"data":    product,
+	})
+}
+
+func (c *MobileInventoryController) GetTransferHistory(ctx *fiber.Ctx) error {
+
+	type request struct {
+		DateFrom string `json:"date_from"` // format: YYYY-MM-DD
+		DateTo   string `json:"date_to"`   // format: YYYY-MM-DD
+	}
+
+	type TransferRecord struct {
+		ItemCode     string  `json:"item_code"`
+		ItemName     string  `json:"item_name"`
+		FromDivision string  `json:"from_division"`
+		ToDivision   string  `json:"to_division"`
+		FromLocation string  `json:"from_location"`
+		ToLocation   string  `json:"to_location"`
+		OldQaStatus  string  `json:"old_qa_status"`
+		NewQaStatus  string  `json:"new_qa_status"`
+		Qty          float64 `json:"qty"`
+		Username     string  `json:"username"`
+		CreatedBy    int64   `json:"created_by"`
+		CreatedAt    string  `json:"created_at"`
+	}
+
+	var req request
+	if err := ctx.BodyParser(&req); err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"error":   "Invalid request body",
+		})
+	}
+
+	if req.DateFrom == "" || req.DateTo == "" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"error":   "date_from and date_to are required",
+		})
+	}
+
+	var results []TransferRecord
+
+	query := `
+		SELECT
+			a.item_code,
+			COALESCE(b.item_name, '') AS item_name,
+			COALESCE(a.from_division, '') AS from_division,
+			COALESCE(a.to_division, '') AS to_division,
+			COALESCE(a.from_location, '') AS from_location,
+			COALESCE(a.to_location, '') AS to_location,
+			COALESCE(a.old_qa_status, '') AS old_qa_status,
+			COALESCE(a.new_qa_status, '') AS new_qa_status,
+			SUM(a.qty_available_change) AS qty,
+			COALESCE(c.username, '') AS username,
+			a.created_by,
+			CAST(a.created_at AS DATE) AS created_at
+		FROM inventory_movements a
+		LEFT JOIN products b ON a.item_code = b.item_code
+		LEFT JOIN users c ON a.created_by = c.id
+		WHERE a.ref_type = 'TRANSFER'
+			AND a.qty_onhand_change > 0
+			AND CAST(a.created_at AS DATE) BETWEEN ? AND ?
+		GROUP BY
+			a.item_code,
+			b.item_name,
+			a.from_division,
+			a.to_division,
+			a.from_location,
+			a.to_location,
+			a.old_qa_status,
+			a.new_qa_status,
+			c.username,
+			a.created_by,
+			CAST(a.created_at AS DATE)
+		ORDER BY
+			CAST(a.created_at AS DATE) DESC
+	`
+
+	if err := c.DB.Raw(query, req.DateFrom, req.DateTo).Scan(&results).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"error":   err.Error(),
+		})
+	}
+
+	if len(results) == 0 {
+		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"success": false,
+			"message": "No transfer records found for the selected date range",
+		})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"data":    results,
 	})
 }

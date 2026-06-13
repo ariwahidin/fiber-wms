@@ -35,12 +35,14 @@ func SetupMobileInventoryRoutes(app *fiber.App) {
 	api.Use(database.InjectDBMiddleware(mobileInventoryController))
 
 	api.Get("/inventory/by-item/:barcode", mobileInventoryController.GetItemsByBarcode)
+	api.Post("/inventory/item/barcode", mobileInventoryController.GetInventoryByItem)
 	api.Get("/inventory/location/:location", mobileInventoryController.GetItemsByLocation)
 	// api.Post("/inventory/dummy", mobileInventoryController.CreateDummyInventory)
 	api.Post("/inventory/location/barcode", mobileInventoryController.GetItemsByLocationAndBarcode)
 	api.Post("/inventory/transfer/location/barcode", mobileInventoryController.ConfirmTransferByLocationAndBarcode)
 	api.Post("/inventory/transfer-by-inventory-id", mobileInventoryController.ConfirmTransferByInventoryID)
 	api.Post("/inventory/add-location", mobileInventoryController.CreateLocation)
+	api.Post("/inventory/transfer/history", mobileInventoryController.GetTransferHistory)
 	// api.Post("/inventory/add-item", mobileInventoryController.CreateRegisterProduct)
 	// Route untuk registrasi produk baru
 	api.Post("/inventory/add-item", mobileInventoryController.CreateRegisterProduct)
