@@ -36,6 +36,7 @@ func SetupMobileInventoryRoutes(app *fiber.App) {
 
 	api.Get("/inventory/by-item/:barcode", mobileInventoryController.GetItemsByBarcode)
 	api.Post("/inventory/item/barcode", mobileInventoryController.GetInventoryByItem)
+	api.Get("/inventory/location/pallets", mobileInventoryController.GetPalletsByLocation)
 	api.Get("/inventory/location/:location", mobileInventoryController.GetItemsByLocation)
 	// api.Post("/inventory/dummy", mobileInventoryController.CreateDummyInventory)
 	api.Post("/inventory/location/barcode", mobileInventoryController.GetItemsByLocationAndBarcode)
@@ -58,6 +59,7 @@ func SetupMobileInventoryRoutes(app *fiber.App) {
 
 	// Route untuk hapus produk
 	api.Delete("/inventory/products/:id", mobileInventoryController.DeleteProduct)
+
 }
 
 func SetupMobileOutboundRoutes(app *fiber.App) {
