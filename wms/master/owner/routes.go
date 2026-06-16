@@ -9,7 +9,6 @@ import (
 )
 
 func SetupOwnerRoutes(app *fiber.App) {
-	// To fix import cycle, temporarily remove middleware usage here.
 	api := app.Group(config.MAIN_ROUTES+"/owners", middleware.AuthMiddleware)
 	ownerController := &OwnerHandler{}
 	api.Use(database.InjectDBMiddleware(ownerController))

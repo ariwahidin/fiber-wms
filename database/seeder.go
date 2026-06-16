@@ -28,6 +28,7 @@ func RunSeeders(db *gorm.DB) {
 	SeedEmailNotification(db)
 	SeedReportBuilder(db)
 	seedReasonCodes(db)
+	RunCompanyConfigMigration(db)
 }
 
 func SeedUnit(db *gorm.DB) {
@@ -571,6 +572,43 @@ func SeedReportBuilder(db *gorm.DB) error {
 		}
 	}
 
+	return nil
+}
+
+func RunCompanyConfigMigration(db *gorm.DB) error {
+	// err := db.AutoMigrate(&models.CompanyConfig{})
+	// if err != nil {
+	// 	log.Fatalf("Failed to migrate CompanyConfig: %v", err)
+	// }
+	// log.Println("CompanyConfig migration completed")
+
+	// Seed default config kalau tabel masih kosong
+	var count int64
+	db.Model(&models.CompanyConfig{}).Count(&count)
+	if count == 0 {
+		seed := models.CompanyConfig{
+			CompanyName:  "PT Yusen Logistics Interlink Indonesia",
+			CompanyShort: "Yusen Logistics",
+			AppName:      "YuTrackWMS",
+			Tagline:      "Track Everything in Warehouse",
+			LogoURL:      "/uploads/company/logo/default.png",
+			PrimaryColor: "#041F5F",
+			AccentColor:  "#1A50C8",
+			LoginTheme:   "ThemeModern",
+			LoginSlides: models.JSONSlides{
+				{ImageURL: "/images/wms_cover.jpeg", Title: "Warehouse Management", Subtitle: "Efficient inventory control"},
+				{ImageURL: "/images/truck_yusen2.jpeg", Title: "Transport Management", Subtitle: "Seamless delivery tracking"},
+				{ImageURL: "/images/warehouse_staff.jpeg", Title: "Smart Logistics", Subtitle: "End-to-end solutions"},
+				{ImageURL: "/images/drone.jpeg", Title: "Scalable System", Subtitle: "Grow your warehouse without complexity"},
+				{ImageURL: "/images/tms_cover.jpeg", Title: "System Integration", Subtitle: "Connected transport and warehouse flow"},
+			},
+		}
+		if err := db.Create(&seed).Error; err != nil {
+			log.Printf("Failed to seed CompanyConfig: %v", err)
+		} else {
+			log.Println("CompanyConfig seeded with default values")
+		}
+	}
 	return nil
 }
 

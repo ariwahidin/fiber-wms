@@ -2,6 +2,9 @@
 # /config/db.go
 # .env
 
+#
+public/uploads/
+
 # ignore temporary build log
 tmp/build-errors.log
 tmp/main.exe

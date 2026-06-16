@@ -61,6 +61,7 @@ func MigrateBusinessUnit(db *gorm.DB) error {
 		&models.Division{},
 		&models.Location{},
 		&models.Owner{},
+		&models.OwnerQRConfig{},
 
 		&models.MainVas{},
 		&models.VasRate{},
@@ -74,6 +75,7 @@ func MigrateBusinessUnit(db *gorm.DB) error {
 		&models.UserOwner{},
 		&models.UserSession{},
 		&models.LoginConflict{},
+		&models.CompanyConfig{},
 
 		&models.ProductRegister{},
 		&models.MasterCarton{},

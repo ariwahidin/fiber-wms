@@ -32,6 +32,7 @@ import (
 	"os"
 	"time"
 
+	company_config_controller "fiber-app/controllers/company_config_controller"
 	integration_ctrl "fiber-app/controllers/integration_ctrl"
 	notification_ctrl "fiber-app/controllers/notification_ctrl"
 	report_builder "fiber-app/controllers/report_builder"
@@ -156,6 +157,7 @@ func main() {
 
 	// Setup CORS middleware
 	config.SetupCORS(app)
+	app.Static("/uploads", "./public/uploads")
 	app.Use(middleware.ConsoleLogger())
 
 	mainRoutes := os.Getenv("MAIN_ROUTES") // /api/v1
@@ -193,6 +195,7 @@ func main() {
 	vas_controller.SetupVasRoutes(app)
 	qa_controller.SetupQaRoutes(app)
 	owner_controller.SetupOwnerRoutes(app)
+	company_config_controller.SetupCompanyConfigRoutes(app)
 	division_controller.SetupDivisionRoutes(app)
 	inventory_controller.SetupInventoryRoutes(app)
 	inbound_controller.SetupInboundRoutes(app)
