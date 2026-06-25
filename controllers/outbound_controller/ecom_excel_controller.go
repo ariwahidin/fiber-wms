@@ -414,6 +414,7 @@ func (c *OutboundController) CreateOutboundFromEcommerceExcel(ctx *fiber.Ctx) er
 		now := time.Now()
 		nowDate := now.Format("2006-01-02")
 		nowTime := now.Format("15:04")
+		defaultPickupTime := "16:00"
 
 		outboundHeader := models.OutboundHeader{
 			OutboundNo:     outboundNo,
@@ -435,7 +436,7 @@ func (c *OutboundController) CreateOutboundFromEcommerceExcel(ctx *fiber.Ctx) er
 			DelivAddress:   customer.CustAddr1,
 			DelivCity:      customer.CustCity,
 			PlanPickupDate: nowDate,
-			PlanPickupTime: nowTime,
+			PlanPickupTime: defaultPickupTime,
 			RcvDoDate:      nowDate,
 			RcvDoTime:      nowTime,
 			StartPickTime:  nowTime,

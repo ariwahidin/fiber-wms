@@ -21,6 +21,7 @@ func SetupOutboundRoutes(app *fiber.App) {
 
 	api.Post("/upload-excel", outboundController.CreateOutboundFromExcelFile)
 	api.Post("/upload-ecommerce-excel", outboundController.CreateOutboundFromEcommerceExcel)
+	api.Post("/upload-b2b-excel", outboundController.CreateOutboundFromB2BExcel)
 	api.Post("/", outboundController.CreateOutbound)
 	api.Get("/", outboundController.GetOutboundList)
 	api.Get("/filter", outboundController.GetOutboundListFilter)
