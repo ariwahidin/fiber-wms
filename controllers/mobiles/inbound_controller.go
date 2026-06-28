@@ -373,6 +373,14 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 			})
 		}
 
+		if len(scanInbound.InnerSerials) != int(scanInbound.QtyScan) {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error":   "Quantity scan does not match with total length of serial numbers",
+				"message": "Quantity scan does not match with total length of serial numbers",
+			})
+		}
+
 		for _, sn := range scanInbound.InnerSerials {
 			// Cek duplikat serial
 			var existing models.InboundBarcode
@@ -898,124 +906,6 @@ func (c *MobileInboundController) CheckItemPutaway(ctx *fiber.Ctx) error {
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Pallet found", "data": fiber.Map{"inbound": inboundBarcodes}})
 }
-
-// func (c *MobileInboundController) CheckItemPutaway(ctx *fiber.Ctx) error {
-// 	var scanPutaway struct {
-// 		Filter    string `json:"filter"`
-// 		InboundNo string `json:"inbound_no"`
-// 		Pallet    string `json:"pallet"`
-// 	}
-
-// 	if err := ctx.BodyParser(&scanPutaway); err != nil {
-// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
-// 	}
-
-// 	var inboundHeader models.InboundHeader
-// 	if err := c.DB.Where("inbound_no = ?", scanPutaway.InboundNo).First(&inboundHeader).Error; err != nil {
-// 		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Inbound not found", "message": "Inbound not found"})
-// 	}
-
-// 	var inboundBarcodes []models.InboundBarcode
-
-// 	switch scanPutaway.Filter {
-// 	case "working":
-// 		if err := c.DB.Debug().Where("inbound_id = ? AND location = ? AND status = ?", inboundHeader.ID, scanPutaway.Pallet, "pending").
-// 			Find(&inboundBarcodes).Error; err != nil {
-// 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-// 		}
-// 	case "pending":
-// 		if err := c.DB.Debug().Where("inbound_id = ? AND status = ?", inboundHeader.ID, "pending").
-// 			Find(&inboundBarcodes).Error; err != nil {
-// 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-// 		}
-// 	case "completed":
-// 		if err := c.DB.Debug().
-// 			Where("inbound_id = ? AND status = ?", inboundHeader.ID, "in stock").
-// 			Order("created_at DESC").
-// 			Find(&inboundBarcodes).Error; err != nil {
-// 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-// 		}
-// 	}
-
-// 	if len(inboundBarcodes) < 1 {
-// 		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Pallet not found", "message": "Pallet not found"})
-// 	}
-
-// 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Pallet found", "data": fiber.Map{"inbound": inboundBarcodes}})
-// }
-
-// func (c *MobileInboundController) PutawayAll(ctx *fiber.Ctx) error {
-
-// 	type PutawayPayload struct {
-// 		InboundNo string `json:"inbound_no"`
-// 		ItemIDs   []int  `json:"item_ids"`
-// 		Location  string `json:"location"`
-// 	}
-
-// 	var req PutawayPayload
-
-// 	if err := ctx.BodyParser(&req); err != nil {
-// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-// 			"error": "Invalid request body: " + err.Error(),
-// 		})
-// 	}
-
-// 	if req.InboundNo == "" || len(req.ItemIDs) < 1 || req.Location == "" {
-// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-// 			"error": "inbound_no, item_ids, and location are required",
-// 		})
-// 	}
-
-// 	// Transaction
-// 	tx := c.DB.Begin()
-// 	defer func() {
-// 		if r := recover(); r != nil {
-// 			tx.Rollback()
-// 		}
-// 	}()
-
-// 	inboundHeader := models.InboundHeader{}
-// 	if err := tx.Where("inbound_no = ?", req.InboundNo).First(&inboundHeader).Error; err != nil {
-// 		tx.Rollback()
-// 		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
-// 			"error": "Inbound not found: " + err.Error(),
-// 		})
-// 	}
-
-// 	inboundRepo := repositories.NewInboundRepository(tx)
-
-// 	if err := tx.Where("location_code = ?", req.Location).First(&models.Location{}).Error; err != nil {
-// 		tx.Rollback()
-// 		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
-// 			"error": "Location " + req.Location + " not registered: " + err.Error(),
-// 		})
-// 	}
-
-// 	for _, itemID := range req.ItemIDs {
-// 		_, err := inboundRepo.ProcessPutawayItem(ctx, itemID, req.Location)
-// 		if err != nil {
-// 			tx.Rollback()
-// 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-// 				"error": "Failed to process putaway: " + err.Error(),
-// 			})
-// 		}
-// 	}
-
-// 	if err := inboundRepo.UpdateStatusInbound(ctx, inboundHeader.ID); err != nil {
-// 		tx.Rollback()
-// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-// 			"error": "Failed to update inbound status: " + err.Error(),
-// 		})
-// 	}
-
-// 	if err := tx.Commit().Error; err != nil {
-// 		tx.Rollback()
-// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-// 			"error": "Failed to commit transaction: " + err.Error(),
-// 		})
-// 	}
-// 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Putaway item successfully"})
-// }
 
 func (c *MobileInboundController) PutawayAll(ctx *fiber.Ctx) error {
 
