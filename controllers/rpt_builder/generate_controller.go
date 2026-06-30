@@ -210,6 +210,11 @@ func (c *GenerateController) Download(ctx *fiber.Ctx) error {
 			})
 		}
 
+		fmt.Println("=== QUERY ===")
+		fmt.Println(query)
+		fmt.Println("=== ARGS ===")
+		fmt.Println(args)
+
 		var rows []map[string]interface{}
 		if err := c.ReadDB.Raw(query, args...).Scan(&rows).Error; err != nil {
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
