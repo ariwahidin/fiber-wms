@@ -117,16 +117,18 @@ type InventoryMovement struct {
 	QtyAvailableAfter  *float64 `gorm:"default:null" json:"qty_available_after"`
 
 	// Konteks whs_code, lokasi & status
-	FromWhsCode  string `gorm:"size:20"`
-	ToWhsCode    string `gorm:"size:20"`
-	FromLocation string `gorm:"size:100"`
-	ToLocation   string `gorm:"size:100"`
-	OldQaStatus  string `gorm:"size:50"`
-	NewQaStatus  string `gorm:"size:50"`
-	FromDivision string `gorm:"size:50"`
-	ToDivision   string `gorm:"size:50"`
-	FromPallet   string `gorm:"size:100"`
-	ToPallet     string `gorm:"size:100"`
+	FromWhsCode   string `gorm:"size:20"`
+	ToWhsCode     string `gorm:"size:20"`
+	FromLocation  string `gorm:"size:100"`
+	ToLocation    string `gorm:"size:100"`
+	OldQaStatus   string `gorm:"size:50"`
+	NewQaStatus   string `gorm:"size:50"`
+	FromDivision  string `gorm:"size:50"`
+	ToDivision    string `gorm:"size:50"`
+	FromPallet    string `gorm:"size:100"`
+	ToPallet      string `gorm:"size:100"`
+	FromLotNumber string `gorm:"size:100"`
+	ToLotNumber   string `gorm:"size:100"`
 
 	// Metadata
 	Reason    string `gorm:"size:255"`
