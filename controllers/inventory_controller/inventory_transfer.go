@@ -1325,7 +1325,7 @@ func (c *InventoryController) TransferInventory(ctx *fiber.Ctx) error {
 			tx.Rollback()
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 				"success": false,
-				"error":   "Failed to record source movement",
+				"error":   "Failed to record source movement " + err.Error(),
 			})
 		}
 

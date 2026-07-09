@@ -1077,7 +1077,7 @@ func (c *InventoryController) GetCartonInventory(ctx *fiber.Ctx) error {
 	}
 
 	var inventories []models.Inventory
-	if err := query.
+	if err := query.Debug().
 		Order("carton_number ASC, id ASC").
 		Find(&inventories).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
