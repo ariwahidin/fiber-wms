@@ -18,6 +18,7 @@ func SetupLocationRoutes(app *fiber.App) {
 	api.Post("/upload-excel", locationController.CreateLocationFromExcel)
 	api.Post("/", locationController.CreateLocation)
 	api.Get("/", locationController.GetAllLocations)
+	api.Get("/rows", locationController.GetDistinctRows)
 	api.Get("/:id", locationController.GetLocationByID)
 	api.Put("/:id", locationController.UpdateLocation)
 	api.Delete("/:id", locationController.DeleteLocation)

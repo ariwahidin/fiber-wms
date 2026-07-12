@@ -138,6 +138,29 @@ func (c *ProductController) GetProductByID(ctx *fiber.Ctx) error {
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Product found", "data": result})
 }
 
+func (c *ProductController) LookupProduct(ctx *fiber.Ctx) error {
+	barcode := ctx.Query("barcode")
+	sku := ctx.Query("sku")
+
+	if barcode == "" && sku == "" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "barcode or sku query param is required"})
+	}
+
+	var product models.Product
+	var err error
+	if sku != "" {
+		err = c.DB.Where("item_code = ?", sku).First(&product).Error
+	} else {
+		err = c.DB.Where("barcode = ?", barcode).First(&product).Error
+	}
+
+	if err != nil {
+		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"success": false, "message": "Product not found"})
+	}
+
+	return ctx.JSON(fiber.Map{"success": true, "data": product})
+}
+
 func (c *ProductController) UpdateProduct(ctx *fiber.Ctx) error {
 	id, err := ctx.ParamsInt("id")
 	if err != nil {

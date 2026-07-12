@@ -16,6 +16,7 @@ func SetupProductRoutes(app *fiber.App) {
 	api.Get("/owner-codes", productController.GetOwnerCodes)
 	api.Post("/export", productController.ExportProduct)
 	api.Post("/", productController.CreateProduct)
+	api.Get("/lookup", productController.LookupProduct)
 	api.Get("/:id", productController.GetProductByID)
 	api.Put("/:id", productController.UpdateProduct)
 	api.Get("/", productController.GetAllProducts)

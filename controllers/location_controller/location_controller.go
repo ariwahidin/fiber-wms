@@ -609,3 +609,25 @@ func getCellx(row []string, index int) string {
 //====================================================================
 // END CREATE LOCATION FROM EXCEL
 //====================================================================
+
+// GetDistinctRows mengembalikan daftar Row unik dari master Location,
+// dipakai untuk populate pilihan checkbox di modal "Print by Row".
+func (c *LocationController) GetDistinctRows(ctx *fiber.Ctx) error {
+	var rows []string
+
+	if err := c.DB.Model(&models.Location{}).
+		Where("is_active = ? AND row IS NOT NULL AND row != ''", true).
+		Distinct("row").
+		Order("row ASC").
+		Pluck("row", &rows).Error; err != nil {
+		return ctx.Status(500).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to fetch rows",
+		})
+	}
+
+	return ctx.JSON(fiber.Map{
+		"success": true,
+		"data":    rows,
+	})
+}
