@@ -1,343 +1,3 @@
-// package controllers
-
-// import (
-// 	"errors"
-// 	"fiber-app/models"
-// 	"fiber-app/repositories"
-// 	"fmt"
-// 	"strconv"
-// 	"time"
-
-// 	"github.com/gofiber/fiber/v2"
-// 	"gorm.io/gorm"
-// )
-
-// type StockTakeController struct {
-// 	DB *gorm.DB
-// }
-
-// func NewStockTakeController(DB *gorm.DB) *StockTakeController {
-// 	return &StockTakeController{DB: DB}
-// }
-
-// func (c *StockTakeController) GenerateStockTakeCode() (string, error) {
-// 	var lastCode models.StockTake
-
-// 	// Ambil inbound terakhir
-// 	if err := c.DB.Last(&lastCode).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-// 		return "", err
-// 	}
-
-// 	// Ambil bulan dan tahun saat ini
-// 	currentYear := time.Now().Format("2006")
-// 	currentMonth := time.Now().Format("01")
-// 	currentDay := time.Now().Format("02")
-
-// 	// Generate nomor inbound baru
-// 	var stoNo string
-// 	if lastCode.Code != "" {
-// 		lastStoNo := lastCode.Code[len(lastCode.Code)-4:]
-// 		if currentDay != lastCode.Code[8:10] {
-// 			stoNo = fmt.Sprintf("ST%s%s%s%04d", currentYear, currentMonth, currentDay, 1)
-// 		} else {
-// 			lastStoNoInt, _ := strconv.Atoi(lastStoNo)
-// 			stoNo = fmt.Sprintf("ST%s%s%s%04d", currentYear, currentMonth, currentDay, lastStoNoInt+1)
-// 		}
-// 	} else {
-// 		stoNo = fmt.Sprintf("ST%s%s%s%04d", currentYear, currentMonth, currentDay, 1)
-// 	}
-
-// 	return stoNo, nil
-// }
-
-// func (c *StockTakeController) GenerateDataStockTake(ctx *fiber.Ctx) error {
-// 	// 0. Ambil filter dari body
-// 	type Filters struct {
-// 		Area      string `json:"area"`
-// 		FromRow   string `json:"fromRow"`
-// 		ToRow     string `json:"toRow"`
-// 		FromBay   string `json:"fromBay"`
-// 		ToBay     string `json:"toBay"`
-// 		FromLevel string `json:"fromLevel"`
-// 		ToLevel   string `json:"toLevel"`
-// 		FromBin   string `json:"fromBin"`
-// 		ToBin     string `json:"toBin"`
-// 	}
-// 	var req struct {
-// 		Filters Filters `json:"filters"`
-// 	}
-// 	if err := ctx.BodyParser(&req); err != nil {
-// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-// 			"success": false,
-// 			"message": "Invalid request body",
-// 			"error":   err.Error(),
-// 		})
-// 	}
-
-// 	// 1. Ambil lokasi yang cocok
-// 	var locations []models.Location
-// 	if err := c.DB.
-// 		// Where("area = ?", req.Filters.Area).
-// 		Where("row >= ? AND row <= ?", req.Filters.FromRow, req.Filters.ToRow).
-// 		Where("bay >= ? AND bay <= ?", req.Filters.FromBay, req.Filters.ToBay).
-// 		Where("level >= ? AND level <= ?", req.Filters.FromLevel, req.Filters.ToLevel).
-// 		Where("bin >= ? AND bin <= ?", req.Filters.FromBin, req.Filters.ToBin).
-// 		Where("is_active = ?", true).
-// 		Find(&locations).Error; err != nil {
-// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-// 			"success": false,
-// 			"message": "Failed to get locations",
-// 			"error":   err.Error(),
-// 		})
-// 	}
-
-// 	// Jika tidak ada lokasi yang ditemukan
-// 	if len(locations) == 0 {
-// 		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
-// 			"success": false,
-// 			"message": "No locations found",
-// 		})
-// 	}
-
-// 	// 2. Ambil LocationCode
-// 	var locationCodes []string
-// 	for _, loc := range locations {
-// 		locationCodes = append(locationCodes, loc.LocationCode)
-// 	}
-
-// 	// 3. Ambil data dari inventory berdasarkan lokasi yang difilter
-// 	var inventories []models.Inventory
-// 	if err := c.DB.
-// 		Where("location IN ?", locationCodes).
-// 		Where("qty_available > ?", 0).
-// 		Find(&inventories).Error; err != nil {
-// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-// 			"success": false,
-// 			"message": "Failed to fetch inventory data",
-// 			"error":   err.Error(),
-// 		})
-// 	}
-
-// 	// Jika tidak ada inventory yang ditemukan
-// 	if len(inventories) == 0 {
-// 		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
-// 			"success": false,
-// 			"message": "No inventory data found",
-// 		})
-// 	}
-
-// 	// 4. Buat stock_take baru
-// 	stoNo, err := c.GenerateStockTakeCode()
-// 	if err != nil {
-// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-// 			"success": false,
-// 			"message": "Failed to generate stock take code",
-// 			"error":   err.Error(),
-// 		})
-// 	}
-
-// 	stockTake := models.StockTake{
-// 		Code:      stoNo,
-// 		Status:    "open",
-// 		CreatedBy: int(ctx.Locals("userID").(float64)),
-// 	}
-
-// 	if err := c.DB.Create(&stockTake).Error; err != nil {
-// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-// 			"success": false,
-// 			"message": "Failed to create stock take",
-// 			"error":   err.Error(),
-// 		})
-// 	}
-
-// 	// 5. Konversi ke stock_take_items
-// 	var items []models.StockTakeItem
-// 	for _, inv := range inventories {
-// 		item := models.StockTakeItem{
-// 			StockTakeID: stockTake.ID,
-// 			ItemID:      int64(inv.ItemId),
-// 			InventoryID: int64(inv.ID),
-// 			Location:    inv.Location,
-// 			Pallet:      inv.Pallet,
-// 			Barcode:     inv.Barcode,
-// 			// SerialNumber: inv.SerialNumber,
-// 			SystemQty:  int(inv.QtyAvailable),
-// 			CountedQty: 0,
-// 			Difference: 0,
-// 			CreatedBy:  int(ctx.Locals("userID").(float64)),
-// 		}
-// 		items = append(items, item)
-// 	}
-
-// 	if len(items) > 0 {
-// 		if err := c.DB.Create(&items).Error; err != nil {
-// 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-// 				"success": false,
-// 				"message": "Failed to insert stock take items",
-// 				"error":   err.Error(),
-// 			})
-// 		}
-// 	}
-
-// 	// 6. Return response
-// 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
-// 		"success": true,
-// 		"message": "Data stock take generated successfully",
-// 		"data": fiber.Map{
-// 			"stock_take": stockTake,
-// 			"items":      items,
-// 		},
-// 	})
-// }
-
-// func (c *StockTakeController) GetAllStockTake(ctx *fiber.Ctx) error {
-// 	var stockTakes []models.StockTake
-// 	if err := c.DB.Order("id desc").Find(&stockTakes).Error; err != nil {
-// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-// 			"error": err.Error(),
-// 		})
-// 	}
-// 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
-// 		"success": true,
-// 		"data":    stockTakes,
-// 	})
-// }
-
-// func (c *StockTakeController) GetStockTakeDetail(ctx *fiber.Ctx) error {
-// 	code := ctx.Params("code")
-// 	var stockTake models.StockTake
-
-// 	if err := c.DB.Preload("Items").First(&stockTake, "code = ?", code).Error; err != nil {
-// 		return ctx.Status(404).JSON(fiber.Map{"success": false, "message": "Not found"})
-// 	}
-
-// 	return ctx.JSON(fiber.Map{"success": true, "data": stockTake.Items})
-// }
-
-// func (c *StockTakeController) ScanStockTake(ctx *fiber.Ctx) error {
-
-// 	type scanInput struct {
-// 		StockTakeCode string `json:"stock_take_code"`
-// 		Location      string `json:"location"`
-// 		Barcode       string `json:"barcode"`
-// 		Qty           int    `json:"qty"`
-// 	}
-
-// 	var input scanInput
-// 	if err := ctx.BodyParser(&input); err != nil {
-// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Bad request"})
-// 	}
-
-// 	var stockTake models.StockTake
-// 	if err := c.DB.Preload("Items").First(&stockTake, "code = ?", input.StockTakeCode).Error; err != nil {
-// 		return ctx.Status(404).JSON(fiber.Map{"success": false, "message": "Not found"})
-// 	}
-
-// 	// insert to StockTakeBarcodes
-
-// 	var stockTakeBarcode models.StockTakeBarcode
-// 	stockTakeBarcode.StockTakeID = stockTake.ID
-// 	stockTakeBarcode.Barcode = input.Barcode
-// 	stockTakeBarcode.CountedQty = input.Qty
-// 	stockTakeBarcode.Location = input.Location
-// 	stockTakeBarcode.CreatedBy = int(ctx.Locals("userID").(float64))
-// 	if err := c.DB.Create(&stockTakeBarcode).Error; err != nil {
-// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false, "message": "Internal Server Error", "error": err.Error()})
-// 	}
-
-// 	return ctx.JSON(fiber.Map{"success": true, "message": "Success", "data": stockTake.Items})
-// }
-
-// func (c *StockTakeController) GetStockTakeBarcodeByCode(ctx *fiber.Ctx) error {
-
-// 	code := ctx.Params("code")
-
-// 	var stockTake models.StockTake
-// 	if err := c.DB.Preload("Items").First(&stockTake, "code = ?", code).Error; err != nil {
-// 		return ctx.Status(404).JSON(fiber.Map{"success": false, "message": "Not found"})
-// 	}
-
-// 	var stockTakeBarcodes []models.StockTakeBarcode
-// 	if err := c.DB.Where("stock_take_id = ?", stockTake.ID).Order("created_at desc").Find(&stockTakeBarcodes).Error; err != nil {
-// 		return ctx.Status(404).JSON(fiber.Map{"success": false, "message": "Not found"})
-// 	}
-
-// 	return ctx.JSON(fiber.Map{"success": true, "data": stockTakeBarcodes})
-// }
-
-// func (c *StockTakeController) GetProgressStockTakeByCode(ctx *fiber.Ctx) error {
-
-// 	code := ctx.Params("code")
-
-// 	var stockTake models.StockTake
-// 	if err := c.DB.Preload("Items").First(&stockTake, "code = ?", code).Error; err != nil {
-// 		return ctx.Status(404).JSON(fiber.Map{"success": false, "message": "Not found"})
-// 	}
-
-// 	repoStockTake := repositories.NewStockTakeRepository(c.DB)
-// 	progress, err := repoStockTake.GetProgressStockTakeByID(int(stockTake.ID))
-// 	if err != nil {
-// 		return ctx.Status(404).JSON(fiber.Map{"success": false, "message": "Not found"})
-// 	}
-
-// 	return ctx.JSON(fiber.Map{"success": true, "data": progress})
-// }
-
-// // func (c *StockTakeController) GetCardStockTake(ctx *fiber.Ctx) error {
-// // 	repoStockTake := repositories.NewStockTakeRepository(c.DB)
-// // 	cards, err := repoStockTake.GetAllStockCard()
-// // 	if err != nil {
-// // 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false, "message": "Failed to fetch stock cards", "error": err.Error()})
-// // 	}
-// // 	return ctx.JSON(fiber.Map{"success": true, "data": cards})
-// // }
-
-// func (c *StockTakeController) GetCardStockTake(ctx *fiber.Ctx) error {
-// 	var payload struct {
-// 		Filters models.StockCardFilter `json:"filters"`
-// 	}
-
-// 	if err := ctx.BodyParser(&payload); err != nil {
-// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-// 			"success": false,
-// 			"message": "Invalid request body",
-// 			"error":   err.Error(),
-// 		})
-// 	}
-
-// 	repoStockTake := repositories.NewStockTakeRepository(c.DB)
-// 	cards, err := repoStockTake.GetFilteredStockCard(payload.Filters)
-// 	if err != nil {
-// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-// 			"success": false,
-// 			"message": "Failed to fetch stock cards",
-// 			"error":   err.Error(),
-// 		})
-// 	}
-
-// 	return ctx.JSON(fiber.Map{
-// 		"success": true,
-// 		"data":    cards,
-// 	})
-// }
-
-// func (c *StockTakeController) LoadLocations(ctx *fiber.Ctx) error {
-// 	var locations []models.Location
-
-// 	if err := c.DB.Where("is_active = ?", true).Find(&locations).Error; err != nil {
-// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-// 			"success": false,
-// 			"message": "Failed to load locations",
-// 			"error":   err.Error(),
-// 		})
-// 	}
-
-// 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
-// 		"success": true,
-// 		"data":    locations,
-// 	})
-// }
-
 package controllers
 
 import (
@@ -350,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/xuri/excelize/v2"
 	"gorm.io/gorm"
 )
 
@@ -581,20 +242,6 @@ func (c *StockTakeController) GenerateDataStockTake(ctx *fiber.Ctx) error {
 		},
 	})
 }
-
-// func (c *StockTakeController) GetAllStockTake(ctx *fiber.Ctx) error {
-// 	var stockTakes []models.StockTake
-// 	if err := c.DB.Order("id desc").Find(&stockTakes).Error; err != nil {
-// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-// 			"success": false,
-// 			"error":   err.Error(),
-// 		})
-// 	}
-// 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
-// 		"success": true,
-// 		"data":    stockTakes,
-// 	})
-// }
 
 // StockTakeListItem membungkus StockTake dengan ringkasan qty untuk tampilan list —
 // system qty diambil dari snapshot stock_take_items (saat generate), counted qty
@@ -831,48 +478,6 @@ func (c *StockTakeController) GetStockTakePrintDetail(ctx *fiber.Ctx) error {
 	})
 }
 
-// func (c *StockTakeController) GetStockTakeDetail(ctx *fiber.Ctx) error {
-// 	code := ctx.Params("code")
-// 	var stockTake models.StockTake
-
-// 	if err := c.DB.Preload("Items").First(&stockTake, "code = ?", code).Error; err != nil {
-// 		return ctx.Status(404).JSON(fiber.Map{"success": false, "message": "Not found"})
-// 	}
-
-// 	return ctx.JSON(fiber.Map{"success": true, "data": stockTake.Items})
-// }
-
-// func (c *StockTakeController) ScanStockTake(ctx *fiber.Ctx) error {
-// 	type scanInput struct {
-// 		StockTakeCode string `json:"stock_take_code"`
-// 		Location      string `json:"location"`
-// 		Barcode       string `json:"barcode"`
-// 		Qty           int    `json:"qty"`
-// 	}
-
-// 	var input scanInput
-// 	if err := ctx.BodyParser(&input); err != nil {
-// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Bad request"})
-// 	}
-
-// 	var stockTake models.StockTake
-// 	if err := c.DB.Preload("Items").First(&stockTake, "code = ?", input.StockTakeCode).Error; err != nil {
-// 		return ctx.Status(404).JSON(fiber.Map{"success": false, "message": "Not found"})
-// 	}
-
-// 	var stockTakeBarcode models.StockTakeBarcode
-// 	stockTakeBarcode.StockTakeID = stockTake.ID
-// 	stockTakeBarcode.Barcode = input.Barcode
-// 	stockTakeBarcode.CountedQty = input.Qty
-// 	stockTakeBarcode.Location = input.Location
-// 	stockTakeBarcode.CreatedBy = int(ctx.Locals("userID").(float64))
-// 	if err := c.DB.Create(&stockTakeBarcode).Error; err != nil {
-// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false, "message": "Internal Server Error", "error": err.Error()})
-// 	}
-
-// 	return ctx.JSON(fiber.Map{"success": true, "message": "Success", "data": stockTake.Items})
-// }
-
 func (c *StockTakeController) ScanStockTake(ctx *fiber.Ctx) error {
 	type scanInput struct {
 		StockTakeCode string `json:"stock_take_code"`
@@ -909,6 +514,21 @@ func (c *StockTakeController) ScanStockTake(ctx *fiber.Ctx) error {
 	var stockTake models.StockTake
 	if err := c.DB.First(&stockTake, "code = ?", input.StockTakeCode).Error; err != nil {
 		return ctx.Status(404).JSON(fiber.Map{"success": false, "message": "Stock take session not found"})
+	}
+
+	if input.CartonNumber != "" && input.Location != "" && stockTake.Status == "in_progress" && input.Sku != "" {
+		var existing models.StockTakeBarcode
+		err := c.DB.Debug().Where("stock_take_id = ? AND location = ? AND carton_number = ? AND sku = ?",
+			stockTake.ID, input.Location, input.CartonNumber, input.Sku).First(&existing).Error
+
+		switch {
+		case err == nil:
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Carton number " + input.CartonNumber + " for SKU " + input.Sku + " already scanned in this location"})
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			// aman, lanjut proses
+		default:
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false, "message": "Database error"})
+		}
 	}
 
 	// Sesi yang sudah closed/cancelled tidak boleh menerima scan baru
@@ -1257,4 +877,276 @@ func (c *StockTakeController) GetProgressByPic(ctx *fiber.Ctx) error {
 	}
 
 	return ctx.JSON(fiber.Map{"success": true, "data": data})
+}
+
+func (c *StockTakeController) ExportProgressByDivision(ctx *fiber.Ctx) error {
+	code := ctx.Params("code")
+
+	var stockTake models.StockTake
+	if err := c.DB.First(&stockTake, "code = ?", code).Error; err != nil {
+		return ctx.Status(404).JSON(fiber.Map{"success": false, "message": "Not found"})
+	}
+
+	repo := repositories.NewStockTakeRepository(c.DB)
+	data, err := repo.GetProgressByDivisionPivot(stockTake.ID)
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to fetch progress by division",
+			"error":   err.Error(),
+		})
+	}
+
+	f, err := buildProgressByDivisionExcel(data, code)
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to build excel",
+			"error":   err.Error(),
+		})
+	}
+
+	filename := fmt.Sprintf("Report_Daily_Progress_STO_%s.xlsx", code)
+	ctx.Set(fiber.HeaderContentType, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	ctx.Set(fiber.HeaderContentDisposition, fmt.Sprintf(`attachment; filename="%s"`, filename))
+
+	return f.Write(ctx.Response().BodyWriter())
+}
+
+func buildProgressByDivisionExcel(data *repositories.ProgressByDivisionResult, code string) (*excelize.File, error) {
+	f := excelize.NewFile()
+	sheet := "Progress"
+	f.SetSheetName("Sheet1", sheet)
+
+	// ── Styles ──────────────────────────────────────────────────────────
+	titleStyle, _ := f.NewStyle(&excelize.Style{
+		Font: &excelize.Font{Bold: true, Italic: true, Size: 14},
+	})
+	dateHeaderStyle, _ := f.NewStyle(&excelize.Style{
+		Font:      &excelize.Font{Bold: true, Color: "FFFFFF"},
+		Fill:      excelize.Fill{Type: "pattern", Color: []string{"1F4E78"}, Pattern: 1},
+		Alignment: &excelize.Alignment{Horizontal: "center", Vertical: "center"},
+		Border:    borderAll(),
+	})
+	invStockStyle, _ := f.NewStyle(&excelize.Style{
+		Font:      &excelize.Font{Bold: true, Color: "FFFFFF"},
+		Fill:      excelize.Fill{Type: "pattern", Color: []string{"7030A0"}, Pattern: 1},
+		Alignment: &excelize.Alignment{Horizontal: "center", Vertical: "center"},
+		Border:    borderAll(),
+	})
+	catHeaderStyle, _ := f.NewStyle(&excelize.Style{
+		Font:      &excelize.Font{Bold: true, Color: "FFFFFF"},
+		Fill:      excelize.Fill{Type: "pattern", Color: []string{"C00000"}, Pattern: 1},
+		Alignment: &excelize.Alignment{Horizontal: "center", Vertical: "center"},
+		Border:    borderAll(),
+	})
+	totalHeaderStyle, _ := f.NewStyle(&excelize.Style{
+		Font:      &excelize.Font{Bold: true, Color: "FFFFFF"},
+		Fill:      excelize.Fill{Type: "pattern", Color: []string{"1F4E78"}, Pattern: 1},
+		Alignment: &excelize.Alignment{Horizontal: "center", Vertical: "center"},
+		Border:    borderAll(),
+	})
+	cellStyle, _ := f.NewStyle(&excelize.Style{
+		Border:    borderAll(),
+		Alignment: &excelize.Alignment{Horizontal: "center"},
+	})
+	labelStyle, _ := f.NewStyle(&excelize.Style{
+		Border: borderAll(),
+		Font:   &excelize.Font{Bold: true},
+	})
+	totalRowStyle, _ := f.NewStyle(&excelize.Style{
+		Border:    borderAll(),
+		Fill:      excelize.Fill{Type: "pattern", Color: []string{"FCE4D6"}, Pattern: 1},
+		Font:      &excelize.Font{Bold: true},
+		Alignment: &excelize.Alignment{Horizontal: "center"},
+	})
+	achievementStyle, _ := f.NewStyle(&excelize.Style{
+		Border:    borderAll(),
+		Fill:      excelize.Fill{Type: "pattern", Color: []string{"DDEBF7"}, Pattern: 1},
+		Alignment: &excelize.Alignment{Horizontal: "center"},
+	})
+	totalPctStyle, _ := f.NewStyle(&excelize.Style{
+		Border:    borderAll(),
+		Fill:      excelize.Fill{Type: "pattern", Color: []string{"BDD7EE"}, Pattern: 1},
+		Font:      &excelize.Font{Bold: true},
+		Alignment: &excelize.Alignment{Horizontal: "center"},
+	})
+
+	// ── Title ───────────────────────────────────────────────────────────
+	f.SetCellValue(sheet, "A1", "Report Daily Progress STO")
+	f.SetCellStyle(sheet, "A1", "A1", titleStyle)
+	f.SetCellValue(sheet, "A2", fmt.Sprintf("Code: %s | Generated: %s", code, time.Now().Format("02-Jan-2006")))
+
+	headerRow1 := 4
+	headerRow2 := 5
+	bodyStartRow := 6
+
+	// Kolom: A=Category, B-C=Inventory Stock (Loc,Qty), lalu tiap tanggal 2 kolom, lalu Total 2 kolom
+	col := 2 // mulai dari B (index 2, 1-based)
+
+	f.SetCellValue(sheet, cellRef(1, headerRow1), "Category")
+	f.MergeCell(sheet, cellRef(1, headerRow1), cellRef(1, headerRow2))
+	f.SetCellStyle(sheet, cellRef(1, headerRow1), cellRef(1, headerRow2), labelStyle)
+
+	// Inventory Stock group
+	f.SetCellValue(sheet, cellRef(col, headerRow1), "Inventory Stock")
+	f.MergeCell(sheet, cellRef(col, headerRow1), cellRef(col+1, headerRow1))
+	f.SetCellStyle(sheet, cellRef(col, headerRow1), cellRef(col+1, headerRow1), invStockStyle)
+	f.SetCellValue(sheet, cellRef(col, headerRow2), "Count Location")
+	f.SetCellValue(sheet, cellRef(col+1, headerRow2), "Sum Qty")
+	f.SetCellStyle(sheet, cellRef(col, headerRow2), cellRef(col+1, headerRow2), catHeaderStyle)
+	col += 2
+
+	dateColStart := make(map[string]int)
+	for _, date := range data.Dates {
+		t, _ := time.Parse("2006-01-02", date)
+		label := t.Format("02-Jan-06")
+
+		f.SetCellValue(sheet, cellRef(col, headerRow1), label)
+		f.MergeCell(sheet, cellRef(col, headerRow1), cellRef(col+1, headerRow1))
+		f.SetCellStyle(sheet, cellRef(col, headerRow1), cellRef(col+1, headerRow1), dateHeaderStyle)
+		f.SetCellValue(sheet, cellRef(col, headerRow2), "Count Location")
+		f.SetCellValue(sheet, cellRef(col+1, headerRow2), "Count Qty")
+		f.SetCellStyle(sheet, cellRef(col, headerRow2), cellRef(col+1, headerRow2), catHeaderStyle)
+
+		dateColStart[date] = col
+		col += 2
+	}
+
+	// Total group
+	totalColStart := col
+	f.SetCellValue(sheet, cellRef(col, headerRow1), "Total")
+	f.MergeCell(sheet, cellRef(col, headerRow1), cellRef(col+1, headerRow1))
+	f.SetCellStyle(sheet, cellRef(col, headerRow1), cellRef(col+1, headerRow1), totalHeaderStyle)
+	f.SetCellValue(sheet, cellRef(col, headerRow2), "Count Location")
+	f.SetCellValue(sheet, cellRef(col+1, headerRow2), "Count Qty")
+	f.SetCellStyle(sheet, cellRef(col, headerRow2), cellRef(col+1, headerRow2), catHeaderStyle)
+
+	// ── Body: 1 baris per division ──────────────────────────────────────
+	row := bodyStartRow
+	for _, div := range data.Divisions {
+		f.SetCellValue(sheet, cellRef(1, row), div.DivisionCode)
+		f.SetCellStyle(sheet, cellRef(1, row), cellRef(1, row), labelStyle)
+
+		f.SetCellValue(sheet, cellRef(2, row), div.SystemLocation)
+		f.SetCellValue(sheet, cellRef(3, row), div.SystemQty)
+		f.SetCellStyle(sheet, cellRef(2, row), cellRef(3, row), cellStyle)
+
+		for _, date := range data.Dates {
+			c := dateColStart[date]
+			day, ok := div.Daily[date]
+			if ok {
+				if day.LocationCounted != nil {
+					f.SetCellValue(sheet, cellRef(c, row), *day.LocationCounted)
+				} else {
+					f.SetCellValue(sheet, cellRef(c, row), "-")
+				}
+				if day.QtyCounted != nil {
+					f.SetCellValue(sheet, cellRef(c+1, row), *day.QtyCounted)
+				} else {
+					f.SetCellValue(sheet, cellRef(c+1, row), "-")
+				}
+			} else {
+				f.SetCellValue(sheet, cellRef(c, row), "-")
+				f.SetCellValue(sheet, cellRef(c+1, row), "-")
+			}
+			f.SetCellStyle(sheet, cellRef(c, row), cellRef(c+1, row), cellStyle)
+		}
+
+		f.SetCellValue(sheet, cellRef(totalColStart, row), div.TotalLocationCounted)
+		f.SetCellValue(sheet, cellRef(totalColStart+1, row), div.TotalQtyCounted)
+		f.SetCellStyle(sheet, cellRef(totalColStart, row), cellRef(totalColStart+1, row), cellStyle)
+
+		row++
+	}
+
+	// ── Row: Total (gabungan semua division) ────────────────────────────
+	totalRow := row
+	f.SetCellValue(sheet, cellRef(1, totalRow), "Total")
+	f.SetCellValue(sheet, cellRef(2, totalRow), data.GrandTotal.SystemLocation)
+	f.SetCellValue(sheet, cellRef(3, totalRow), data.GrandTotal.SystemQty)
+	for _, date := range data.Dates {
+		c := dateColStart[date]
+		day := data.GrandTotal.Daily[date]
+		if day.LocationCounted != nil {
+			f.SetCellValue(sheet, cellRef(c, totalRow), *day.LocationCounted)
+		}
+		if day.QtyCounted != nil {
+			f.SetCellValue(sheet, cellRef(c+1, totalRow), *day.QtyCounted)
+		}
+	}
+	f.SetCellValue(sheet, cellRef(totalColStart, totalRow), data.GrandTotal.TotalLocationCounted)
+	f.SetCellValue(sheet, cellRef(totalColStart+1, totalRow), data.GrandTotal.TotalQtyCounted)
+	f.SetCellStyle(sheet, cellRef(1, totalRow), cellRef(totalColStart+1, totalRow), totalRowStyle)
+	row++
+
+	// ── Rows: Achievement per division (%) ───────────────────────────────
+	for _, div := range data.Divisions {
+		f.SetCellValue(sheet, cellRef(1, row), fmt.Sprintf("Achievement %s", div.DivisionCode))
+		for _, date := range data.Dates {
+			c := dateColStart[date]
+			day, ok := div.Daily[date]
+			if ok {
+				if day.LocationPercent != nil {
+					f.SetCellValue(sheet, cellRef(c, row), fmt.Sprintf("%.2f%%", *day.LocationPercent))
+				} else {
+					f.SetCellValue(sheet, cellRef(c, row), "-")
+				}
+				if day.QtyPercent != nil {
+					f.SetCellValue(sheet, cellRef(c+1, row), fmt.Sprintf("%.2f%%", *day.QtyPercent))
+				} else {
+					f.SetCellValue(sheet, cellRef(c+1, row), "-")
+				}
+			} else {
+				f.SetCellValue(sheet, cellRef(c, row), "-")
+				f.SetCellValue(sheet, cellRef(c+1, row), "-")
+			}
+		}
+		f.SetCellValue(sheet, cellRef(totalColStart, row), fmt.Sprintf("%.2f%%", div.TotalLocationPercent))
+		f.SetCellValue(sheet, cellRef(totalColStart+1, row), fmt.Sprintf("%.2f%%", div.TotalQtyPercent))
+		f.SetCellStyle(sheet, cellRef(1, row), cellRef(totalColStart+1, row), achievementStyle)
+		row++
+	}
+
+	// ── Row: Total % Counting ────────────────────────────────────────────
+	f.SetCellValue(sheet, cellRef(1, row), "Total % Counting")
+	for _, date := range data.Dates {
+		c := dateColStart[date]
+		day := data.GrandTotal.Daily[date]
+		if day.LocationPercent != nil {
+			f.SetCellValue(sheet, cellRef(c, row), fmt.Sprintf("%.2f%%", *day.LocationPercent))
+		} else {
+			f.SetCellValue(sheet, cellRef(c, row), "-")
+		}
+		if day.QtyPercent != nil {
+			f.SetCellValue(sheet, cellRef(c+1, row), fmt.Sprintf("%.2f%%", *day.QtyPercent))
+		} else {
+			f.SetCellValue(sheet, cellRef(c+1, row), "-")
+		}
+	}
+	f.SetCellValue(sheet, cellRef(totalColStart, row), fmt.Sprintf("%.2f%%", data.GrandTotal.TotalLocationPercent))
+	f.SetCellValue(sheet, cellRef(totalColStart+1, row), fmt.Sprintf("%.2f%%", data.GrandTotal.TotalQtyPercent))
+	f.SetCellStyle(sheet, cellRef(1, row), cellRef(totalColStart+1, row), totalPctStyle)
+
+	// Column width biar rapi
+	f.SetColWidth(sheet, "A", "A", 18)
+	lastCol, _ := excelize.ColumnNumberToName(totalColStart + 1)
+	f.SetColWidth(sheet, "B", lastCol, 12)
+
+	f.SetActiveSheet(0)
+	return f, nil
+}
+
+func borderAll() []excelize.Border {
+	return []excelize.Border{
+		{Type: "left", Color: "000000", Style: 1},
+		{Type: "top", Color: "000000", Style: 1},
+		{Type: "right", Color: "000000", Style: 1},
+		{Type: "bottom", Color: "000000", Style: 1},
+	}
+}
+
+func cellRef(col, row int) string {
+	name, _ := excelize.ColumnNumberToName(col)
+	return fmt.Sprintf("%s%d", name, row)
 }

@@ -299,26 +299,47 @@ func (r *StockTakeRepository) GetProgressBySKU(stockTakeID uint) ([]ProgressBySK
 // ─── By Division (pivot per tanggal) ───────────────────────────────────────
 
 type DivisionDayProgress struct {
-	LocationCounted *int     `json:"location_counted"`
-	QtyCounted      *int     `json:"qty_counted"`
-	ProgressPercent *float64 `json:"progress_percent"`
+	LocationCounted *int     `json:"location_counted,omitempty"`
+	QtyCounted      *int     `json:"qty_counted,omitempty"`
+	LocationPercent *float64 `json:"location_percent,omitempty"`
+	QtyPercent      *float64 `json:"qty_percent,omitempty"`
 }
 
 type DivisionPivotRow struct {
-	DivisionCode   string                         `json:"division_code"`
-	SystemQty      int                            `json:"system_qty"`
-	SystemLocation int                            `json:"system_location"`
-	Daily          map[string]DivisionDayProgress `json:"daily"`
+	DivisionCode         string                         `json:"division_code"`
+	SystemLocation       int                            `json:"system_location"`
+	SystemQty            int                            `json:"system_qty"`
+	Daily                map[string]DivisionDayProgress `json:"daily"`
+	TotalLocationCounted int                            `json:"total_location_counted"`
+	TotalQtyCounted      int                            `json:"total_qty_counted"`
+	TotalLocationPercent float64                        `json:"total_location_percent"`
+	TotalQtyPercent      float64                        `json:"total_qty_percent"`
+}
+
+type GrandTotalRow struct {
+	SystemLocation       int                            `json:"system_location"`
+	SystemQty            int                            `json:"system_qty"`
+	Daily                map[string]DivisionDayProgress `json:"daily"`
+	TotalLocationCounted int                            `json:"total_location_counted"`
+	TotalQtyCounted      int                            `json:"total_qty_counted"`
+	TotalLocationPercent float64                        `json:"total_location_percent"`
+	TotalQtyPercent      float64                        `json:"total_qty_percent"`
 }
 
 type ProgressByDivisionResult struct {
-	Dates     []string           `json:"dates"`
-	Divisions []DivisionPivotRow `json:"divisions"`
+	Dates      []string           `json:"dates"`
+	Divisions  []DivisionPivotRow `json:"divisions"`
+	GrandTotal GrandTotalRow      `json:"grand_total"`
 }
 
-// GetProgressByDivisionPivot meng-agregasi progress per division, dipecah
-// per tanggal (dari created_at hasil scan), dengan progress % cumulative
-// (running total s.d. tanggal itu, dibagi total qty system division tsb).
+func pct(num, denom int) *float64 {
+	if denom <= 0 {
+		return nil
+	}
+	v := math.Round(float64(num)/float64(denom)*10000) / 100
+	return &v
+}
+
 func (r *StockTakeRepository) GetProgressByDivisionPivot(stockTakeID uint) (*ProgressByDivisionResult, error) {
 	// 1. Snapshot system per division (statis, gak ada dimensi tanggal)
 	type systemAgg struct {
@@ -336,7 +357,6 @@ func (r *StockTakeRepository) GetProgressByDivisionPivot(stockTakeID uint) (*Pro
 	}
 
 	// 2. Breakdown harian per division dari hasil scan aktual.
-	// CAST(created_at AS DATE) dipakai (bukan DATE()) karena target DB SQL Server.
 	type dailyAgg struct {
 		DivisionCode  string
 		ScanDate      time.Time
@@ -364,7 +384,6 @@ func (r *StockTakeRepository) GetProgressByDivisionPivot(stockTakeID uint) (*Pro
 	}
 	sort.Strings(dates)
 
-	// Grouping daily per division — tetap urut tanggal (query sudah ORDER BY scan_date)
 	dailyByDivision := make(map[string][]dailyAgg)
 	for _, d := range dailyAggs {
 		dailyByDivision[d.DivisionCode] = append(dailyByDivision[d.DivisionCode], d)
@@ -375,7 +394,6 @@ func (r *StockTakeRepository) GetProgressByDivisionPivot(stockTakeID uint) (*Pro
 		systemMap[s.DivisionCode] = s
 	}
 
-	// Union division_code dari kedua sisi
 	divSet := make(map[string]struct{})
 	for _, s := range systemAggs {
 		divSet[s.DivisionCode] = struct{}{}
@@ -385,35 +403,53 @@ func (r *StockTakeRepository) GetProgressByDivisionPivot(stockTakeID uint) (*Pro
 	}
 
 	divisions := make([]DivisionPivotRow, 0, len(divSet))
+
+	// Accumulator buat grand total (dijumlah lintas division per tanggal)
+	grandDailyLoc := make(map[string]int)
+	grandDailyQty := make(map[string]int)
+	var grandSystemLoc, grandSystemQty int
+
 	for divCode := range divSet {
 		sys := systemMap[divCode]
+		grandSystemLoc += sys.LocationCount
+		grandSystemQty += sys.Total
+
 		row := DivisionPivotRow{
 			DivisionCode:   divCode,
-			SystemQty:      sys.Total,
 			SystemLocation: sys.LocationCount,
+			SystemQty:      sys.Total,
 			Daily:          make(map[string]DivisionDayProgress),
 		}
 
-		// Cumulative qty berjalan, dihitung urut tanggal per division.
-		// Tanggal yang divisionnya gak ada aktivitas SENGAJA tidak dimasukkan
-		// ke map Daily — di frontend ini artinya cell kosong ("-"), bukan 0.
-		var cumulativeQty int
+		var totalLoc, totalQty int
+		// PENTING: harian murni (bukan cumulative). Tiap kolom tanggal =
+		// kontribusi hari itu doang, dibandingin ke baseline system (sys.*),
+		// bukan ke running total.
 		for _, d := range dailyByDivision[divCode] {
 			dateKey := d.ScanDate.Format("2006-01-02")
-			cumulativeQty += d.Total
-
 			locCount := d.LocationCount
 			qtyCount := d.Total
 
-			dayProgress := DivisionDayProgress{
+			totalLoc += locCount
+			totalQty += qtyCount
+			grandDailyLoc[dateKey] += locCount
+			grandDailyQty[dateKey] += qtyCount
+
+			row.Daily[dateKey] = DivisionDayProgress{
 				LocationCounted: &locCount,
 				QtyCounted:      &qtyCount,
+				LocationPercent: pct(locCount, sys.LocationCount),
+				QtyPercent:      pct(qtyCount, sys.Total),
 			}
-			if sys.Total > 0 {
-				pct := math.Round(float64(cumulativeQty)/float64(sys.Total)*10000) / 100
-				dayProgress.ProgressPercent = &pct
-			}
-			row.Daily[dateKey] = dayProgress
+		}
+
+		row.TotalLocationCounted = totalLoc
+		row.TotalQtyCounted = totalQty
+		if p := pct(totalLoc, sys.LocationCount); p != nil {
+			row.TotalLocationPercent = *p
+		}
+		if p := pct(totalQty, sys.Total); p != nil {
+			row.TotalQtyPercent = *p
 		}
 
 		divisions = append(divisions, row)
@@ -423,9 +459,39 @@ func (r *StockTakeRepository) GetProgressByDivisionPivot(stockTakeID uint) (*Pro
 		return divisions[i].DivisionCode < divisions[j].DivisionCode
 	})
 
+	// Susun grand total row (baris "Total" & "Total % Counting" di report)
+	grandTotal := GrandTotalRow{
+		SystemLocation: grandSystemLoc,
+		SystemQty:      grandSystemQty,
+		Daily:          make(map[string]DivisionDayProgress),
+	}
+	var grandTotalLoc, grandTotalQty int
+	for _, dateKey := range dates {
+		locCount := grandDailyLoc[dateKey]
+		qtyCount := grandDailyQty[dateKey]
+		grandTotalLoc += locCount
+		grandTotalQty += qtyCount
+
+		grandTotal.Daily[dateKey] = DivisionDayProgress{
+			LocationCounted: &locCount,
+			QtyCounted:      &qtyCount,
+			LocationPercent: pct(locCount, grandSystemLoc),
+			QtyPercent:      pct(qtyCount, grandSystemQty),
+		}
+	}
+	grandTotal.TotalLocationCounted = grandTotalLoc
+	grandTotal.TotalQtyCounted = grandTotalQty
+	if p := pct(grandTotalLoc, grandSystemLoc); p != nil {
+		grandTotal.TotalLocationPercent = *p
+	}
+	if p := pct(grandTotalQty, grandSystemQty); p != nil {
+		grandTotal.TotalQtyPercent = *p
+	}
+
 	return &ProgressByDivisionResult{
-		Dates:     dates,
-		Divisions: divisions,
+		Dates:      dates,
+		Divisions:  divisions,
+		GrandTotal: grandTotal,
 	}, nil
 }
 

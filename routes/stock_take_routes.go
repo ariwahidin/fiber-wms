@@ -35,4 +35,5 @@ func SetupStockTakeRoutes(app *fiber.App) {
 	api.Get("/progress-division/:code", stockTakeController.GetProgressByDivision)
 	api.Get("/progress-location/:code", stockTakeController.GetProgressByLocation)
 	api.Get("/progress-pic/:code", stockTakeController.GetProgressByPic)
+	api.Get("/export-division/:code", stockTakeController.ExportProgressByDivision)
 }
