@@ -402,6 +402,7 @@ type StockTakePrintRow struct {
 	Location   string `json:"location"`
 	ItemCode   string `json:"item_code"`
 	ItemName   string `json:"item_name"`
+	Division   string `json:"division"`
 	SystemQty  int    `json:"system_qty"`
 	CountedQty int    `json:"counted_qty"`
 	Difference int    `json:"difference"`
@@ -435,6 +436,7 @@ func (c *StockTakeController) GetStockTakePrintDetail(ctx *fiber.Ctx) error {
 			sti.location,
 			ISNULL(p.item_code, '') AS item_code,
 			ISNULL(p.item_name, '') AS item_name,
+			ISNULL(sti.division_code, '') AS [division],
 			SUM(sti.system_qty)     AS system_qty,
 			SUM(sti.counted_qty)    AS counted_qty,
 			SUM(sti.difference)     AS difference
@@ -457,12 +459,12 @@ func (c *StockTakeController) GetStockTakePrintDetail(ctx *fiber.Ctx) error {
 	}
 
 	query += `
-		GROUP BY sti.location, p.item_code, p.item_name
+		GROUP BY sti.location, p.item_code, p.item_name, sti.division_code
 		ORDER BY sti.location ASC
 	`
 
 	var rows []StockTakePrintRow
-	if err := c.DB.Raw(query, args...).Scan(&rows).Error; err != nil {
+	if err := c.DB.Debug().Raw(query, args...).Scan(&rows).Error; err != nil {
 		return ctx.Status(500).JSON(fiber.Map{
 			"success": false,
 			"message": "Failed to fetch print data",
