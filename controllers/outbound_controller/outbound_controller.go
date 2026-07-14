@@ -956,6 +956,7 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 
 	var outboundDetails []models.OutboundDetail
 	if err := tx.Debug().Where("outbound_id = ?", id).Find(&outboundDetails).Error; err != nil {
+		tx.Rollback()
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
@@ -1055,6 +1056,9 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 		} else {
 			queryInventory = queryInventory.Order("i.rec_date, i.qty_available, i.pallet, i.location ASC")
 		}
+
+		// Lock the row for update to prevent race conditions
+		// queryInventory = queryInventory.Clauses(clause.Locking{Strength: "UPDATE"})
 
 		type InventoryWithLocation struct {
 			models.Inventory

@@ -518,6 +518,10 @@ func (c *StockTakeController) ScanStockTake(ctx *fiber.Ctx) error {
 		return ctx.Status(404).JSON(fiber.Map{"success": false, "message": "Stock take session not found"})
 	}
 
+	if stockTake.Status == "closed" || stockTake.Status == "cancelled" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Cannot scan — session is already '" + stockTake.Status + "'"})
+	}
+
 	if input.CartonNumber != "" && input.Location != "" && stockTake.Status == "in_progress" && input.Sku != "" {
 		var existing models.StockTakeBarcode
 		err := c.DB.Debug().Where("stock_take_id = ? AND location = ? AND carton_number = ? AND sku = ?",
@@ -690,11 +694,11 @@ func (c *StockTakeController) DeleteStockTake(ctx *fiber.Ctx) error {
 		})
 	}
 
-	if err := c.DB.Unscoped().Where("stock_take_id = ?", stockTake.ID).Delete(&models.StockTakeBarcode{}).Error; err != nil {
+	if err := c.DB.Where("stock_take_id = ?", stockTake.ID).Delete(&models.StockTakeBarcode{}).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false, "message": "Failed to delete related scan records", "error": err.Error()})
 	}
 
-	if err := c.DB.Unscoped().Delete(&stockTake).Error; err != nil {
+	if err := c.DB.Delete(&stockTake).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false, "message": "Failed to delete stock take", "error": err.Error()})
 	}
 
@@ -715,6 +719,21 @@ func (c *StockTakeController) DeleteStockTakeBarcode(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
 			"success": false,
 			"message": "Scan record not found",
+		})
+	}
+
+	var stockTake models.StockTake
+	if err := c.DB.First(&stockTake, barcode.StockTakeID).Error; err != nil {
+		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"success": false,
+			"message": "Stock take session not found",
+		})
+	}
+
+	if stockTake.Status == "closed" || stockTake.Status == "cancelled" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": fmt.Sprintf("Cannot delete scan record — session is already '%s'", stockTake.Status),
 		})
 	}
 
@@ -794,8 +813,6 @@ func (c *StockTakeController) CancelStockTake(ctx *fiber.Ctx) error {
 
 	return ctx.JSON(fiber.Map{"success": true, "message": "Stock take cancelled successfully"})
 }
-
-// Tambahkan di StockTakeController (file controller yang sama, taruh di bawah GetProgressStockTakeByCode)
 
 func (c *StockTakeController) GetProgressBySKU(ctx *fiber.Ctx) error {
 	code := ctx.Params("code")
