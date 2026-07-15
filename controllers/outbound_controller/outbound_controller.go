@@ -299,12 +299,35 @@ func (c *OutboundController) CreateOutbound(ctx *fiber.Ctx) error {
 
 	if res.Error != nil {
 		tx.Rollback()
+
+		errMsg := res.Error.Error()
+		userMessage := "Failed to save outbound data"
+
+		if strings.Contains(errMsg, "UNIQUE KEY constraint") {
+			switch {
+			case strings.Contains(errMsg, "uni_outbound_headers_shipment_id"):
+				userMessage = fmt.Sprintf("DO No '%s' is already in use, please use a different ID", OutboundHeader.ShipmentID)
+			default:
+				userMessage = "The data you entered already exists (duplicate)"
+			}
+		}
+
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"success": false,
-			"message": "Failed to insert outbound header",
-			"error":   res.Error.Error(),
+			"message": userMessage,
 		})
 	}
+
+	// res := tx.Create(&OutboundHeader)
+
+	// if res.Error != nil {
+	// 	tx.Rollback()
+	// 	return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+	// 		"success": false,
+	// 		"message": "Failed to insert outbound header",
+	// 		"error":   res.Error.Error(),
+	// 	})
+	// }
 
 	var outboundID uint
 	if res.RowsAffected == 1 {
@@ -963,6 +986,7 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 	var invetoryPolicy models.InventoryPolicy
 	if err := tx.Debug().First(&invetoryPolicy, "owner_code = ?", outboundHeader.OwnerCode).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
+			tx.Rollback()
 			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
 				"success": false,
 				"message": "Inventory Policy not found",
@@ -980,6 +1004,7 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 	if invetoryPolicy.RequireLotNumber {
 		for _, item := range outboundDetails {
 			if item.LotNumber == "" {
+				tx.Rollback()
 				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 					"success": false,
 					"message": "Lot number is required",
@@ -990,6 +1015,7 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 	}
 
 	uomRepo := repositories.NewUomRepository(tx)
+	locationRepo := repositories.NewLocationRepository(tx)
 
 	for _, outboundDetail := range outboundDetails {
 
@@ -1029,6 +1055,7 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 
 		if invetoryPolicy.RequireLotNumber {
 			if outboundDetail.LotNumber == "" {
+				tx.Rollback()
 				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 					"success": false,
 					"message": "Lot number is required",
@@ -1054,11 +1081,12 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 		if invetoryPolicy.UseFEFO {
 			queryInventory = queryInventory.Order("i.exp_date, i.lot_number, i.rec_date, i.qty_available, i.pallet, i.location ASC")
 		} else {
-			queryInventory = queryInventory.Order("i.rec_date, i.qty_available, i.pallet, i.location ASC")
+			queryInventory = queryInventory.Order("i.rec_date, i.qty_available, i.location ASC")
 		}
 
-		// Lock the row for update to prevent race conditions
-		// queryInventory = queryInventory.Clauses(clause.Locking{Strength: "UPDATE"})
+		if invetoryPolicy.PickingExcludeLocationsUnderCycleCount {
+			queryInventory = locationRepo.ExcludeLocationsUnderCycleCount(queryInventory, "i")
+		}
 
 		type InventoryWithLocation struct {
 			models.Inventory

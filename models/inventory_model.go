@@ -60,32 +60,33 @@ func (p *Inventory) BeforeCreate(tx *gorm.DB) (err error) {
 
 type InventoryPolicy struct {
 	gorm.Model
-	OwnerCode               string `gorm:"not null" validate:"required" json:"owner_code" `
-	UseLotNo                bool   `gorm:"default:false" json:"use_lot_no"`
-	UseCaseNo               bool   `gorm:"default:false" json:"use_case_no"`
-	UseFIFO                 bool   `gorm:"default:false" json:"use_fifo"`
-	UseFEFO                 bool   `gorm:"default:false" json:"use_fefo"`
-	UseVAS                  bool   `gorm:"default:false" json:"use_vas"`
-	UseProductionDate       bool   `gorm:"default:false" json:"use_production_date"`
-	UseReceiveLocation      bool   `gorm:"default:false" json:"use_receive_location"`
-	ShowRecDate             bool   `gorm:"default:false" json:"show_rec_date"`
-	RequireExpiryDate       bool   `gorm:"default:false" json:"require_expiry_date"`
-	RequireLotNumber        bool   `gorm:"default:false" json:"require_lot_number"`
-	RequireScanPickLocation bool   `gorm:"default:false" json:"require_scan_pick_location"`
-	AllowMixedLot           bool   `gorm:"default:false" json:"allow_mixed_lot"`
-	AllowNegativeStock      bool   `gorm:"default:false" json:"allow_negative_stock"`
-	ValidationSN            bool   `gorm:"default:false" json:"validation_sn"`
-	RequirePickingScan      bool   `gorm:"default:false" json:"require_picking_scan"`
-	RequirePackingScan      bool   `gorm:"default:false" json:"require_packing_scan"`
-	PickingSingleScan       bool   `gorm:"default:false" json:"picking_single_scan"`
-	RequireReceiveScan      bool   `gorm:"default:false" json:"require_receive_scan"`
-	ValidateReceiveScan     bool   `gorm:"default:false" json:"validate_receive_scan"`
-	RequirePutawayScan      bool   `gorm:"default:false" json:"require_putaway_scan"`
-	AllocationLotByOrder    bool   `gorm:"default:false" json:"allocation_lot_by_order"`
-	PickingWithScanner      bool   `gorm:"default:false" json:"picking_with_scanner"`
-	CreatedBy               int
-	UpdatedBy               int
-	DeletedBy               int
+	OwnerCode                              string `gorm:"not null" validate:"required" json:"owner_code" `
+	UseLotNo                               bool   `gorm:"default:false" json:"use_lot_no"`
+	UseCaseNo                              bool   `gorm:"default:false" json:"use_case_no"`
+	UseFIFO                                bool   `gorm:"default:false" json:"use_fifo"`
+	UseFEFO                                bool   `gorm:"default:false" json:"use_fefo"`
+	UseVAS                                 bool   `gorm:"default:false" json:"use_vas"`
+	UseProductionDate                      bool   `gorm:"default:false" json:"use_production_date"`
+	UseReceiveLocation                     bool   `gorm:"default:false" json:"use_receive_location"`
+	ShowRecDate                            bool   `gorm:"default:false" json:"show_rec_date"`
+	RequireExpiryDate                      bool   `gorm:"default:false" json:"require_expiry_date"`
+	RequireLotNumber                       bool   `gorm:"default:false" json:"require_lot_number"`
+	RequireScanPickLocation                bool   `gorm:"default:false" json:"require_scan_pick_location"`
+	AllowMixedLot                          bool   `gorm:"default:false" json:"allow_mixed_lot"`
+	AllowNegativeStock                     bool   `gorm:"default:false" json:"allow_negative_stock"`
+	ValidationSN                           bool   `gorm:"default:false" json:"validation_sn"`
+	RequirePickingScan                     bool   `gorm:"default:false" json:"require_picking_scan"`
+	RequirePackingScan                     bool   `gorm:"default:false" json:"require_packing_scan"`
+	PickingSingleScan                      bool   `gorm:"default:false" json:"picking_single_scan"`
+	RequireReceiveScan                     bool   `gorm:"default:false" json:"require_receive_scan"`
+	ValidateReceiveScan                    bool   `gorm:"default:false" json:"validate_receive_scan"`
+	RequirePutawayScan                     bool   `gorm:"default:false" json:"require_putaway_scan"`
+	AllocationLotByOrder                   bool   `gorm:"default:false" json:"allocation_lot_by_order"`
+	PickingWithScanner                     bool   `gorm:"default:false" json:"picking_with_scanner"`
+	PickingExcludeLocationsUnderCycleCount bool   `gorm:"default:false" json:"picking_exclude_locations_under_cycle_count"`
+	CreatedBy                              int
+	UpdatedBy                              int
+	DeletedBy                              int
 }
 
 type InventoryMovement struct {
