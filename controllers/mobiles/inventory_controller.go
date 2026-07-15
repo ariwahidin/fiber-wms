@@ -170,16 +170,6 @@ func (c *MobileInventoryController) GetItemsByLocationAndBarcode(ctx *fiber.Ctx)
 
 func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fiber.Ctx) error {
 
-	// var input struct {
-	// 	FromLocation  string `json:"from_location"`
-	// 	ToLocation    string `json:"to_location"`
-	// 	ListInventory []struct {
-	// 		ID       int    `json:"id"`
-	// 		Location string `json:"location"`
-	// 		Pallet   string `json:"pallet"`
-	// 	} `json:"list_inventory"`
-	// }
-
 	var input struct {
 		FromLocation  string `json:"from_location"`
 		FromPallet    string `json:"from_pallet"` // sudah ada
@@ -319,6 +309,31 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 		if err := tx.Where("id = ? AND location = ? AND qty_available > 0", inv.ID, inv.Location).First(&inventory).Error; err != nil {
 			tx.Rollback()
 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Inventory not found or not available"})
+		}
+
+		var inventoryPolicy models.InventoryPolicy
+		if err := tx.Where("owner_code = ?", inventory.OwnerCode).First(&inventoryPolicy).Error; err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to fetch inventory policy: " + err.Error()})
+		}
+		if inventoryPolicy.PickingExcludeLocationsUnderCycleCount {
+
+			// --- Check cycle count ---
+			locationRepo := repositories.NewLocationRepository(tx)
+			underCount, err := locationRepo.IsLocationUnderCycleCount(inventory.WhsCode, input.ToLocation)
+			if err != nil {
+				tx.Rollback()
+				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+					"error": "Failed to check cycle count status: " + err.Error(),
+				})
+			}
+			if underCount {
+				tx.Rollback()
+				return ctx.Status(fiber.StatusLocked).JSON(fiber.Map{
+					"error": "Location " + input.ToLocation + " is currently under cycle count, transfer is not allowed",
+				})
+			}
+
 		}
 
 		if inventory.Location == input.ToLocation {
@@ -471,15 +486,6 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 
 func (c *MobileInventoryController) ConfirmTransferByInventoryID(ctx *fiber.Ctx) error {
 	movementID := uuid.NewString()
-	// var input struct {
-	// 	FromPallet   string  `json:"from_pallet"`
-	// 	FromLocation string  `json:"from_location"`
-	// 	ToLocation   string  `json:"to_location"`
-	// 	InventoryID  int     `json:"inventory_id"`
-	// 	QtyTransfer  float64 `json:"qty_transfer"`
-	// 	EanTransfer  string  `json:"ean_transfer"`
-	// 	UomTransfer  string  `json:"uom_transfer"`
-	// }
 
 	var input struct {
 		FromPallet   string  `json:"from_pallet"`
@@ -495,13 +501,6 @@ func (c *MobileInventoryController) ConfirmTransferByInventoryID(ctx *fiber.Ctx)
 	if err := ctx.BodyParser(&input); err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
-
-	fmt.Println("Input : ", input)
-	// return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Confirm transfer successfully"})
-
-	// if input.FromPallet == "" || input.FromLocation == "" || input.ToLocation == "" || input.InventoryID == 0 || input.QtyTransfer == 0 {
-	// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "From Pallet, From Location, To Location, Inventory ID and Qty Transfer are required"})
-	// }
 
 	// Validasi existing tetap, to_pallet opsional jadi tidak masuk validasi required
 	if input.FromPallet == "" || input.FromLocation == "" || input.ToLocation == "" || input.InventoryID == 0 || input.QtyTransfer == 0 {
@@ -539,6 +538,12 @@ func (c *MobileInventoryController) ConfirmTransferByInventoryID(ctx *fiber.Ctx)
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	var product models.Product
+	if err := tx.Where("item_code = ?", uomConversion.ItemCode).First(&product).Error; err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
 	uomRepo := repositories.NewUomRepository(tx)
 	qtyTransferConverted, errqtc := uomRepo.ConversionQty(uomConversion.ItemCode, input.QtyTransfer, input.UomTransfer)
 	if errqtc != nil {
@@ -556,6 +561,31 @@ func (c *MobileInventoryController) ConfirmTransferByInventoryID(ctx *fiber.Ctx)
 		}
 		tx.Rollback()
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	var inventoryPolicy models.InventoryPolicy
+	if err := tx.Where("owner_code = ?", product.OwnerCode).First(&inventoryPolicy).Error; err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to fetch inventory policy: " + err.Error()})
+	}
+	if inventoryPolicy.PickingExcludeLocationsUnderCycleCount {
+
+		// --- Check cycle count ---
+		locationRepo := repositories.NewLocationRepository(tx)
+		underCount, err := locationRepo.IsLocationUnderCycleCount(toLocation.WhsCode, toLocation.LocationCode)
+		if err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error": "Failed to check cycle count status: " + err.Error(),
+			})
+		}
+		if underCount {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusLocked).JSON(fiber.Map{
+				"error": "Location " + toLocation.LocationCode + " is currently under cycle count, transfer is not allowed",
+			})
+		}
+
 	}
 
 	var inventory models.Inventory

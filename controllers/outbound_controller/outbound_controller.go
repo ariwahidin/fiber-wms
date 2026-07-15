@@ -1029,9 +1029,44 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 
 		fmt.Println("Picking Query")
 
+		// queryInventory := tx.Debug().
+		// 	Table("inventories as i").
+		// 	Joins("LEFT JOIN locations as l ON i.whs_code = l.whs_code AND i.location = l.location_code").
+		// 	Where(`
+		// 			i.item_id = ?
+		// 			AND i.whs_code = ?
+		// 			AND i.qty_available > 0
+		// 			AND i.uom = ?
+		// 			AND i.owner_code = ?
+		// 			AND i.qa_status = ?
+		// 			AND i.division_code = ?
+		// 			AND (
+		// 				l.id IS NULL
+		// 				OR (l.is_active = 1 AND l.is_pickable = 1)
+		// 			)
+		// 		`,
+		// 		outboundDetail.ItemID,
+		// 		outboundDetail.WhsCode,
+		// 		uomConversion.ToUom,
+		// 		outboundHeader.OwnerCode,
+		// 		outboundDetail.QaStatus,
+		// 		outboundDetail.DivisionCode,
+		// 	)
+
 		queryInventory := tx.Debug().
 			Table("inventories as i").
 			Joins("LEFT JOIN locations as l ON i.whs_code = l.whs_code AND i.location = l.location_code").
+			Joins(`LEFT JOIN (
+				SELECT location, whs_code, item_id,
+					MIN(rec_date) as min_rec_date,
+					MIN(qty_available) as min_qty,
+					MIN(exp_date) as min_exp_date
+				FROM inventories
+				WHERE qty_available > 0 AND deleted_at IS NULL
+				GROUP BY location, whs_code, item_id
+			) as loc_rank ON loc_rank.location = i.location 
+						AND loc_rank.whs_code = i.whs_code 
+						AND loc_rank.item_id = i.item_id`).
 			Where(`
 					i.item_id = ?
 					AND i.whs_code = ?
@@ -1078,10 +1113,16 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 			}
 		}
 
+		// if invetoryPolicy.UseFEFO {
+		// 	queryInventory = queryInventory.Order("i.exp_date, i.lot_number, i.rec_date, i.qty_available, i.pallet, i.location ASC")
+		// } else {
+		// 	queryInventory = queryInventory.Order("i.rec_date, i.qty_available, i.location ASC")
+		// }
+
 		if invetoryPolicy.UseFEFO {
-			queryInventory = queryInventory.Order("i.exp_date, i.lot_number, i.rec_date, i.qty_available, i.pallet, i.location ASC")
+			queryInventory = queryInventory.Order("loc_rank.min_exp_date ASC, loc_rank.min_qty ASC, i.location ASC, i.exp_date ASC, i.lot_number ASC, i.rec_date ASC, i.qty_available ASC, i.pallet ASC")
 		} else {
-			queryInventory = queryInventory.Order("i.rec_date, i.qty_available, i.location ASC")
+			queryInventory = queryInventory.Order("loc_rank.min_rec_date ASC, loc_rank.min_qty ASC, i.location ASC, i.qty_available ASC, i.rec_date ASC")
 		}
 
 		if invetoryPolicy.PickingExcludeLocationsUnderCycleCount {

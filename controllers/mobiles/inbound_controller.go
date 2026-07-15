@@ -954,6 +954,14 @@ func (c *MobileInboundController) PutawayAll(ctx *fiber.Ctx) error {
 	}
 	log.Printf("[PutawayAll] Fetch inbound header | id=%d | took=%s", inboundHeader.ID, time.Since(t))
 
+	var inventoryPolicy models.InventoryPolicy
+	if err := tx.Where("owner_code = ?", inboundHeader.OwnerCode).First(&inventoryPolicy).Error; err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error": "Inventory policy not found for owner: " + err.Error(),
+		})
+	}
+
 	inboundRepo := repositories.NewInboundRepository(tx)
 
 	// --- Validate location ---
@@ -966,6 +974,27 @@ func (c *MobileInboundController) PutawayAll(ctx *fiber.Ctx) error {
 	}
 	log.Printf("[PutawayAll] Validate location | location=%s | took=%s", req.Location, time.Since(t))
 
+	if inventoryPolicy.PickingExcludeLocationsUnderCycleCount {
+
+		// --- Check cycle count ---
+		t = time.Now()
+		locationRepo := repositories.NewLocationRepository(tx)
+		underCount, err := locationRepo.IsLocationUnderCycleCount(inboundHeader.WhsCode, req.Location)
+		if err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error": "Failed to check cycle count status: " + err.Error(),
+			})
+		}
+		if underCount {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusLocked).JSON(fiber.Map{
+				"error": "Location " + req.Location + " is currently under cycle count, putaway is not allowed",
+			})
+		}
+		log.Printf("[PutawayAll] Cycle count check | location=%s under_count=%v | took=%s", req.Location, underCount, time.Since(t))
+
+	}
 	// --- Loop putaway items ---
 	t = time.Now()
 	for _, itemID := range req.ItemIDs {
