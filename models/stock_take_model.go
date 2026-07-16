@@ -15,6 +15,11 @@ type StockTake struct {
 	DeletedBy int             `json:"deleted_by"`
 	CreatedAt time.Time       `json:"created_at"`
 	UpdatedAt time.Time       `json:"updated_at"`
+	StartedAt time.Time       `json:"started_at" gorm:"default:NULL"`
+	ClosedAt  time.Time       `json:"closed_at" gorm:"default:NULL"`
+	ClosedBy  int             `json:"closed_by" gorm:"default:NULL"`
+	CancelAt  time.Time       `json:"cancel_at" gorm:"default:NULL"`
+	CancelBy  int             `json:"cancel_by" gorm:"default:NULL"`
 	Items     []StockTakeItem `gorm:"foreignKey:StockTakeID;references:ID;constraint:OnDelete:CASCADE" json:"items"`
 }
 

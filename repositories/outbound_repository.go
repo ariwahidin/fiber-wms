@@ -1241,6 +1241,7 @@ type OutboundFilterParams struct {
 	Search     string   // search outbound_no, shipment_id, customer_name, order_no
 	SearchItem string   // search item_code, barcode, item_name di outbound_details + products
 	Statuses   []string // filter by status: open, picking, packing, completed, cancel
+	OrderTypes []string // filter by order_type: B2B - Consignment, B2B - Normal
 }
 
 func (r *OutboundRepository) GetOutboundListWithFilter(params OutboundFilterParams) ([]OutboundList, error) {
@@ -1268,6 +1269,17 @@ func (r *OutboundRepository) GetOutboundListWithFilter(params OutboundFilterPara
 			args = append(args, s)
 		}
 		statusWhere = "AND status IN (" + strings.Join(placeholders, ", ") + ")"
+	}
+
+	// Order Type filter — NEW
+	orderTypeWhere := ""
+	if len(params.OrderTypes) > 0 {
+		placeholders := make([]string, len(params.OrderTypes))
+		for i, s := range params.OrderTypes {
+			placeholders[i] = "?"
+			args = append(args, s)
+		}
+		orderTypeWhere = "AND order_type IN (" + strings.Join(placeholders, ", ") + ")"
 	}
 
 	// Header search (di base CTE)
@@ -1308,6 +1320,7 @@ func (r *OutboundRepository) GetOutboundListWithFilter(params OutboundFilterPara
           AND outbound_date >= ` + startDate + `
           AND outbound_date <= ` + endDate + `
           ` + statusWhere + `
+          ` + orderTypeWhere + `
           ` + baseSearch + `
     ),
     od AS (
@@ -1388,6 +1401,152 @@ func (r *OutboundRepository) GetOutboundListWithFilter(params OutboundFilterPara
 
 	return outboundList, nil
 }
+
+// func (r *OutboundRepository) GetOutboundListWithFilter(params OutboundFilterParams) ([]OutboundList, error) {
+// 	var outboundList []OutboundList
+// 	var args []interface{}
+
+// 	// Date range
+// 	startDate := "DATEADD(day, -7, CAST(GETDATE() AS DATE))"
+// 	endDate := "CAST(GETDATE() AS DATE)"
+// 	if params.StartDate != "" {
+// 		startDate = "?"
+// 		args = append(args, params.StartDate)
+// 	}
+// 	if params.EndDate != "" {
+// 		endDate = "?"
+// 		args = append(args, params.EndDate)
+// 	}
+
+// 	// Status filter
+// 	statusWhere := ""
+// 	if len(params.Statuses) > 0 {
+// 		placeholders := make([]string, len(params.Statuses))
+// 		for i, s := range params.Statuses {
+// 			placeholders[i] = "?"
+// 			args = append(args, s)
+// 		}
+// 		statusWhere = "AND status IN (" + strings.Join(placeholders, ", ") + ")"
+// 	}
+
+// 	// Header search (di base CTE)
+// 	baseSearch := ""
+// 	if params.Search != "" {
+// 		baseSearch = "AND (outbound_no LIKE ? OR shipment_id LIKE ? OR customer_code LIKE ?)"
+// 		like := "%" + params.Search + "%"
+// 		args = append(args, like, like, like)
+// 	}
+
+// 	// Item search (join + where)
+// 	itemJoin := ""
+// 	itemWhere := ""
+// 	if params.SearchItem != "" {
+// 		itemJoin = `
+//         INNER JOIN outbound_details od_s ON a.id = od_s.outbound_id
+//         INNER JOIN products p_s ON od_s.item_id = p_s.id`
+// 		itemWhere = "AND (od_s.item_code LIKE ? OR od_s.barcode LIKE ? OR p_s.item_name LIKE ?)"
+// 		like := "%" + params.SearchItem + "%"
+// 		args = append(args, like, like, like)
+// 	}
+
+// 	// Outer search (customer_name, order_no) — setelah join
+// 	outerSearch := ""
+// 	if params.Search != "" {
+// 		outerSearch = "OR cs.customer_name LIKE ? OR ord.order_no LIKE ? OR cs.customer_code LIKE ?"
+// 		like := "%" + params.Search + "%"
+// 		args = append(args, like, like, like)
+// 	}
+
+// 	query := `
+//     WITH base AS (
+//         SELECT id, outbound_no, shipment_id, status, owner_code,
+//                outbound_date, order_type, customer_code, deliv_to,
+//                qty_koli, [source]
+//         FROM outbound_headers
+//         WHERE deleted_at IS NULL
+//           AND outbound_date >= ` + startDate + `
+//           AND outbound_date <= ` + endDate + `
+//           ` + statusWhere + `
+//           ` + baseSearch + `
+//     ),
+//     od AS (
+//         SELECT od.outbound_id,
+//             COUNT(od.outbound_id)  AS total_item,
+//             SUM(p.cbm)             AS total_cbm,
+//             SUM(od.quantity)       AS qty_req
+//         FROM outbound_details od
+//         INNER JOIN products AS p ON od.item_id = p.id
+//         WHERE od.outbound_id IN (SELECT id FROM base)
+//         GROUP BY od.outbound_id
+//     ),
+//     ps AS (
+//         SELECT outbound_id,
+//             COUNT(item_id)   AS total_item,
+//             SUM(qty_display) AS qty_plan
+//         FROM outbound_pickings
+//         WHERE outbound_id IN (SELECT id FROM base)
+//         GROUP BY outbound_id
+//     ),
+//     obc AS (
+//         SELECT a.outbound_id,
+//             a.quantity / c.conversion_rate AS qty_display
+//         FROM outbound_barcodes a
+//         INNER JOIN outbound_details b ON a.outbound_detail_id = b.id
+//         INNER JOIN uom_conversions c  ON a.item_code = c.item_code AND b.uom = c.from_uom
+//         WHERE a.outbound_id IN (SELECT id FROM base)
+//     ),
+//     kd AS (
+//         SELECT outbound_id, SUM(qty_display) AS qty_pack
+//         FROM obc
+//         GROUP BY outbound_id
+//     ),
+//     ord AS (
+//         SELECT outbound_id,
+//             STRING_AGG(order_no, ', ') AS order_no
+//         FROM order_details
+//         WHERE outbound_id IN (SELECT id FROM base)
+//         GROUP BY outbound_id
+//     )
+//     SELECT
+//         a.id,
+//         a.outbound_no,
+//         a.shipment_id,
+//         a.status,
+//         a.owner_code,
+//         a.outbound_date,
+//         a.order_type,
+//         ord.order_no,
+//         a.customer_code,
+//         od.total_item,
+//         od.qty_req,
+//         COALESCE(ps.qty_plan, 0) AS qty_plan,
+//         COALESCE(kd.qty_pack, 0) AS qty_pack,
+//         cs.customer_name,
+//         a.deliv_to,
+//         cd.customer_name AS deliv_to_name,
+//         cd.cust_addr1    AS deliv_address,
+//         cd.cust_city     AS deliv_city,
+//         a.qty_koli,
+//         od.total_cbm,
+//         a.[source]
+//     FROM base a
+//     LEFT JOIN od  ON a.id = od.outbound_id
+//     LEFT JOIN ps  ON a.id = ps.outbound_id
+//     LEFT JOIN kd  ON a.id = kd.outbound_id
+//     LEFT JOIN customers cs ON a.customer_code = cs.customer_code
+//     LEFT JOIN customers cd ON a.deliv_to = cd.customer_code
+//     LEFT JOIN ord ON a.id = ord.outbound_id
+//     ` + itemJoin + `
+//     WHERE (1=1 ` + outerSearch + `)
+//     ` + itemWhere + `
+//     ORDER BY a.id DESC`
+
+// 	if err := r.db.Raw(query, args...).Scan(&outboundList).Error; err != nil {
+// 		return nil, err
+// 	}
+
+// 	return outboundList, nil
+// }
 
 // GetOutboundListWithFilter — fungsi baru, tidak menyentuh GetAllOutboundList
 // func (r *OutboundRepository) GetOutboundListWithFilter(params OutboundFilterParams) ([]OutboundList, error) {

@@ -1013,3 +1013,162 @@ func (r *InboundRepository) GetScanData(inboundBarcodeID uint) (*ScanDataResult,
 	}
 	return &result, nil
 }
+
+type InboundFilterParams struct {
+	StartDate  string
+	EndDate    string
+	Search     string
+	SearchItem string
+	Statuses   []string
+	Types      []string
+	Owners     []string
+}
+
+func (r *InboundRepository) GetInboundListWithFilter(params InboundFilterParams) ([]ListInbound, error) {
+	var listInbound []ListInbound
+	var args []interface{}
+
+	// Date range
+	startDate := "DATEADD(day, -7, CAST(GETDATE() AS DATE))"
+	endDate := "CAST(GETDATE() AS DATE)"
+	if params.StartDate != "" {
+		startDate = "?"
+		args = append(args, params.StartDate)
+	}
+	if params.EndDate != "" {
+		endDate = "?"
+		args = append(args, params.EndDate)
+	}
+
+	// Status filter
+	statusWhere := ""
+	if len(params.Statuses) > 0 {
+		placeholders := make([]string, len(params.Statuses))
+		for i, s := range params.Statuses {
+			placeholders[i] = "?"
+			args = append(args, s)
+		}
+		statusWhere = "AND a.status IN (" + strings.Join(placeholders, ", ") + ")"
+	}
+
+	// Type filter (IB Type)
+	typeWhere := ""
+	if len(params.Types) > 0 {
+		placeholders := make([]string, len(params.Types))
+		for i, s := range params.Types {
+			placeholders[i] = "?"
+			args = append(args, s)
+		}
+		typeWhere = "AND a.type IN (" + strings.Join(placeholders, ", ") + ")"
+	}
+
+	// Owner filter
+	ownerWhere := ""
+	if len(params.Owners) > 0 {
+		placeholders := make([]string, len(params.Owners))
+		for i, s := range params.Owners {
+			placeholders[i] = "?"
+			args = append(args, s)
+		}
+		ownerWhere = "AND a.owner_code IN (" + strings.Join(placeholders, ", ") + ")"
+	}
+
+	// Header search (di base CTE) — inbound_no, receipt_id
+	baseSearch := ""
+	if params.Search != "" {
+		baseSearch = "AND (a.inbound_no LIKE ? OR a.receipt_id LIKE ?)"
+		like := "%" + params.Search + "%"
+		args = append(args, like, like)
+	}
+
+	// Item search (join + where)
+	itemJoin := ""
+	itemWhere := ""
+	if params.SearchItem != "" {
+		itemJoin = `
+        INNER JOIN inbound_details id_s ON a.id = id_s.inbound_id
+        INNER JOIN products p_s ON id_s.item_code = p_s.item_code`
+		itemWhere = "AND (id_s.item_code LIKE ? OR p_s.item_name LIKE ?)"
+		like := "%" + params.SearchItem + "%"
+		args = append(args, like, like)
+	}
+
+	// Outer search (supplier_name, transporter_name) — setelah join
+	outerSearch := ""
+	if params.Search != "" {
+		outerSearch = "OR c.supplier_name LIKE ? OR d.transporter_name LIKE ?"
+		like := "%" + params.Search + "%"
+		args = append(args, like, like)
+	}
+
+	query := `
+    WITH base AS (
+        SELECT id, inbound_no, receipt_id, owner_code,
+               driver, truck_id, no_truck, inbound_date,
+               container, origin, arrival_time, start_unloading, end_unloading,
+               status, remarks, type, supplier, transporter
+        FROM inbound_headers a
+        WHERE 1=1
+          AND inbound_date >= ` + startDate + `
+          AND inbound_date <= ` + endDate + `
+          ` + statusWhere + `
+          ` + typeWhere + `
+          ` + ownerWhere + `
+          ` + baseSearch + `
+    ),
+    detail AS (
+        SELECT inbound_id, COUNT(item_code) as total_line, SUM(quantity) total_qty
+        FROM inbound_details
+        WHERE inbound_id IN (SELECT id FROM base)
+        GROUP BY inbound_id
+    ),
+    inbound_barcode AS (
+        SELECT inbound_id, SUM(quantity) as qty_scan
+        FROM inbound_barcodes
+        WHERE inbound_id IN (SELECT id FROM base)
+        GROUP BY inbound_id
+    ),
+    inbound_putaway AS (
+        SELECT inbound_id, SUM(quantity) as qty_scan
+        FROM inbound_barcodes
+        WHERE status = 'in stock'
+          AND inbound_id IN (SELECT id FROM base)
+        GROUP BY inbound_id
+    )
+    SELECT a.id, a.inbound_no, a.receipt_id,
+           c.supplier_name, a.owner_code,
+           a.driver, a.truck_id, a.no_truck, a.inbound_date,
+           a.container,
+           a.origin, a.arrival_time, a.start_unloading, a.end_unloading,
+           a.status, a.remarks as remarks_header,
+           b.total_line, b.total_qty, COALESCE(ib.qty_scan, 0) as qty_scan, COALESCE(ipu.qty_scan, 0) as qty_putaway,
+           d.transporter_name, a.type
+    FROM base a
+    LEFT JOIN detail b ON a.id = b.inbound_id
+    LEFT JOIN suppliers c ON a.supplier = c.supplier_code
+    LEFT JOIN transporters d ON a.transporter = d.transporter_code
+    LEFT JOIN inbound_barcode ib ON a.id = ib.inbound_id
+    LEFT JOIN inbound_putaway ipu ON a.id = ipu.inbound_id
+    ` + itemJoin + `
+    WHERE (1=1 ` + outerSearch + `)
+    ` + itemWhere + `
+    ORDER BY a.id DESC`
+
+	if err := r.db.Raw(query, args...).Scan(&listInbound).Error; err != nil {
+		return nil, err
+	}
+
+	for i, inbound := range listInbound {
+		var inboundReferences []models.InboundReference
+		if err := r.db.Where("inbound_id = ?", inbound.ID).Find(&inboundReferences).Error; err != nil {
+			return nil, err
+		}
+		var refNos []string
+		for _, ref := range inboundReferences {
+			refNos = append(refNos, ref.RefNo)
+		}
+		listInbound[i].Invoice = strings.Join(refNos, ", ")
+	}
+
+	return listInbound, nil
+}

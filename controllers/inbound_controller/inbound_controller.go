@@ -1079,6 +1079,70 @@ func (c *InboundController) GetAllListInbound(ctx *fiber.Ctx) error {
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "data": result})
 }
 
+func (c *InboundController) GetInboundListFilter(ctx *fiber.Ctx) error {
+	// Parse statuses dari query string "open,checking,partially received"
+	var statuses []string
+	if raw := ctx.Query("statuses"); raw != "" {
+		for _, s := range strings.Split(raw, ",") {
+			s = strings.TrimSpace(s)
+			if s != "" {
+				statuses = append(statuses, s)
+			}
+		}
+	}
+
+	// Parse types (IB Type) dari query string
+	var types []string
+	if raw := ctx.Query("types"); raw != "" {
+		for _, s := range strings.Split(raw, ",") {
+			s = strings.TrimSpace(s)
+			if s != "" {
+				types = append(types, s)
+			}
+		}
+	}
+
+	// Parse owners dari query string
+	var owners []string
+	if raw := ctx.Query("owners"); raw != "" {
+		for _, s := range strings.Split(raw, ",") {
+			s = strings.TrimSpace(s)
+			if s != "" {
+				owners = append(owners, s)
+			}
+		}
+	}
+
+	params := repositories.InboundFilterParams{
+		StartDate:  ctx.Query("start_date"),
+		EndDate:    ctx.Query("end_date"),
+		Search:     ctx.Query("search"),
+		SearchItem: ctx.Query("search_item"),
+		Statuses:   statuses,
+		Types:      types,
+		Owners:     owners,
+	}
+
+	inboundRepo := repositories.NewInboundRepository(c.DB)
+	result, err := inboundRepo.GetInboundListWithFilter(params)
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": err.Error(),
+		})
+	}
+
+	if result == nil {
+		result = []repositories.ListInbound{}
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": "Inbound found",
+		"data":    result,
+	})
+}
+
 func (c *InboundController) GetInboundByID(ctx *fiber.Ctx) error {
 	inbound_no := ctx.Params("inbound_no")
 	limit := ctx.QueryInt("limit", 5000)

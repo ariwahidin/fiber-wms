@@ -589,7 +589,15 @@ func (c *StockTakeController) ScanStockTake(ctx *fiber.Ctx) error {
 	}
 
 	// Transisi status otomatis begitu scan pertama masuk — no-op kalau statusnya udah bukan "open"
-	c.DB.Model(&stockTake).Where("status = ?", "open").Update("status", "in_progress")
+	// c.DB.Model(&stockTake).Where("status = ?", "open").Update("status", "in_progress")
+
+	// Transisi status otomatis begitu scan pertama masuk — no-op kalau statusnya udah bukan "open"
+	c.DB.Model(&stockTake).Where("status = ?", "open").Updates(map[string]interface{}{
+		"status":     "in_progress",
+		"started_at": time.Now(),
+		"updated_at": time.Now(),
+		"updated_by": int(ctx.Locals("userID").(float64)),
+	})
 
 	c.DB.Preload("Product").First(&stockTakeBarcode, stockTakeBarcode.ID)
 
@@ -785,7 +793,18 @@ func (c *StockTakeController) CloseStockTake(ctx *fiber.Ctx) error {
 		})
 	}
 
-	if err := c.DB.Model(&stockTake).Update("status", "closed").Error; err != nil {
+	// if err := c.DB.Model(&stockTake).Update("status", "closed").Error; err != nil {
+	// 	return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false, "message": "Failed to close stock take", "error": err.Error()})
+	// }
+
+	userID := int(ctx.Locals("userID").(float64))
+	if err := c.DB.Model(&stockTake).Updates(map[string]interface{}{
+		"status":     "closed",
+		"closed_at":  time.Now(),
+		"closed_by":  userID,
+		"updated_at": time.Now(),
+		"updated_by": userID,
+	}).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false, "message": "Failed to close stock take", "error": err.Error()})
 	}
 
@@ -807,8 +826,19 @@ func (c *StockTakeController) CancelStockTake(ctx *fiber.Ctx) error {
 		})
 	}
 
-	if err := c.DB.Model(&stockTake).Update("status", "cancelled").Error; err != nil {
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false, "message": "Failed to cancel stock take", "error": err.Error()})
+	// if err := c.DB.Model(&stockTake).Update("status", "cancelled").Error; err != nil {
+	// 	return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false, "message": "Failed to cancel stock take", "error": err.Error()})
+	// }
+
+	userID := int(ctx.Locals("userID").(float64))
+	if err := c.DB.Model(&stockTake).Updates(map[string]interface{}{
+		"status":     "cancelled",
+		"cancel_at":  time.Now(),
+		"cancel_by":  userID,
+		"updated_at": time.Now(),
+		"updated_by": userID,
+	}).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false, "message": "Failed to close stock take", "error": err.Error()})
 	}
 
 	return ctx.JSON(fiber.Map{"success": true, "message": "Stock take cancelled successfully"})
