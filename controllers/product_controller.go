@@ -20,22 +20,23 @@ func NewProductController(DB *gorm.DB) *ProductController {
 }
 
 var productInput struct {
-	ID         uint    `json:"id"`
-	ItemCode   string  `json:"item_code" validate:"required,min=3"`
-	ItemName   string  `json:"item_name" validate:"required,min=3"`
-	CBM        float64 `json:"cbm" validate:"required"`
-	GMC        string  `json:"gmc" validate:"required,min=6"`
-	Width      float64 `json:"width"`
-	Length     float64 `json:"length"`
-	Height     float64 `json:"height"`
-	Group      string  `json:"group" validate:"required,min=3"`
-	Category   string  `json:"category" validate:"required,min=3"`
-	Serial     string  `json:"serial" validate:"required,min=1"`
-	Waranty    string  `json:"waranty" validate:"required,min=1"`
-	Adaptor    string  `json:"adaptor" validate:"required,min=1"`
-	ManualBook string  `json:"manual_book" validate:"required,min=1"`
-	Uom        string  `json:"uom" validate:"required,min=3"`
-	OwnerCode  string  `json:"owner_code" validate:"required,min=3"`
+	ID          uint    `json:"id"`
+	ItemCode    string  `json:"item_code" validate:"required,min=3"`
+	ItemName    string  `json:"item_name" validate:"required,min=3"`
+	CBM         float64 `json:"cbm" validate:"required"`
+	GMC         string  `json:"gmc" validate:"required,min=6"`
+	Width       float64 `json:"width"`
+	Length      float64 `json:"length"`
+	Height      float64 `json:"height"`
+	Group       string  `json:"group" validate:"required,min=3"`
+	Category    string  `json:"category" validate:"required,min=3"`
+	Serial      string  `json:"serial" validate:"required,min=1"`
+	Waranty     string  `json:"waranty" validate:"required,min=1"`
+	Adaptor     string  `json:"adaptor" validate:"required,min=1"`
+	ManualBook  string  `json:"manual_book" validate:"required,min=1"`
+	Uom         string  `json:"uom" validate:"required,min=3"`
+	OwnerCode   string  `json:"owner_code" validate:"required,min=3"`
+	GrossWeight float64 `json:"gross_weight"`
 }
 
 func (c *ProductController) CreateProduct(ctx *fiber.Ctx) error {
@@ -59,23 +60,24 @@ func (c *ProductController) CreateProduct(ctx *fiber.Ctx) error {
 
 	// Membuat user dengan memasukkan data ke struct models.Product
 	product := models.Product{
-		ItemCode:   productInput.ItemCode,
-		ItemName:   productInput.ItemName,
-		CBM:        productInput.CBM,
-		Barcode:    productInput.GMC,
-		GMC:        productInput.GMC,
-		Width:      productInput.Width,
-		Length:     productInput.Length,
-		Height:     productInput.Height,
-		Group:      productInput.Group,
-		Category:   productInput.Category,
-		HasSerial:  productInput.Serial,
-		HasWaranty: productInput.Waranty,
-		HasAdaptor: productInput.Adaptor,
-		ManualBook: productInput.ManualBook,
-		Uom:        productInput.Uom,
-		OwnerCode:  productInput.OwnerCode,
-		CreatedBy:  int(ctx.Locals("userID").(float64)),
+		ItemCode:    productInput.ItemCode,
+		ItemName:    productInput.ItemName,
+		CBM:         productInput.CBM,
+		Barcode:     productInput.GMC,
+		GMC:         productInput.GMC,
+		Width:       productInput.Width,
+		Length:      productInput.Length,
+		Height:      productInput.Height,
+		Group:       productInput.Group,
+		Category:    productInput.Category,
+		HasSerial:   productInput.Serial,
+		HasWaranty:  productInput.Waranty,
+		HasAdaptor:  productInput.Adaptor,
+		ManualBook:  productInput.ManualBook,
+		Uom:         productInput.Uom,
+		OwnerCode:   productInput.OwnerCode,
+		GrossWeight: productInput.GrossWeight,
+		CreatedBy:   int(ctx.Locals("userID").(float64)),
 	}
 
 	if err := c.DB.Create(&product).Error; err != nil {
@@ -176,24 +178,25 @@ func (c *ProductController) UpdateProduct(ctx *fiber.Ctx) error {
 		Model(&models.Product{}).
 		Where("id = ?", id).
 		Updates(map[string]interface{}{
-			"item_code":   productInput.ItemCode,
-			"item_name":   productInput.ItemName,
-			"cbm":         productInput.CBM,
-			"gmc":         productInput.GMC,
-			"barcode":     productInput.GMC,
-			"group":       productInput.Group,
-			"category":    productInput.Category,
-			"width":       productInput.Width,
-			"length":      productInput.Length,
-			"height":      productInput.Height,
-			"has_serial":  productInput.Serial,
-			"has_waranty": productInput.Waranty,
-			"has_adaptor": productInput.Adaptor,
-			"manual_book": productInput.ManualBook,
-			"uom":         productInput.Uom,
-			"owner_code":  productInput.OwnerCode,
-			"updated_at":  time.Now(),
-			"updated_by":  int(ctx.Locals("userID").(float64)),
+			"item_code":    productInput.ItemCode,
+			"item_name":    productInput.ItemName,
+			"cbm":          productInput.CBM,
+			"gmc":          productInput.GMC,
+			"barcode":      productInput.GMC,
+			"group":        productInput.Group,
+			"category":     productInput.Category,
+			"width":        productInput.Width,
+			"length":       productInput.Length,
+			"height":       productInput.Height,
+			"has_serial":   productInput.Serial,
+			"has_waranty":  productInput.Waranty,
+			"has_adaptor":  productInput.Adaptor,
+			"manual_book":  productInput.ManualBook,
+			"uom":          productInput.Uom,
+			"owner_code":   productInput.OwnerCode,
+			"gross_weight": productInput.GrossWeight,
+			"updated_at":   time.Now(),
+			"updated_by":   int(ctx.Locals("userID").(float64)),
 		}).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
