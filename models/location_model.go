@@ -8,6 +8,7 @@ type Location struct {
 	gorm.Model
 	LocationCode string `json:"location_code" gorm:"unique"`
 	WhsCode      string `json:"whs_code"`
+	OwnerCode    string `json:"owner_code"`
 	Row          string `json:"row"`
 	Bay          string `json:"bay"`
 	Level        string `json:"level"`

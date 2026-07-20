@@ -50,6 +50,19 @@ func (lc *LocationController) CreateLocation(ctx *fiber.Ctx) error {
 	}
 	location.WhsCode = warehouse.Code
 
+	// Owner wajib ada
+	if location.OwnerCode == "" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Owner code is required"})
+	}
+	owner := models.Owner{}
+	if err := lc.DB.First(&owner, "code = ?", location.OwnerCode).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Owner not found"})
+		}
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	location.OwnerCode = owner.Code
+
 	bayInt, err := strconv.Atoi(location.Bay)
 	if err != nil {
 		location.Area = "Unknown"
@@ -75,9 +88,27 @@ func (lc *LocationController) CreateLocation(ctx *fiber.Ctx) error {
 }
 
 // READ ALL
+// func (lc *LocationController) GetAllLocations(ctx *fiber.Ctx) error {
+// 	var locations []models.Location
+// 	if err := lc.DB.Find(&locations).Error; err != nil {
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+// 	}
+// 	return ctx.JSON(fiber.Map{
+// 		"success": true,
+// 		"data":    locations,
+// 	})
+// }
+
+// READ ALL
 func (lc *LocationController) GetAllLocations(ctx *fiber.Ctx) error {
 	var locations []models.Location
-	if err := lc.DB.Find(&locations).Error; err != nil {
+
+	query := lc.DB
+	if ownerCode := ctx.Query("owner_code"); ownerCode != "" {
+		query = query.Where("owner_code = ?", ownerCode)
+	}
+
+	if err := query.Find(&locations).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return ctx.JSON(fiber.Map{
@@ -116,6 +147,17 @@ func (lc *LocationController) UpdateLocation(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid input"})
 	}
 
+	if input.OwnerCode == "" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Owner code is required"})
+	}
+	owner := models.Owner{}
+	if err := lc.DB.First(&owner, "code = ?", input.OwnerCode).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Owner not found"})
+		}
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
 	bayInt, err := strconv.Atoi(location.Bay)
 	if err != nil {
 		location.Area = "Unknown"
@@ -128,12 +170,12 @@ func (lc *LocationController) UpdateLocation(ctx *fiber.Ctx) error {
 	}
 
 	location.WhsCode = input.WhsCode
+	location.OwnerCode = owner.Code
 	location.LocationCode = input.Row + input.Bay + input.Level + input.Bin
 	location.Row = input.Row
 	location.Bay = input.Bay
 	location.Level = input.Level
 	location.Bin = input.Bin
-	// location.Area = input.Area
 	location.IsActive = input.IsActive
 	location.IsPickable = input.IsPickable
 	location.UpdatedBy = userID
@@ -192,6 +234,7 @@ type ExcelLocationUploadResponse struct {
 type ExcelLocationDetail struct {
 	LocationCode string
 	WhsCode      string
+	OwnerCode    string
 	Row          int
 }
 
@@ -376,6 +419,7 @@ func (lc *LocationController) CreateLocationFromExcel(ctx *fiber.Ctx) error {
 		location := models.Location{
 			LocationCode: detail.LocationCode,
 			WhsCode:      detail.WhsCode,
+			OwnerCode:    detail.OwnerCode,
 			Row:          row,
 			Bay:          bay,
 			Level:        level,
@@ -443,6 +487,16 @@ func (lc *LocationController) parseLocationDetailsFromExcel(rows [][]string) ([]
 		// Parse columns
 		detail.LocationCode = strings.TrimSpace(strings.ToUpper(getCellx(row, 0)))
 		detail.WhsCode = strings.TrimSpace(strings.ToUpper(getCellx(row, 1)))
+		detail.OwnerCode = strings.TrimSpace(strings.ToUpper(getCellx(row, 2)))
+
+		if detail.OwnerCode == "" {
+			errors = append(errors, ValidationError{
+				Field:   "OwnerCode",
+				Message: "Owner code cannot be empty",
+				Row:     rowNum,
+			})
+			continue
+		}
 
 		// Validate required fields
 		if detail.LocationCode == "" {
@@ -569,6 +623,46 @@ func (lc *LocationController) validateWarehouses(tx *gorm.DB, details []ExcelLoc
 				warehouseMap[whsCode] = false
 			} else {
 				warehouseMap[whsCode] = true
+			}
+		}
+	}
+
+	return errorss
+}
+
+func (lc *LocationController) validateOwners(tx *gorm.DB, details []ExcelLocationDetail) []ValidationError {
+	var errorss []ValidationError
+	ownerMap := make(map[string]bool)
+
+	uniqueOwnerCodes := make(map[string][]int)
+	for _, detail := range details {
+		uniqueOwnerCodes[detail.OwnerCode] = append(uniqueOwnerCodes[detail.OwnerCode], detail.Row)
+	}
+
+	for ownerCode, rows := range uniqueOwnerCodes {
+		if _, checked := ownerMap[ownerCode]; !checked {
+			var owner models.Owner
+			if err := tx.Where("code = ?", ownerCode).First(&owner).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					for _, rowNum := range rows {
+						errorss = append(errorss, ValidationError{
+							Field:   "OwnerCode",
+							Message: fmt.Sprintf("Owner not found: %s", ownerCode),
+							Row:     rowNum,
+						})
+					}
+				} else {
+					for _, rowNum := range rows {
+						errorss = append(errorss, ValidationError{
+							Field:   "OwnerCode",
+							Message: fmt.Sprintf("Failed to validate owner: %s", err.Error()),
+							Row:     rowNum,
+						})
+					}
+				}
+				ownerMap[ownerCode] = false
+			} else {
+				ownerMap[ownerCode] = true
 			}
 		}
 	}
