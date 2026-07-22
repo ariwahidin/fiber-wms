@@ -1336,6 +1336,15 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	// realtime.GlobalHub.Broadcast(realtime.Event{
+	// 	Type: "outbound.packing_confirmed",
+	// 	Payload: fiber.Map{
+	// 		"outbound_no": outboundHeader.OutboundNo,
+	// 		"user_id":     int(ctx.Locals("userID").(float64)),
+	// 		"message":     fmt.Sprintf("Outbound %s is in picking status", outboundHeader.OutboundNo),
+	// 	},
+	// })
+
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Picking Outbound Success"})
 }
 

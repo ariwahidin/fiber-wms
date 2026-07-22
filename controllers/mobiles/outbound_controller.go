@@ -2,6 +2,7 @@ package mobiles
 
 import (
 	"errors"
+	"fiber-app/controllers/realtime"
 	"fiber-app/models"
 	"fiber-app/repositories"
 	"fmt"
@@ -1929,6 +1930,15 @@ func (c *MobileOutboundController) ConfirmPacking(ctx *fiber.Ctx) error {
 			"message": "Failed to confirm packing: " + err.Error(),
 		})
 	}
+
+	realtime.GlobalHub.Broadcast(realtime.Event{
+		Type: "outbound.packing_confirmed",
+		Payload: fiber.Map{
+			"outbound_no": outboundNo,
+			"user_id":     userID,
+			"message":     fmt.Sprintf("Packing %s successfully confirmed", outboundNo),
+		},
+	})
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
 		"success": true,

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fiber-app/config"
+	"fiber-app/controllers"
 	"fiber-app/controllers/customer_controller"
 	"fiber-app/controllers/division_controller"
 	"fiber-app/controllers/idgen"
@@ -41,6 +42,7 @@ import (
 	integration_service "fiber-app/services/integration_service"
 	rm_services "fiber-app/services/report_mailer"
 
+	"github.com/gofiber/contrib/websocket"
 	"github.com/gofiber/fiber/v2"
 )
 
@@ -184,6 +186,14 @@ func main() {
 			},
 		})
 	})
+
+	app.Use(mainRoutes+"/ws", func(c *fiber.Ctx) error {
+		if websocket.IsWebSocketUpgrade(c) {
+			return c.Next()
+		}
+		return fiber.ErrUpgradeRequired
+	})
+	app.Get(mainRoutes+"/ws/events", websocket.New(controllers.RealtimeWSHandler()))
 
 	supplier_controller.SetupSupplierRoutes(app)
 	item_controller.SetupProductRoutes(app)
