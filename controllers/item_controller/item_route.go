@@ -37,8 +37,18 @@ func SetupProductRoutes(app *fiber.App) {
 	uom.Get("/conversion", uomController.GetAllUOMConversion)
 	uom.Put("/conversion/:id", uomController.UpdateUOMConversion)
 
-	apiProduct := app.Group(config.MAIN_ROUTES+"/categories", middleware.AuthMiddleware)
-	apiProduct.Use(database.InjectDBMiddleware(productController))
+	categoryController := &CategoryController{}
+	apiCategory := app.Group(config.MAIN_ROUTES+"/categories", middleware.AuthMiddleware)
+	apiCategory.Use(database.InjectDBMiddleware(categoryController))
 
-	apiProduct.Get("/", productController.GetAllCategory)
+	apiCategory.Get("/", categoryController.GetAllCategory)
+	apiCategory.Get("/:id", categoryController.GetCategoryByID)
+	apiCategory.Post("/", categoryController.CreateCategory)
+	apiCategory.Put("/:id", categoryController.UpdateCategory)
+	apiCategory.Delete("/:id", categoryController.DeleteCategory)
+
+	// apiProduct := app.Group(config.MAIN_ROUTES+"/categories", middleware.AuthMiddleware)
+	// apiProduct.Use(database.InjectDBMiddleware(productController))
+
+	// apiProduct.Get("/", productController.GetAllCategory)
 }

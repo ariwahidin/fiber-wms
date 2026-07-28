@@ -52,12 +52,12 @@ func SeedUnit(db *gorm.DB) {
 func SeedCategory(db *gorm.DB) {
 	categories := []models.Category{
 		{
-			Code: "BOOK",
-			Name: "BOOK",
+			Code: "PRODUCT",
+			Name: "PRODUCT",
 		},
 		{
-			Code: "INSTRUMENT",
-			Name: "INSTRUMENT",
+			Code: "SPAREPART",
+			Name: "SPAREPART",
 		},
 	}
 

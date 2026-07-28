@@ -55,11 +55,11 @@ func (p *Product) BeforeCreate(tx *gorm.DB) (err error) {
 	return nil
 }
 
-type Category struct {
-	ID   uint   `gorm:"primaryKey"`
-	Code string `gorm:"unique" json:"code"` // contoh: "A", "B", "C"
-	Name string `json:"name"`               // contoh: "A", "B", "C"
-}
+// type Category struct {
+// 	ID   uint   `gorm:"primaryKey"`
+// 	Code string `gorm:"unique" json:"code"` // contoh: "A", "B", "C"
+// 	Name string `json:"name"`               // contoh: "A", "B", "C"
+// }
 
 type Uom struct {
 	ID   uint   `gorm:"primaryKey"`
