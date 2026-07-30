@@ -545,6 +545,12 @@ func (c *StockTakeController) ScanStockTake(ctx *fiber.Ctx) error {
 		})
 	}
 
+	// Validate location is matching with stock take item location
+	var stockTakeItem models.StockTakeItem
+	if err := c.DB.Where("stock_take_id = ? AND location = ?", stockTake.ID, input.Location).First(&stockTakeItem).Error; err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Location : " + input.Location + " does not match with session id : " + stockTake.Code})
+	}
+
 	// QR mode -> validate by SKU (item_code). EAN mode -> validate by barcode.
 	var product models.Product
 	var lookupErr error
@@ -1199,3 +1205,307 @@ func cellRef(col, row int) string {
 	name, _ := excelize.ColumnNumberToName(col)
 	return fmt.Sprintf("%s%d", name, row)
 }
+
+// ─── 3. CONTROLLER METHOD ───────────────────────────────────────────────
+
+func (c *StockTakeController) GetProgressByCategory(ctx *fiber.Ctx) error {
+	code := ctx.Params("code")
+
+	var stockTake models.StockTake
+	if err := c.DB.First(&stockTake, "code = ?", code).Error; err != nil {
+		return ctx.Status(404).JSON(fiber.Map{"success": false, "message": "Not found"})
+	}
+
+	repo := repositories.NewStockTakeRepository(c.DB)
+	data, err := repo.GetProgressByCategoryPivot(stockTake.ID)
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to fetch progress by category",
+			"error":   err.Error(),
+		})
+	}
+
+	return ctx.JSON(fiber.Map{"success": true, "data": data})
+}
+
+// ─── 4. ROUTE ────────────────────────────────────────────────────────────
+// Tambahin di file routes, deket-deket route progress-division:
+//
+//   stockTake.Get("/progress-category/:code", stockTakeController.GetProgressByCategory)
+//
+// TODO: Export Excel untuk By Category ("/stock-take/export-category/:code")
+// BELUM dibuatkan di sini karena saya belum lihat source handler
+// export-division-nya (excelize). Share kode itu kalau mau saya bikinin
+// versi category-nya juga — tombol Download di frontend sudah saya pasang
+// dan siap dihubungkan begitu endpoint-nya ada.
+
+// ============================================================================
+// TAMBAHAN: Export Excel untuk "By Category"
+// Taruh di file yang sama dengan ExportProgressByDivision / buildProgressByDivisionExcel.
+// Reuse helper borderAll() dan cellRef() yang udah ada di file itu — JANGAN
+// didefinisikan ulang di sini (bakal duplicate function error).
+// ============================================================================
+
+func (c *StockTakeController) ExportProgressByCategory(ctx *fiber.Ctx) error {
+	code := ctx.Params("code")
+
+	var stockTake models.StockTake
+	if err := c.DB.First(&stockTake, "code = ?", code).Error; err != nil {
+		return ctx.Status(404).JSON(fiber.Map{"success": false, "message": "Not found"})
+	}
+
+	repo := repositories.NewStockTakeRepository(c.DB)
+	data, err := repo.GetProgressByCategoryPivot(stockTake.ID)
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to fetch progress by category",
+			"error":   err.Error(),
+		})
+	}
+
+	f, err := buildProgressByCategoryExcel(data, code)
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to build excel",
+			"error":   err.Error(),
+		})
+	}
+
+	filename := fmt.Sprintf("Report_Daily_Progress_Category_STO_%s.xlsx", code)
+	ctx.Set(fiber.HeaderContentType, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	ctx.Set(fiber.HeaderContentDisposition, fmt.Sprintf(`attachment; filename="%s"`, filename))
+
+	return f.Write(ctx.Response().BodyWriter())
+}
+
+func buildProgressByCategoryExcel(data *repositories.ProgressByCategoryResult, code string) (*excelize.File, error) {
+	f := excelize.NewFile()
+	sheet := "Progress"
+	f.SetSheetName("Sheet1", sheet)
+
+	// ── Styles ──────────────────────────────────────────────────────────
+	titleStyle, _ := f.NewStyle(&excelize.Style{
+		Font: &excelize.Font{Bold: true, Italic: true, Size: 14},
+	})
+	dateHeaderStyle, _ := f.NewStyle(&excelize.Style{
+		Font:      &excelize.Font{Bold: true, Color: "FFFFFF"},
+		Fill:      excelize.Fill{Type: "pattern", Color: []string{"1F4E78"}, Pattern: 1},
+		Alignment: &excelize.Alignment{Horizontal: "center", Vertical: "center"},
+		Border:    borderAll(),
+	})
+	invStockStyle, _ := f.NewStyle(&excelize.Style{
+		Font:      &excelize.Font{Bold: true, Color: "FFFFFF"},
+		Fill:      excelize.Fill{Type: "pattern", Color: []string{"7030A0"}, Pattern: 1},
+		Alignment: &excelize.Alignment{Horizontal: "center", Vertical: "center"},
+		Border:    borderAll(),
+	})
+	catHeaderStyle, _ := f.NewStyle(&excelize.Style{
+		Font:      &excelize.Font{Bold: true, Color: "FFFFFF"},
+		Fill:      excelize.Fill{Type: "pattern", Color: []string{"C00000"}, Pattern: 1},
+		Alignment: &excelize.Alignment{Horizontal: "center", Vertical: "center"},
+		Border:    borderAll(),
+	})
+	totalHeaderStyle, _ := f.NewStyle(&excelize.Style{
+		Font:      &excelize.Font{Bold: true, Color: "FFFFFF"},
+		Fill:      excelize.Fill{Type: "pattern", Color: []string{"1F4E78"}, Pattern: 1},
+		Alignment: &excelize.Alignment{Horizontal: "center", Vertical: "center"},
+		Border:    borderAll(),
+	})
+	cellStyle, _ := f.NewStyle(&excelize.Style{
+		Border:    borderAll(),
+		Alignment: &excelize.Alignment{Horizontal: "center"},
+	})
+	labelStyle, _ := f.NewStyle(&excelize.Style{
+		Border: borderAll(),
+		Font:   &excelize.Font{Bold: true},
+	})
+	totalRowStyle, _ := f.NewStyle(&excelize.Style{
+		Border:    borderAll(),
+		Fill:      excelize.Fill{Type: "pattern", Color: []string{"FCE4D6"}, Pattern: 1},
+		Font:      &excelize.Font{Bold: true},
+		Alignment: &excelize.Alignment{Horizontal: "center"},
+	})
+	achievementStyle, _ := f.NewStyle(&excelize.Style{
+		Border:    borderAll(),
+		Fill:      excelize.Fill{Type: "pattern", Color: []string{"DDEBF7"}, Pattern: 1},
+		Alignment: &excelize.Alignment{Horizontal: "center"},
+	})
+	totalPctStyle, _ := f.NewStyle(&excelize.Style{
+		Border:    borderAll(),
+		Fill:      excelize.Fill{Type: "pattern", Color: []string{"BDD7EE"}, Pattern: 1},
+		Font:      &excelize.Font{Bold: true},
+		Alignment: &excelize.Alignment{Horizontal: "center"},
+	})
+
+	// ── Title ───────────────────────────────────────────────────────────
+	f.SetCellValue(sheet, "A1", "Report Daily Progress STO - By Category")
+	f.SetCellStyle(sheet, "A1", "A1", titleStyle)
+	f.SetCellValue(sheet, "A2", fmt.Sprintf("Code: %s | Generated: %s", code, time.Now().Format("02-Jan-2006")))
+
+	headerRow1 := 4
+	headerRow2 := 5
+	bodyStartRow := 6
+
+	// Kolom: A=Category, B-C=Inventory Stock (Loc,Qty), lalu tiap tanggal 2 kolom, lalu Total 2 kolom
+	col := 2 // mulai dari B (index 2, 1-based)
+
+	f.SetCellValue(sheet, cellRef(1, headerRow1), "Category")
+	f.MergeCell(sheet, cellRef(1, headerRow1), cellRef(1, headerRow2))
+	f.SetCellStyle(sheet, cellRef(1, headerRow1), cellRef(1, headerRow2), labelStyle)
+
+	// Inventory Stock group
+	f.SetCellValue(sheet, cellRef(col, headerRow1), "Inventory Stock")
+	f.MergeCell(sheet, cellRef(col, headerRow1), cellRef(col+1, headerRow1))
+	f.SetCellStyle(sheet, cellRef(col, headerRow1), cellRef(col+1, headerRow1), invStockStyle)
+	f.SetCellValue(sheet, cellRef(col, headerRow2), "Count Location")
+	f.SetCellValue(sheet, cellRef(col+1, headerRow2), "Sum Qty")
+	f.SetCellStyle(sheet, cellRef(col, headerRow2), cellRef(col+1, headerRow2), catHeaderStyle)
+	col += 2
+
+	dateColStart := make(map[string]int)
+	for _, date := range data.Dates {
+		t, _ := time.Parse("2006-01-02", date)
+		label := t.Format("02-Jan-06")
+
+		f.SetCellValue(sheet, cellRef(col, headerRow1), label)
+		f.MergeCell(sheet, cellRef(col, headerRow1), cellRef(col+1, headerRow1))
+		f.SetCellStyle(sheet, cellRef(col, headerRow1), cellRef(col+1, headerRow1), dateHeaderStyle)
+		f.SetCellValue(sheet, cellRef(col, headerRow2), "Count Location")
+		f.SetCellValue(sheet, cellRef(col+1, headerRow2), "Count Qty")
+		f.SetCellStyle(sheet, cellRef(col, headerRow2), cellRef(col+1, headerRow2), catHeaderStyle)
+
+		dateColStart[date] = col
+		col += 2
+	}
+
+	// Total group
+	totalColStart := col
+	f.SetCellValue(sheet, cellRef(col, headerRow1), "Total")
+	f.MergeCell(sheet, cellRef(col, headerRow1), cellRef(col+1, headerRow1))
+	f.SetCellStyle(sheet, cellRef(col, headerRow1), cellRef(col+1, headerRow1), totalHeaderStyle)
+	f.SetCellValue(sheet, cellRef(col, headerRow2), "Count Location")
+	f.SetCellValue(sheet, cellRef(col+1, headerRow2), "Count Qty")
+	f.SetCellStyle(sheet, cellRef(col, headerRow2), cellRef(col+1, headerRow2), catHeaderStyle)
+
+	// ── Body: 1 baris per category ───────────────────────────────────────
+	row := bodyStartRow
+	for _, cat := range data.Categories {
+		f.SetCellValue(sheet, cellRef(1, row), cat.CategoryCode)
+		f.SetCellStyle(sheet, cellRef(1, row), cellRef(1, row), labelStyle)
+
+		f.SetCellValue(sheet, cellRef(2, row), cat.SystemLocation)
+		f.SetCellValue(sheet, cellRef(3, row), cat.SystemQty)
+		f.SetCellStyle(sheet, cellRef(2, row), cellRef(3, row), cellStyle)
+
+		for _, date := range data.Dates {
+			c := dateColStart[date]
+			day, ok := cat.Daily[date]
+			if ok {
+				if day.LocationCounted != nil {
+					f.SetCellValue(sheet, cellRef(c, row), *day.LocationCounted)
+				} else {
+					f.SetCellValue(sheet, cellRef(c, row), "-")
+				}
+				if day.QtyCounted != nil {
+					f.SetCellValue(sheet, cellRef(c+1, row), *day.QtyCounted)
+				} else {
+					f.SetCellValue(sheet, cellRef(c+1, row), "-")
+				}
+			} else {
+				f.SetCellValue(sheet, cellRef(c, row), "-")
+				f.SetCellValue(sheet, cellRef(c+1, row), "-")
+			}
+			f.SetCellStyle(sheet, cellRef(c, row), cellRef(c+1, row), cellStyle)
+		}
+
+		f.SetCellValue(sheet, cellRef(totalColStart, row), cat.TotalLocationCounted)
+		f.SetCellValue(sheet, cellRef(totalColStart+1, row), cat.TotalQtyCounted)
+		f.SetCellStyle(sheet, cellRef(totalColStart, row), cellRef(totalColStart+1, row), cellStyle)
+
+		row++
+	}
+
+	// ── Row: Total (gabungan semua category) ─────────────────────────────
+	totalRow := row
+	f.SetCellValue(sheet, cellRef(1, totalRow), "Total")
+	f.SetCellValue(sheet, cellRef(2, totalRow), data.GrandTotal.SystemLocation)
+	f.SetCellValue(sheet, cellRef(3, totalRow), data.GrandTotal.SystemQty)
+	for _, date := range data.Dates {
+		c := dateColStart[date]
+		day := data.GrandTotal.Daily[date]
+		if day.LocationCounted != nil {
+			f.SetCellValue(sheet, cellRef(c, totalRow), *day.LocationCounted)
+		}
+		if day.QtyCounted != nil {
+			f.SetCellValue(sheet, cellRef(c+1, totalRow), *day.QtyCounted)
+		}
+	}
+	f.SetCellValue(sheet, cellRef(totalColStart, totalRow), data.GrandTotal.TotalLocationCounted)
+	f.SetCellValue(sheet, cellRef(totalColStart+1, totalRow), data.GrandTotal.TotalQtyCounted)
+	f.SetCellStyle(sheet, cellRef(1, totalRow), cellRef(totalColStart+1, totalRow), totalRowStyle)
+	row++
+
+	// ── Rows: Achievement per category (%) ────────────────────────────────
+	for _, cat := range data.Categories {
+		f.SetCellValue(sheet, cellRef(1, row), fmt.Sprintf("Achievement %s", cat.CategoryCode))
+		for _, date := range data.Dates {
+			c := dateColStart[date]
+			day, ok := cat.Daily[date]
+			if ok {
+				if day.LocationPercent != nil {
+					f.SetCellValue(sheet, cellRef(c, row), fmt.Sprintf("%.2f%%", *day.LocationPercent))
+				} else {
+					f.SetCellValue(sheet, cellRef(c, row), "-")
+				}
+				if day.QtyPercent != nil {
+					f.SetCellValue(sheet, cellRef(c+1, row), fmt.Sprintf("%.2f%%", *day.QtyPercent))
+				} else {
+					f.SetCellValue(sheet, cellRef(c+1, row), "-")
+				}
+			} else {
+				f.SetCellValue(sheet, cellRef(c, row), "-")
+				f.SetCellValue(sheet, cellRef(c+1, row), "-")
+			}
+		}
+		f.SetCellValue(sheet, cellRef(totalColStart, row), fmt.Sprintf("%.2f%%", cat.TotalLocationPercent))
+		f.SetCellValue(sheet, cellRef(totalColStart+1, row), fmt.Sprintf("%.2f%%", cat.TotalQtyPercent))
+		f.SetCellStyle(sheet, cellRef(1, row), cellRef(totalColStart+1, row), achievementStyle)
+		row++
+	}
+
+	// ── Row: Total % Counting ────────────────────────────────────────────
+	f.SetCellValue(sheet, cellRef(1, row), "Total % Counting")
+	for _, date := range data.Dates {
+		c := dateColStart[date]
+		day := data.GrandTotal.Daily[date]
+		if day.LocationPercent != nil {
+			f.SetCellValue(sheet, cellRef(c, row), fmt.Sprintf("%.2f%%", *day.LocationPercent))
+		} else {
+			f.SetCellValue(sheet, cellRef(c, row), "-")
+		}
+		if day.QtyPercent != nil {
+			f.SetCellValue(sheet, cellRef(c+1, row), fmt.Sprintf("%.2f%%", *day.QtyPercent))
+		} else {
+			f.SetCellValue(sheet, cellRef(c+1, row), "-")
+		}
+	}
+	f.SetCellValue(sheet, cellRef(totalColStart, row), fmt.Sprintf("%.2f%%", data.GrandTotal.TotalLocationPercent))
+	f.SetCellValue(sheet, cellRef(totalColStart+1, row), fmt.Sprintf("%.2f%%", data.GrandTotal.TotalQtyPercent))
+	f.SetCellStyle(sheet, cellRef(1, row), cellRef(totalColStart+1, row), totalPctStyle)
+
+	// Column width biar rapi
+	f.SetColWidth(sheet, "A", "A", 18)
+	lastCol, _ := excelize.ColumnNumberToName(totalColStart + 1)
+	f.SetColWidth(sheet, "B", lastCol, 12)
+
+	f.SetActiveSheet(0)
+	return f, nil
+}
+
+// ── Route ────────────────────────────────────────────────────────────────
+// Tambahin deket route export-division:
+//
+//   api.Get("/export-category/:code", stockTakeController.ExportProgressByCategory)

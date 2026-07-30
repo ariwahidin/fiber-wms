@@ -845,3 +845,193 @@ func (r *StockTakeRepository) GetProgressByPic(stockTakeID uint) ([]PicProgress,
 
 	return result, nil
 }
+
+// ============================================================================
+// TAMBAHAN UNTUK FITUR "By Category"
+// Taruh bagian TYPES di file yang sama dengan definisi DivisionPivotRow /
+// ProgressByDivisionResult. Taruh REPOSITORY METHOD di file repository yang
+// sama dengan GetProgressByDivisionPivot (biar bisa akses helper `pct()`).
+// Taruh CONTROLLER METHOD di file controller yang sama dengan GetProgressByDivision.
+// ============================================================================
+
+// ─── 1. TYPES ───────────────────────────────────────────────────────────
+// Reuse DivisionDayProgress & GrandTotalRow apa adanya (struktur sama persis),
+// cuma perlu 2 type baru ini:
+
+type CategoryPivotRow struct {
+	CategoryCode         string                         `json:"category_code"`
+	SystemLocation       int                            `json:"system_location"`
+	SystemQty            int                            `json:"system_qty"`
+	Daily                map[string]DivisionDayProgress `json:"daily"`
+	TotalLocationCounted int                            `json:"total_location_counted"`
+	TotalQtyCounted      int                            `json:"total_qty_counted"`
+	TotalLocationPercent float64                        `json:"total_location_percent"`
+	TotalQtyPercent      float64                        `json:"total_qty_percent"`
+}
+
+type ProgressByCategoryResult struct {
+	Dates      []string           `json:"dates"`
+	Categories []CategoryPivotRow `json:"categories"`
+	GrandTotal GrandTotalRow      `json:"grand_total"`
+}
+
+// ─── 2. REPOSITORY METHOD ───────────────────────────────────────────────
+// Mirror persis dari GetProgressByDivisionPivot, cuma sumber grouping-nya
+// diganti: bukan kolom division_code yang udah ada langsung di
+// StockTakeItem/StockTakeBarcode, tapi products.category hasil JOIN ke
+// master item (item_id -> products.id).
+
+func (r *StockTakeRepository) GetProgressByCategoryPivot(stockTakeID uint) (*ProgressByCategoryResult, error) {
+	// 1. Snapshot system per category (statis, gak ada dimensi tanggal)
+	type systemAgg struct {
+		Category      string
+		LocationCount int
+		Total         int
+	}
+	var systemAggs []systemAgg
+	if err := r.db.Model(&models.StockTakeItem{}).
+		Select("COALESCE(products.category, 'Uncategorized') as category, COUNT(DISTINCT stock_take_items.location) as location_count, SUM(stock_take_items.system_qty) as total").
+		Joins("JOIN products ON products.id = stock_take_items.item_id AND products.deleted_at IS NULL").
+		Where("stock_take_items.stock_take_id = ?", stockTakeID).
+		Group("COALESCE(products.category, 'Uncategorized')").
+		Scan(&systemAggs).Error; err != nil {
+		return nil, err
+	}
+
+	// 2. Breakdown harian per category dari hasil scan aktual.
+	type dailyAgg struct {
+		Category      string
+		ScanDate      time.Time
+		LocationCount int
+		Total         int
+	}
+	var dailyAggs []dailyAgg
+	if err := r.db.Model(&models.StockTakeBarcode{}).
+		Select("COALESCE(products.category, 'Uncategorized') as category, CAST(stock_take_barcodes.created_at AS DATE) as scan_date, COUNT(DISTINCT stock_take_barcodes.location) as location_count, SUM(stock_take_barcodes.counted_qty) as total").
+		Joins("JOIN products ON products.id = stock_take_barcodes.item_id AND products.deleted_at IS NULL").
+		Where("stock_take_barcodes.stock_take_id = ?", stockTakeID).
+		Group("COALESCE(products.category, 'Uncategorized'), CAST(stock_take_barcodes.created_at AS DATE)").
+		Order("category, scan_date").
+		Scan(&dailyAggs).Error; err != nil {
+		return nil, err
+	}
+
+	// Union tanggal (dari semua category) — biar kolom pivot konsisten
+	dateSet := make(map[string]struct{})
+	for _, d := range dailyAggs {
+		dateSet[d.ScanDate.Format("2006-01-02")] = struct{}{}
+	}
+	dates := make([]string, 0, len(dateSet))
+	for d := range dateSet {
+		dates = append(dates, d)
+	}
+	sort.Strings(dates)
+
+	dailyByCategory := make(map[string][]dailyAgg)
+	for _, d := range dailyAggs {
+		dailyByCategory[d.Category] = append(dailyByCategory[d.Category], d)
+	}
+
+	systemMap := make(map[string]systemAgg, len(systemAggs))
+	for _, s := range systemAggs {
+		systemMap[s.Category] = s
+	}
+
+	catSet := make(map[string]struct{})
+	for _, s := range systemAggs {
+		catSet[s.Category] = struct{}{}
+	}
+	for _, d := range dailyAggs {
+		catSet[d.Category] = struct{}{}
+	}
+
+	categories := make([]CategoryPivotRow, 0, len(catSet))
+
+	// Accumulator buat grand total (dijumlah lintas category per tanggal)
+	grandDailyLoc := make(map[string]int)
+	grandDailyQty := make(map[string]int)
+	var grandSystemLoc, grandSystemQty int
+
+	for catCode := range catSet {
+		sys := systemMap[catCode]
+		grandSystemLoc += sys.LocationCount
+		grandSystemQty += sys.Total
+
+		row := CategoryPivotRow{
+			CategoryCode:   catCode,
+			SystemLocation: sys.LocationCount,
+			SystemQty:      sys.Total,
+			Daily:          make(map[string]DivisionDayProgress),
+		}
+
+		var totalLoc, totalQty int
+		// PENTING: harian murni (bukan cumulative), sama seperti versi Division.
+		for _, d := range dailyByCategory[catCode] {
+			dateKey := d.ScanDate.Format("2006-01-02")
+			locCount := d.LocationCount
+			qtyCount := d.Total
+
+			totalLoc += locCount
+			totalQty += qtyCount
+			grandDailyLoc[dateKey] += locCount
+			grandDailyQty[dateKey] += qtyCount
+
+			row.Daily[dateKey] = DivisionDayProgress{
+				LocationCounted: &locCount,
+				QtyCounted:      &qtyCount,
+				LocationPercent: pct(locCount, sys.LocationCount),
+				QtyPercent:      pct(qtyCount, sys.Total),
+			}
+		}
+
+		row.TotalLocationCounted = totalLoc
+		row.TotalQtyCounted = totalQty
+		if p := pct(totalLoc, sys.LocationCount); p != nil {
+			row.TotalLocationPercent = *p
+		}
+		if p := pct(totalQty, sys.Total); p != nil {
+			row.TotalQtyPercent = *p
+		}
+
+		categories = append(categories, row)
+	}
+
+	sort.Slice(categories, func(i, j int) bool {
+		return categories[i].CategoryCode < categories[j].CategoryCode
+	})
+
+	// Susun grand total row (baris "Total" & "Total % Counting" di report)
+	grandTotal := GrandTotalRow{
+		SystemLocation: grandSystemLoc,
+		SystemQty:      grandSystemQty,
+		Daily:          make(map[string]DivisionDayProgress),
+	}
+	var grandTotalLoc, grandTotalQty int
+	for _, dateKey := range dates {
+		locCount := grandDailyLoc[dateKey]
+		qtyCount := grandDailyQty[dateKey]
+		grandTotalLoc += locCount
+		grandTotalQty += qtyCount
+
+		grandTotal.Daily[dateKey] = DivisionDayProgress{
+			LocationCounted: &locCount,
+			QtyCounted:      &qtyCount,
+			LocationPercent: pct(locCount, grandSystemLoc),
+			QtyPercent:      pct(qtyCount, grandSystemQty),
+		}
+	}
+	grandTotal.TotalLocationCounted = grandTotalLoc
+	grandTotal.TotalQtyCounted = grandTotalQty
+	if p := pct(grandTotalLoc, grandSystemLoc); p != nil {
+		grandTotal.TotalLocationPercent = *p
+	}
+	if p := pct(grandTotalQty, grandSystemQty); p != nil {
+		grandTotal.TotalQtyPercent = *p
+	}
+
+	return &ProgressByCategoryResult{
+		Dates:      dates,
+		Categories: categories,
+		GrandTotal: grandTotal,
+	}, nil
+}
