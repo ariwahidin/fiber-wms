@@ -1968,12 +1968,6 @@ func (r *OutboundController) ProccesHandleOpen(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	// if err := tx.Model(&models.OutboundHeader{}).Where("id = ?", outboundHeader.ID).
-	// 	Update("status", payload.Status).Error; err != nil {
-	// 	tx.Rollback()
-	// 	return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-	// }
-
 	if err := tx.Commit().Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -3034,48 +3028,6 @@ func (c *OutboundController) callPythonParser(pdfPath string) (*ParseResult, err
 
 	return &result, nil
 }
-
-// CreateOutbound creates a new outbound order (example implementation)
-// func (c *OutboundController) CreateOutboundFromPDF(ctx *fiber.Ctx) error {
-// 	var req OutboundCreateRequest
-
-// 	if err := ctx.BodyParser(&req); err != nil {
-// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-// 			"success": false,
-// 			"error":   "Invalid request body",
-// 		})
-// 	}
-
-// 	// Validate request
-// 	// You can use a validation library like go-playground/validator
-// 	// if err := validate.Struct(req); err != nil {
-// 	//     return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-// 	//         "success": false,
-// 	//         "error":   err.Error(),
-// 	//     })
-// 	// }
-
-// 	// TODO: Implement your business logic here
-// 	// - Save to database
-// 	// - Create inventory transactions
-// 	// - Send notifications, etc.
-
-// 	return ctx.JSON(fiber.Map{
-// 		"success": true,
-// 		"message": "Outbound order created successfully",
-// 		"data": fiber.Map{
-// 			"docNo":  req.DocNo,
-// 			"vendor": req.Vendor,
-// 			"qty":    req.Qty,
-// 		},
-// 	})
-// }
-
-// ValidationError represents a single validation error
-// type ValidationError struct {
-// 	Field   string `json:"field"`
-// 	Message string `json:"message"`
-// }
 
 // OutboundFromPdfPayload represents the data from PDF upload
 type OutboundFromPdfPayload struct {

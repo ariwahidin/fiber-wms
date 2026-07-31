@@ -164,9 +164,9 @@ func (c *StockTakeController) GenerateDataStockTake(ctx *fiber.Ctx) error {
 		if err := inventoryQuery.Find(&inventories).Error; err != nil {
 			return fmt.Errorf("failed to fetch inventory data: %w", err)
 		}
-		if len(inventories) == 0 {
-			return fiber.NewError(fiber.StatusNotFound, "No inventory data found for the selected locations")
-		}
+		// if len(inventories) == 0 {
+		// 	return fiber.NewError(fiber.StatusNotFound, "No inventory data found for the selected locations")
+		// }
 
 		// 4. Generate code (locked read, aman dari race condition)
 		stoNo, err := generateStockTakeCodeTx(tx)
@@ -185,20 +185,71 @@ func (c *StockTakeController) GenerateDataStockTake(ctx *fiber.Ctx) error {
 		}
 
 		// 6. Konversi ke stock_take_items
-		var items []models.StockTakeItem
+		// var items []models.StockTakeItem
+		// for _, inv := range inventories {
+		// 	items = append(items, models.StockTakeItem{
+		// 		StockTakeID:  stockTake.ID,
+		// 		ItemID:       int64(inv.ItemId),
+		// 		InventoryID:  int64(inv.ID),
+		// 		Location:     inv.Location,
+		// 		Pallet:       inv.Pallet,
+		// 		Barcode:      inv.Barcode,
+		// 		CartonNumber: inv.CartonNumber,
+		// 		LotNumber:    inv.LotNumber,
+		// 		DivisionCode: inv.DivisionCode,
+		// 		OwnerCode:    inv.OwnerCode,
+		// 		SystemQty:    int(inv.QtyAvailable),
+		// 		CountedQty:   0,
+		// 		Difference:   0,
+		// 		CreatedBy:    userID,
+		// 	})
+		// }
+
+		// 6. Konversi ke stock_take_items — sekarang berbasis LOCATIONS, bukan cuma inventories
+		invByLocation := make(map[string][]models.Inventory)
 		for _, inv := range inventories {
+			invByLocation[inv.Location] = append(invByLocation[inv.Location], inv)
+		}
+
+		var items []models.StockTakeItem
+		for _, loc := range locations {
+			invList, hasInventory := invByLocation[loc.LocationCode]
+
+			if hasInventory {
+				for _, inv := range invList {
+					items = append(items, models.StockTakeItem{
+						StockTakeID:  stockTake.ID,
+						ItemID:       int64(inv.ItemId),
+						InventoryID:  int64(inv.ID),
+						Location:     inv.Location,
+						Pallet:       inv.Pallet,
+						Barcode:      inv.Barcode,
+						CartonNumber: inv.CartonNumber,
+						LotNumber:    inv.LotNumber,
+						DivisionCode: inv.DivisionCode,
+						OwnerCode:    inv.OwnerCode,
+						SystemQty:    int(inv.QtyAvailable),
+						CountedQty:   0,
+						Difference:   0,
+						CreatedBy:    userID,
+					})
+				}
+				continue
+			}
+
+			// Lokasi tanpa inventory -> placeholder item (blind count / cek lokasi kosong)
 			items = append(items, models.StockTakeItem{
 				StockTakeID:  stockTake.ID,
-				ItemID:       int64(inv.ItemId),
-				InventoryID:  int64(inv.ID),
-				Location:     inv.Location,
-				Pallet:       inv.Pallet,
-				Barcode:      inv.Barcode,
-				CartonNumber: inv.CartonNumber,
-				LotNumber:    inv.LotNumber,
-				DivisionCode: inv.DivisionCode,
-				OwnerCode:    inv.OwnerCode,
-				SystemQty:    int(inv.QtyAvailable),
+				ItemID:       0,
+				InventoryID:  0,
+				Location:     loc.LocationCode,
+				Pallet:       "",
+				Barcode:      "",
+				CartonNumber: "",
+				LotNumber:    "",
+				DivisionCode: req.Filters.DivisionCode,
+				OwnerCode:    req.Filters.OwnerCode,
+				SystemQty:    0,
 				CountedQty:   0,
 				Difference:   0,
 				CreatedBy:    userID,
