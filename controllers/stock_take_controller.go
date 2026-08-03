@@ -137,7 +137,7 @@ func (c *StockTakeController) GenerateDataStockTake(ctx *fiber.Ctx) error {
 		if err := tx.Model(&models.StockTakeItem{}).
 			Joins("JOIN stock_takes ON stock_takes.id = stock_take_items.stock_take_id").
 			Where("stock_take_items.location IN ?", locationCodes).
-			Where("stock_takes.status IN ?", []string{"open", "in progress"}).
+			Where("stock_takes.status IN ?", []string{"open", "in_progress"}).
 			Where("stock_takes.deleted_at IS NULL").
 			Count(&overlapCount).Error; err != nil {
 			return fmt.Errorf("failed to check overlapping sessions: %w", err)
