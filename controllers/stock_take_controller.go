@@ -399,7 +399,7 @@ func (c *StockTakeController) GetAllStockTake(ctx *fiber.Ctx) error {
 	var plannedLocationAggs []qtyAgg
 	if err := c.DB.Model(&models.StockTakeItem{}).
 		Select("stock_take_id, COUNT(DISTINCT UPPER(LTRIM(RTRIM(location)))) as total").
-		Where("stock_take_id IN ? AND deleted_at IS NULL", stockTakeIDs).
+		Where("stock_take_id IN ? AND deleted_at IS NULL AND system_qty > 0", stockTakeIDs).
 		Group("stock_take_id").
 		Scan(&plannedLocationAggs).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
