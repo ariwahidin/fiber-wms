@@ -127,7 +127,7 @@ func (c *MobileInventoryController) GetItemsByLocationAndBarcode(ctx *fiber.Ctx)
 		}
 
 		// ── Branch: SKU mode ──────────────────────────────────────────────────────
-	} else if req.Sku != "" && req.Location != "" && req.Barcode != "" {
+	} else if req.Sku != "" && req.Location != "" {
 		if err := c.DB.
 			Table("inventories").
 			Select(`inventories.*,
@@ -364,7 +364,8 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 		newInventory.Barcode = inventory.Barcode
 		newInventory.WhsCode = inventory.WhsCode
 		newInventory.Pallet = assignedPallet // ← pakai hasil resolve
-		newInventory.Location = input.ToLocation
+		// newInventory.Location = input.ToLocation
+		newInventory.Location = location.LocationCode
 		newInventory.QaStatus = inventory.QaStatus
 		newInventory.QtyOrigin = inventory.QtyAvailable
 		newInventory.QtyOnhand = inventory.QtyAvailable
@@ -402,14 +403,15 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 			FromWhsCode:        inventory.WhsCode,
 			ToWhsCode:          newInventory.WhsCode,
 			FromLocation:       inventory.Location,
-			ToLocation:         input.ToLocation,
-			OldQaStatus:        inventory.QaStatus,
-			NewQaStatus:        newInventory.QaStatus,
-			FromDivision:       inventory.DivisionCode,
-			ToDivision:         newInventory.DivisionCode,
-			FromPallet:         inv.Pallet,     // ← BARU
-			ToPallet:           assignedPallet, // ← BARU
-			Reason:             "TRANSFER USING SCANNER",
+			// ToLocation:         input.ToLocation,
+			ToLocation:   location.LocationCode,
+			OldQaStatus:  inventory.QaStatus,
+			NewQaStatus:  newInventory.QaStatus,
+			FromDivision: inventory.DivisionCode,
+			ToDivision:   newInventory.DivisionCode,
+			FromPallet:   inv.Pallet,     // ← BARU
+			ToPallet:     assignedPallet, // ← BARU
+			Reason:       "TRANSFER USING SCANNER",
 
 			CreatedBy: int(ctx.Locals("userID").(float64)),
 			CreatedAt: time.Now(),
@@ -456,16 +458,17 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 			FromWhsCode:        oldInventory.WhsCode,
 			ToWhsCode:          newInventory.WhsCode,
 			FromLocation:       inventory.Location,
-			ToLocation:         input.ToLocation,
-			OldQaStatus:        oldInventory.QaStatus,
-			NewQaStatus:        newInventory.QaStatus,
-			FromDivision:       inventory.DivisionCode,
-			ToDivision:         newInventory.DivisionCode,
-			FromPallet:         inv.Pallet,     // ← BARU
-			ToPallet:           assignedPallet, // ← BARU
-			Reason:             "TRANSFER USING SCANNER",
-			CreatedBy:          int(ctx.Locals("userID").(float64)),
-			CreatedAt:          time.Now(),
+			// ToLocation:         input.ToLocation,
+			ToLocation:   location.LocationCode,
+			OldQaStatus:  oldInventory.QaStatus,
+			NewQaStatus:  newInventory.QaStatus,
+			FromDivision: inventory.DivisionCode,
+			ToDivision:   newInventory.DivisionCode,
+			FromPallet:   inv.Pallet,     // ← BARU
+			ToPallet:     assignedPallet, // ← BARU
+			Reason:       "TRANSFER USING SCANNER",
+			CreatedBy:    int(ctx.Locals("userID").(float64)),
+			CreatedAt:    time.Now(),
 		}
 
 		if err := tx.Create(&sourceMovement).Error; err != nil {
@@ -588,6 +591,12 @@ func (c *MobileInventoryController) ConfirmTransferByInventoryID(ctx *fiber.Ctx)
 
 	}
 
+	var location models.Location
+	if err := tx.Where("location_code = ?", input.ToLocation).First(&location).Error; err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "To Location is not registered"})
+	}
+
 	var inventory models.Inventory
 	if err := tx.Where("id = ? AND location = ? AND qty_available > 0", inventoryID, input.FromLocation).First(&inventory).Error; err != nil {
 		tx.Rollback()
@@ -618,7 +627,8 @@ func (c *MobileInventoryController) ConfirmTransferByInventoryID(ctx *fiber.Ctx)
 	newInventory.Barcode = inventory.Barcode
 	newInventory.WhsCode = inventory.WhsCode
 	newInventory.Pallet = inventory.Pallet
-	newInventory.Location = input.ToLocation
+	// newInventory.Location = input.ToLocation
+	newInventory.Location = location.LocationCode
 	newInventory.QaStatus = inventory.QaStatus
 	newInventory.QtyOrigin = float64(input.QtyTransfer)
 	newInventory.QtyOnhand = float64(input.QtyTransfer)
@@ -679,16 +689,17 @@ func (c *MobileInventoryController) ConfirmTransferByInventoryID(ctx *fiber.Ctx)
 		FromWhsCode:        inventory.WhsCode,
 		ToWhsCode:          newInventory.WhsCode,
 		FromLocation:       input.FromLocation,
-		ToLocation:         input.ToLocation,
-		OldQaStatus:        inventory.QaStatus,
-		NewQaStatus:        newInventory.QaStatus,
-		FromDivision:       inventory.DivisionCode,
-		ToDivision:         newInventory.DivisionCode,
-		FromPallet:         inventory.Pallet,    // ← BARU
-		ToPallet:           newInventory.Pallet, // ← BARU
-		Reason:             "TRANSFER USING SCANNER",
-		CreatedBy:          int(ctx.Locals("userID").(float64)),
-		CreatedAt:          time.Now(),
+		// ToLocation:         input.ToLocation,
+		ToLocation:   location.LocationCode,
+		OldQaStatus:  inventory.QaStatus,
+		NewQaStatus:  newInventory.QaStatus,
+		FromDivision: inventory.DivisionCode,
+		ToDivision:   newInventory.DivisionCode,
+		FromPallet:   inventory.Pallet,    // ← BARU
+		ToPallet:     newInventory.Pallet, // ← BARU
+		Reason:       "TRANSFER USING SCANNER",
+		CreatedBy:    int(ctx.Locals("userID").(float64)),
+		CreatedAt:    time.Now(),
 	}
 
 	if err := tx.Create(&destMovement).Error; err != nil {
@@ -732,16 +743,17 @@ func (c *MobileInventoryController) ConfirmTransferByInventoryID(ctx *fiber.Ctx)
 		FromWhsCode:        oldInventory.WhsCode,
 		ToWhsCode:          newInventory.WhsCode,
 		FromLocation:       input.FromLocation,
-		ToLocation:         input.ToLocation,
-		OldQaStatus:        oldInventory.QaStatus,
-		NewQaStatus:        newInventory.QaStatus,
-		FromDivision:       inventory.DivisionCode,
-		ToDivision:         newInventory.DivisionCode,
-		FromPallet:         inventory.Pallet,    // ← BARU
-		ToPallet:           newInventory.Pallet, // ← BARU
-		Reason:             "TRANSFER USING SCANNER",
-		CreatedBy:          int(ctx.Locals("userID").(float64)),
-		CreatedAt:          time.Now(),
+		// ToLocation:         input.ToLocation,
+		ToLocation:   location.LocationCode,
+		OldQaStatus:  oldInventory.QaStatus,
+		NewQaStatus:  newInventory.QaStatus,
+		FromDivision: inventory.DivisionCode,
+		ToDivision:   newInventory.DivisionCode,
+		FromPallet:   inventory.Pallet,    // ← BARU
+		ToPallet:     newInventory.Pallet, // ← BARU
+		Reason:       "TRANSFER USING SCANNER",
+		CreatedBy:    int(ctx.Locals("userID").(float64)),
+		CreatedAt:    time.Now(),
 	}
 
 	if err := tx.Create(&sourceMovement).Error; err != nil {

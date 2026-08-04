@@ -17,7 +17,7 @@ func NewLocationRepository(db *gorm.DB) *LocationRepository {
 
 // activeStockTakeStatuses - status yang dianggap "sedang berjalan".
 // TODO: konfirmasi apakah ada status lain selain 'open' yang juga harus di-block.
-var activeStockTakeStatuses = []string{"open"}
+var activeStockTakeStatuses = []string{"open", "in_progress"}
 
 // IsLocationUnderCycleCount - cek satu lokasi spesifik (whs_code + location),
 // apakah sedang ada stock take aktif di lokasi itu.
