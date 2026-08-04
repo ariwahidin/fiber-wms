@@ -23,17 +23,29 @@ var activeStockTakeStatuses = []string{"open", "in_progress"}
 // apakah sedang ada stock take aktif di lokasi itu.
 func (r *LocationRepository) IsLocationUnderCycleCount(whsCode, location string) (bool, error) {
 	var count int64
+	// err := r.DB.
+	// 	Table("stock_take_items as sti").
+	// 	Joins("JOIN stock_takes as st ON st.id = sti.stock_take_id").
+	// 	Joins("LEFT JOIN inventories as inv ON inv.id = sti.inventory_id").
+	// 	Where(`
+	// 		inv.whs_code = ?
+	// 		AND sti.location = ?
+	// 		AND st.status IN (?)
+	// 		AND sti.deleted_at IS NULL
+	// 		AND st.deleted_at IS NULL
+	// 	`, whsCode, location, activeStockTakeStatuses).
+	// 	Count(&count).Error
+
 	err := r.DB.
 		Table("stock_take_items as sti").
 		Joins("JOIN stock_takes as st ON st.id = sti.stock_take_id").
-		Joins("JOIN inventories as inv ON inv.id = sti.inventory_id").
+		Joins("LEFT JOIN inventories as inv ON inv.id = sti.inventory_id AND inv.whs_code = ?", whsCode).
 		Where(`
-			inv.whs_code = ?
-			AND sti.location = ?
-			AND st.status IN (?)
-			AND sti.deleted_at IS NULL
-			AND st.deleted_at IS NULL
-		`, whsCode, location, activeStockTakeStatuses).
+        sti.location = ?
+        AND st.status IN (?)
+        AND sti.deleted_at IS NULL
+        AND st.deleted_at IS NULL
+    `, location, activeStockTakeStatuses).
 		Count(&count).Error
 
 	return count > 0, err
