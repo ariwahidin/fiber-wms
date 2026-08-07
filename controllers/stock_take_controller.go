@@ -501,6 +501,112 @@ func (c *StockTakeController) GetAllStockTake(ctx *fiber.Ctx) error {
 	})
 }
 
+func (c *StockTakeController) GetAllStockTakeSummary(ctx *fiber.Ctx) error {
+	var result []StockTakeListItem
+
+	excludedStatuses := []string{"cancelled", "closed"}
+
+	err := c.DB.Raw(`
+		WITH valid_st AS (
+			SELECT id FROM stock_takes
+			WHERE status NOT IN (?) AND deleted_at IS NULL
+		),
+		system_agg AS (
+			SELECT sti.stock_take_id, SUM(sti.system_qty) AS total
+			FROM stock_take_items sti
+			INNER JOIN valid_st v ON v.id = sti.stock_take_id
+			WHERE sti.deleted_at IS NULL
+			GROUP BY sti.stock_take_id
+		),
+		counted_agg AS (
+			SELECT stb.stock_take_id, SUM(stb.counted_qty) AS total
+			FROM stock_take_barcodes stb
+			INNER JOIN valid_st v ON v.id = stb.stock_take_id
+			WHERE stb.deleted_at IS NULL
+			GROUP BY stb.stock_take_id
+		),
+		planned_location_agg AS (
+			SELECT sti.stock_take_id, COUNT(DISTINCT UPPER(LTRIM(RTRIM(sti.location)))) AS total
+			FROM stock_take_items sti
+			INNER JOIN valid_st v ON v.id = sti.stock_take_id
+			WHERE sti.deleted_at IS NULL AND sti.system_qty > 0
+			GROUP BY sti.stock_take_id
+		),
+		planned_item_agg AS (
+			SELECT sti.stock_take_id, COUNT(DISTINCT sti.item_id) AS total
+			FROM stock_take_items sti
+			INNER JOIN valid_st v ON v.id = sti.stock_take_id
+			WHERE sti.deleted_at IS NULL
+			GROUP BY sti.stock_take_id
+		),
+		counted_location_agg AS (
+			SELECT sti.stock_take_id, COUNT(DISTINCT UPPER(LTRIM(RTRIM(sti.location)))) AS total
+			FROM stock_take_items sti
+			INNER JOIN valid_st v ON v.id = sti.stock_take_id
+			WHERE sti.deleted_at IS NULL
+			AND EXISTS (
+				SELECT 1 FROM stock_take_barcodes stb
+				WHERE stb.stock_take_id = sti.stock_take_id
+				AND UPPER(LTRIM(RTRIM(stb.location))) = UPPER(LTRIM(RTRIM(sti.location)))
+				AND stb.item_id = sti.item_id
+				AND stb.deleted_at IS NULL
+			)
+			GROUP BY sti.stock_take_id
+		),
+		counted_item_agg AS (
+			SELECT sti.stock_take_id, COUNT(DISTINCT sti.item_id) AS total
+			FROM stock_take_items sti
+			INNER JOIN valid_st v ON v.id = sti.stock_take_id
+			WHERE sti.deleted_at IS NULL
+			AND EXISTS (
+				SELECT 1 FROM stock_take_barcodes stb
+				WHERE stb.stock_take_id = sti.stock_take_id
+				AND stb.item_id = sti.item_id
+				AND stb.location = sti.location
+				AND stb.division_code = sti.division_code
+				AND stb.deleted_at IS NULL
+			)
+			GROUP BY sti.stock_take_id
+		)
+		SELECT
+			st.*,
+			ISNULL(sa.total, 0)  AS total_system_qty,
+			ISNULL(ca.total, 0)  AS total_counted_qty,
+			ISNULL(pla.total, 0) AS planned_location,
+			ISNULL(cla.total, 0) AS counted_location,
+			ISNULL(pia.total, 0) AS planned_item,
+			ISNULL(cia.total, 0) AS counted_item
+		FROM stock_takes st
+		LEFT JOIN system_agg sa ON sa.stock_take_id = st.id
+		LEFT JOIN counted_agg ca ON ca.stock_take_id = st.id
+		LEFT JOIN planned_location_agg pla ON pla.stock_take_id = st.id
+		LEFT JOIN counted_location_agg cla ON cla.stock_take_id = st.id
+		LEFT JOIN planned_item_agg pia ON pia.stock_take_id = st.id
+		LEFT JOIN counted_item_agg cia ON cia.stock_take_id = st.id
+		WHERE st.status NOT IN (?) AND st.deleted_at IS NULL
+		ORDER BY st.id DESC
+	`, excludedStatuses, excludedStatuses).Scan(&result).Error
+
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"error":   err.Error(),
+		})
+	}
+
+	if len(result) == 0 {
+		return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+			"success": true,
+			"data":    []StockTakeListItem{},
+		})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"data":    result,
+	})
+}
+
 // func (c *StockTakeController) GetAllStockTake(ctx *fiber.Ctx) error {
 // 	var stockTakes []models.StockTake
 // 	if err := c.DB.Order("id desc").Find(&stockTakes).Error; err != nil {

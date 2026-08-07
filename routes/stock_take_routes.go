@@ -25,6 +25,7 @@ func SetupStockTakeRoutes(app *fiber.App) {
 	api.Get("/barcode/:code", stockTakeController.GetStockTakeBarcodeByCode)
 	api.Delete("/barcode/delete/:id", stockTakeController.DeleteStockTakeBarcode)
 	api.Get("/", stockTakeController.GetAllStockTake)
+	api.Get("/summary", stockTakeController.GetAllStockTakeSummary)
 	api.Get("/:code", stockTakeController.GetStockTakeDetail)
 	api.Get("/:code/print", stockTakeController.GetStockTakePrintDetail)
 	api.Post("/generate", stockTakeController.GenerateDataStockTake)
