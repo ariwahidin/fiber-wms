@@ -502,14 +502,30 @@ func (c *StockTakeController) GetAllStockTake(ctx *fiber.Ctx) error {
 }
 
 func (c *StockTakeController) GetAllStockTakeSummary(ctx *fiber.Ctx) error {
+	code := strings.TrimSpace(ctx.Query("code"))
+	if code == "" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"error":   "code is required",
+		})
+	}
+	if len(code) < 3 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"error":   "code must be at least 3 characters",
+		})
+	}
+
 	var result []StockTakeListItem
 
 	excludedStatuses := []string{"cancelled", "closed"}
+	codeLike := "%" + code + "%"
 
 	err := c.DB.Raw(`
 		WITH valid_st AS (
 			SELECT id FROM stock_takes
 			WHERE status NOT IN (?) AND deleted_at IS NULL
+			AND UPPER(code) LIKE UPPER(?)
 		),
 		system_agg AS (
 			SELECT sti.stock_take_id, SUM(sti.system_qty) AS total
@@ -584,20 +600,14 @@ func (c *StockTakeController) GetAllStockTakeSummary(ctx *fiber.Ctx) error {
 		LEFT JOIN planned_item_agg pia ON pia.stock_take_id = st.id
 		LEFT JOIN counted_item_agg cia ON cia.stock_take_id = st.id
 		WHERE st.status NOT IN (?) AND st.deleted_at IS NULL
+		AND UPPER(st.code) LIKE UPPER(?)
 		ORDER BY st.id DESC
-	`, excludedStatuses, excludedStatuses).Scan(&result).Error
+	`, excludedStatuses, codeLike, excludedStatuses, codeLike).Scan(&result).Error
 
 	if err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"success": false,
 			"error":   err.Error(),
-		})
-	}
-
-	if len(result) == 0 {
-		return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
-			"success": true,
-			"data":    []StockTakeListItem{},
 		})
 	}
 
@@ -970,8 +980,8 @@ func (c *StockTakeController) ScanStockTake(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Location must be 8 characters long"})
 	}
 
-	if input.Qty < 1 {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Quantity must be at least 1"})
+	if input.Qty < 0 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Quantity must be a positive number"})
 	}
 
 	var stockTake models.StockTake
