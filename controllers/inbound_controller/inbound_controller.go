@@ -110,7 +110,7 @@ func (c *InboundController) CreateInbound(ctx *fiber.Ctx) error {
 		})
 	}
 
-	fmt.Println("PAYLOAD", payload)
+	// fmt.Println("PAYLOAD", payload)
 
 	var InventoryPolicy models.InventoryPolicy
 	if err := c.DB.Where("owner_code = ?", payload.OwnerCode).First(&InventoryPolicy).Error; err != nil {
@@ -212,10 +212,22 @@ func (c *InboundController) CreateInbound(ctx *fiber.Ctx) error {
 		}
 	}()
 
+	// Check duplicate receipt_id
+	if err := tx.Debug().Where("receipt_id = ?", payload.ReceiptID).First(&models.InboundHeader{}).Error; err == nil {
+
+		tx.Rollback()
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "Receipt ID already exists",
+			"error":   "Receipt ID already exists: " + payload.ReceiptID,
+		})
+	}
+
 	repositories := repositories.NewInboundRepository(tx)
 
 	inbound_no, err := repositories.GenerateInboundNo()
 	if err != nil {
+		tx.Rollback()
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"success": false,
 			"message": "Failed to generate inbound no",
@@ -231,6 +243,7 @@ func (c *InboundController) CreateInbound(ctx *fiber.Ctx) error {
 
 	if err := tx.Debug().First(&supplier, "supplier_code = ?", payload.Supplier).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
+			tx.Rollback()
 			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
 				"success": false,
 				"message": "Supplier not found",

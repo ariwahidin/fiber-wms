@@ -423,3 +423,28 @@ func (c *SupplierController) GetOwnerCodes(ctx *fiber.Ctx) error {
 //===========================================================================
 // End Export Supplier To Excel
 // ==========================================================================
+
+func (c *SupplierController) GetSuppliersByUserID(ctx *fiber.Ctx) error {
+	userID := int(ctx.Locals("userID").(float64))
+
+	var owners []models.UserOwner
+	if err := c.DB.Where("user_id = ?", userID).Find(&owners).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	if len(owners) == 0 {
+		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Owner not found"})
+	}
+
+	var ownerCodes []string
+	for _, o := range owners {
+		ownerCodes = append(ownerCodes, o.OwnerCode)
+	}
+
+	var suppliers []models.Supplier
+	if err := c.DB.Where("owner_code IN ?", ownerCodes).Find(&suppliers).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Suppliers found", "data": suppliers})
+}

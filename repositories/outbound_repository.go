@@ -1242,6 +1242,7 @@ type OutboundFilterParams struct {
 	SearchItem string   // search item_code, barcode, item_name di outbound_details + products
 	Statuses   []string // filter by status: open, picking, packing, completed, cancel
 	OrderTypes []string // filter by order_type: B2B - Consignment, B2B - Normal
+	Owners     []string // filter by owner: owner1, owner2
 }
 
 func (r *OutboundRepository) GetOutboundListWithFilter(params OutboundFilterParams) ([]OutboundList, error) {
@@ -1280,6 +1281,16 @@ func (r *OutboundRepository) GetOutboundListWithFilter(params OutboundFilterPara
 			args = append(args, s)
 		}
 		orderTypeWhere = "AND order_type IN (" + strings.Join(placeholders, ", ") + ")"
+	}
+
+	ownerWhere := ""
+	if len(params.Owners) > 0 {
+		placeholders := make([]string, len(params.Owners))
+		for i, s := range params.Owners {
+			placeholders[i] = "?"
+			args = append(args, s)
+		}
+		ownerWhere = "AND owner_code IN (" + strings.Join(placeholders, ", ") + ")"
 	}
 
 	// Header search (di base CTE)
@@ -1322,6 +1333,19 @@ func (r *OutboundRepository) GetOutboundListWithFilter(params OutboundFilterPara
           ` + statusWhere + `
           ` + orderTypeWhere + `
           ` + baseSearch + `
+		  ` + ownerWhere + `
+	),
+	od_s AS (
+		SELECT od.outbound_id,
+			COUNT(od.outbound_id)  AS total_item,
+			SUM(p.cbm)             AS total_cbm,
+			SUM(od.quantity)       AS qty_req
+		FROM outbound_details od
+		INNER JOIN products AS p ON od.item_id = p.id
+		` + itemJoin + `
+		WHERE od.outbound_id IN (SELECT id FROM base)
+		  ` + itemWhere + `
+		GROUP BY od.outbound_id
     ),
     od AS (
         SELECT od.outbound_id,

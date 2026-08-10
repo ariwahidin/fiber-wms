@@ -482,6 +482,16 @@ func (c *OutboundController) GetOutboundListFilter(ctx *fiber.Ctx) error {
 		}
 	}
 
+	var owners []string
+	if raw := ctx.Query("owners"); raw != "" {
+		for _, s := range strings.Split(raw, ",") {
+			s = strings.TrimSpace(s)
+			if s != "" {
+				owners = append(owners, s)
+			}
+		}
+	}
+
 	params := repositories.OutboundFilterParams{
 		StartDate:  ctx.Query("start_date"),
 		EndDate:    ctx.Query("end_date"),
@@ -489,6 +499,7 @@ func (c *OutboundController) GetOutboundListFilter(ctx *fiber.Ctx) error {
 		SearchItem: ctx.Query("search_item"),
 		Statuses:   statuses,
 		OrderTypes: orderTypes,
+		Owners:     owners, // ← tambahan
 	}
 
 	outboundRepo := repositories.NewOutboundRepository(c.DB)

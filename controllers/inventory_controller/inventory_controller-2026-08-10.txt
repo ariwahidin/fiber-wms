@@ -1292,10 +1292,11 @@ type ValidationError struct {
 }
 
 type ExcelLotUpdateRow struct {
-	ItemCode string
-	Location string
-	Batch    string
-	Row      int
+	ItemCode     string
+	Location     string
+	CartonNumber string
+	Batch        string // lot_number BARU yang mau di-set
+	Row          int
 }
 
 // lotUpdateOutputRow menampung hasil OUTPUT clause dari UPDATE,
@@ -1314,19 +1315,6 @@ type lotUpdateOutputRow struct {
 	QtyAvailable float64
 	OldLotNumber string
 	NewLotNumber string
-}
-
-const (
-	maxSQLParams        = 2100
-	movementColumnCount = 30 // jumlah kolom yang di-insert ke InventoryMovement
-)
-
-func safeBatchSize(columnCount int) int {
-	size := int(float64(maxSQLParams) / float64(columnCount) * 0.8)
-	if size < 1 {
-		size = 1
-	}
-	return size
 }
 
 // BulkUpdateLotNumberFromExcel
@@ -1521,9 +1509,10 @@ func parseLotUpdateRowsFromExcel(rows [][]string) ([]ExcelLotUpdateRow, []Valida
 
 		itemCode := strings.TrimSpace(getCell(row, 0))
 		location := strings.TrimSpace(getCell(row, 1))
-		batch := strings.TrimSpace(getCell(row, 2))
+		batch := strings.TrimSpace(getCell(row, 2)) // lot_number baru
+		cartonNumber := strings.TrimSpace(getCell(row, 3))
 
-		if itemCode == "" && location == "" && batch == "" {
+		if itemCode == "" && location == "" && batch == "" && cartonNumber == "" {
 			continue
 		}
 		if itemCode == "" {
@@ -1534,12 +1523,18 @@ func parseLotUpdateRowsFromExcel(rows [][]string) ([]ExcelLotUpdateRow, []Valida
 			errs = append(errs, ValidationError{Field: "Location", Message: "Location cannot be empty", Row: rowNum})
 			continue
 		}
+		if cartonNumber == "" {
+			errs = append(errs, ValidationError{Field: "CartonNumber", Message: "Carton number cannot be empty", Row: rowNum})
+			continue
+		}
 		if batch == "" {
-			errs = append(errs, ValidationError{Field: "Batch", Message: "Batch / Lot number cannot be empty", Row: rowNum})
+			errs = append(errs, ValidationError{Field: "Batch", Message: "Lot number cannot be empty", Row: rowNum})
 			continue
 		}
 
-		updates = append(updates, ExcelLotUpdateRow{ItemCode: itemCode, Location: location, Batch: batch, Row: rowNum})
+		updates = append(updates, ExcelLotUpdateRow{
+			ItemCode: itemCode, Location: location, CartonNumber: cartonNumber, Batch: batch, Row: rowNum,
+		})
 	}
 
 	return updates, errs
@@ -1550,11 +1545,11 @@ func checkDuplicateLotUpdateRows(updates []ExcelLotUpdateRow) []ValidationError 
 	seen := make(map[string]int)
 
 	for _, u := range updates {
-		key := strings.ToUpper(u.ItemCode) + "|" + strings.ToUpper(u.Location)
+		key := strings.ToUpper(u.ItemCode) + "|" + strings.ToUpper(u.Location) + "|" + strings.ToUpper(u.CartonNumber)
 		if existingRow, ok := seen[key]; ok {
 			errs = append(errs, ValidationError{
 				Field:   "Duplicate",
-				Message: fmt.Sprintf("Duplicate item_code + location found (same as row %d): %s / %s", existingRow, u.ItemCode, u.Location),
+				Message: fmt.Sprintf("Duplicate item_code + location + carton_number found (same as row %d): %s / %s / %s", existingRow, u.ItemCode, u.Location, u.CartonNumber),
 				Row:     u.Row,
 			})
 		} else {
@@ -1569,11 +1564,12 @@ func validateLotUpdateRowsExist(tx *gorm.DB, updates []ExcelLotUpdateRow, ownerC
 	type existingRow struct {
 		ItemCode     string
 		Location     string
+		CartonNumber string
 		QtyAvailable float64
 	}
 
-	availableMap := make(map[string]bool) // qty_available > 0
-	existsMap := make(map[string]bool)    // exists regardless of qty
+	existsMap := make(map[string]bool)
+	availableMap := make(map[string]bool)
 
 	const chunkSize = 500
 	for i := 0; i < len(updates); i += chunkSize {
@@ -1584,19 +1580,31 @@ func validateLotUpdateRowsExist(tx *gorm.DB, updates []ExcelLotUpdateRow, ownerC
 		chunk := updates[i:end]
 
 		valueRows := make([]string, 0, len(chunk))
-		args := make([]interface{}, 0, len(chunk)*2)
+		args := make([]interface{}, 0, len(chunk)*3)
 		for _, u := range chunk {
-			valueRows = append(valueRows, "(?, ?)")
-			args = append(args, u.ItemCode, u.Location)
+			valueRows = append(valueRows, "(?, ?, ?)")
+			args = append(args, u.ItemCode, u.Location, u.CartonNumber)
 		}
 
+		// query := fmt.Sprintf(`
+		// 	SELECT inv.item_code, inv.location, inv.carton_number, inv.qty_available
+		// 	FROM inventories inv
+		// 	INNER JOIN (VALUES %s) AS data(item_code, location, carton_number)
+		// 		ON inv.item_code     = data.item_code
+		// 	   AND inv.location      = data.location
+		// 	   AND inv.carton_number = data.carton_number
+		// 	WHERE inv.deleted_at IS NULL`, strings.Join(valueRows, ","))
+
 		query := fmt.Sprintf(`
-			SELECT inv.item_code, inv.location, inv.qty_available
+			SELECT inv.item_code, inv.location, inv.carton_number, inv.qty_available
 			FROM inventories inv
-			INNER JOIN (VALUES %s) AS data(item_code, location)
-				ON inv.item_code = data.item_code
-			   AND inv.location  = data.location
-			WHERE inv.deleted_at IS NULL`, strings.Join(valueRows, ","))
+			INNER JOIN (VALUES %s) AS data(item_code, location, carton_number)
+				ON inv.item_code     = data.item_code
+			   AND inv.location      = data.location
+			   AND inv.carton_number = data.carton_number
+			WHERE inv.deleted_at IS NULL
+			  AND inv.carton_number IS NOT NULL
+			  AND inv.carton_number <> ''`, strings.Join(valueRows, ","))
 
 		if ownerCode != "" {
 			query += " AND inv.owner_code = ?"
@@ -1612,7 +1620,7 @@ func validateLotUpdateRowsExist(tx *gorm.DB, updates []ExcelLotUpdateRow, ownerC
 			return nil, err
 		}
 		for _, r := range rowsFound {
-			key := strings.ToUpper(r.ItemCode) + "|" + strings.ToUpper(r.Location)
+			key := strings.ToUpper(r.ItemCode) + "|" + strings.ToUpper(r.Location) + "|" + strings.ToUpper(r.CartonNumber)
 			existsMap[key] = true
 			if r.QtyAvailable > 0 {
 				availableMap[key] = true
@@ -1622,18 +1630,18 @@ func validateLotUpdateRowsExist(tx *gorm.DB, updates []ExcelLotUpdateRow, ownerC
 
 	var missing []ValidationError
 	for _, u := range updates {
-		key := strings.ToUpper(u.ItemCode) + "|" + strings.ToUpper(u.Location)
+		key := strings.ToUpper(u.ItemCode) + "|" + strings.ToUpper(u.Location) + "|" + strings.ToUpper(u.CartonNumber)
 		switch {
 		case !existsMap[key]:
 			missing = append(missing, ValidationError{
-				Field:   "ItemCode/Location",
-				Message: fmt.Sprintf("Inventory not found for item_code=%s, location=%s", u.ItemCode, u.Location),
+				Field:   "ItemCode/Location/CartonNumber",
+				Message: fmt.Sprintf("Inventory not found for item_code=%s, location=%s, carton_number=%s", u.ItemCode, u.Location, u.CartonNumber),
 				Row:     u.Row,
 			})
 		case !availableMap[key]:
 			missing = append(missing, ValidationError{
 				Field:   "QtyAvailable",
-				Message: fmt.Sprintf("Skipped: qty_available is 0 for item_code=%s, location=%s", u.ItemCode, u.Location),
+				Message: fmt.Sprintf("Skipped: qty_available is 0 for item_code=%s, location=%s, carton_number=%s", u.ItemCode, u.Location, u.CartonNumber),
 				Row:     u.Row,
 			})
 		}
@@ -1662,10 +1670,10 @@ func bulkUpdateLotNumberWithHistory(
 		chunk := updates[i:end]
 
 		valueRows := make([]string, 0, len(chunk))
-		args := make([]interface{}, 0, len(chunk)*3)
+		args := make([]interface{}, 0, len(chunk)*4)
 		for _, u := range chunk {
-			valueRows = append(valueRows, "(?, ?, ?)")
-			args = append(args, u.ItemCode, u.Location, u.Batch)
+			valueRows = append(valueRows, "(?, ?, ?, ?)")
+			args = append(args, u.ItemCode, u.Location, u.CartonNumber, u.Batch)
 		}
 
 		query := fmt.Sprintf(`
@@ -1687,10 +1695,13 @@ func bulkUpdateLotNumberWithHistory(
 			    deleted.lot_number     AS old_lot_number,
 			    inserted.lot_number    AS new_lot_number
 			FROM inventories inv
-			INNER JOIN (VALUES %s) AS data(item_code, location, batch)
-				ON inv.item_code = data.item_code
-			   AND inv.location  = data.location
+			INNER JOIN (VALUES %s) AS data(item_code, location, carton_number, batch)
+				ON inv.item_code     = data.item_code
+			   AND inv.location      = data.location
+			   AND inv.carton_number = data.carton_number
 			WHERE inv.deleted_at IS NULL
+			  AND inv.carton_number IS NOT NULL
+			  AND inv.carton_number <> ''
 			  AND inv.qty_available > 0`, strings.Join(valueRows, ","))
 
 		if ownerCode != "" {
@@ -1748,12 +1759,7 @@ func bulkUpdateLotNumberWithHistory(
 			})
 		}
 
-		// if err := tx.CreateInBatches(&movements, 500).Error; err != nil {
-		// 	return totalAffected, err
-		// }
-
-		movementBatchSize := safeBatchSize(movementColumnCount)
-		if err := tx.CreateInBatches(&movements, movementBatchSize).Error; err != nil {
+		if err := tx.CreateInBatches(&movements, 500).Error; err != nil {
 			return totalAffected, err
 		}
 
