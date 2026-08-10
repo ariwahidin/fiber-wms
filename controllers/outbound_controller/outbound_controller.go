@@ -1161,6 +1161,13 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 			}
 		}
 
+		if invetoryPolicy.AllocationLocationByOrder {
+			if outboundDetail.Location != "" {
+				queryInventory = queryInventory.
+					Where("i.location = ? AND i.qty_available > 0", outboundDetail.Location)
+			}
+		}
+
 		// if invetoryPolicy.UseFEFO {
 		// 	queryInventory = queryInventory.Order("i.exp_date, i.lot_number, i.rec_date, i.qty_available, i.pallet, i.location ASC")
 		// } else {

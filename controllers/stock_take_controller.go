@@ -318,32 +318,66 @@ func (c *StockTakeController) GetAllStockTake(ctx *fiber.Ctx) error {
 	startDate := ctx.Query("start_date")
 	endDate := ctx.Query("end_date")
 	searchLocation := ctx.Query("search_location")
+	code := ctx.Query("code")
 
-	query := c.DB.Model(&models.StockTake{}).Order("id desc")
-
-	if statuses != "" {
-		statusList := strings.Split(statuses, ",")
-		query = query.Where("status IN ?", statusList)
+	page, _ := strconv.Atoi(ctx.Query("page", "1"))
+	pageSize, _ := strconv.Atoi(ctx.Query("page_size", "20"))
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
 	}
 
-	if startDate != "" && endDate != "" {
-		startParsed, errStart := time.Parse("2006-01-02", startDate)
-		endParsed, errEnd := time.Parse("2006-01-02", endDate)
-		if errStart == nil && errEnd == nil {
-			endOfDay := endParsed.Add(23*time.Hour + 59*time.Minute + 59*time.Second)
-			query = query.Where("created_at BETWEEN ? AND ?", startParsed, endOfDay)
+	// Rebuild the base query fresh each time so Count() and Find() don't
+	// accumulate GORM chain state on top of each other.
+	buildQuery := func() *gorm.DB {
+		q := c.DB.Model(&models.StockTake{})
+		if statuses != "" {
+			q = q.Where("status IN ?", strings.Split(statuses, ","))
 		}
+		if startDate != "" && endDate != "" {
+			startParsed, errStart := time.Parse("2006-01-02", startDate)
+			endParsed, errEnd := time.Parse("2006-01-02", endDate)
+			if errStart == nil && errEnd == nil {
+				endOfDay := endParsed.Add(23*time.Hour + 59*time.Minute + 59*time.Second)
+				q = q.Where("created_at BETWEEN ? AND ?", startParsed, endOfDay)
+			}
+		}
+		if searchLocation != "" {
+			q = q.Where(
+				"id IN (SELECT stock_take_id FROM stock_take_items WHERE location LIKE ? AND deleted_at IS NULL)",
+				"%"+searchLocation+"%",
+			)
+		}
+		if code != "" {
+			q = q.Where("UPPER(code) LIKE UPPER(?)", "%"+code+"%")
+		}
+		return q
 	}
 
-	if searchLocation != "" {
-		query = query.Where(
-			"id IN (SELECT stock_take_id FROM stock_take_items WHERE location LIKE ? AND deleted_at IS NULL)",
-			"%"+searchLocation+"%",
-		)
+	var totalCount int64
+	if err := buildQuery().Count(&totalCount).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"error":   err.Error(),
+		})
+	}
+
+	totalPages := (totalCount + int64(pageSize) - 1) / int64(pageSize)
+	meta := fiber.Map{
+		"page":        page,
+		"page_size":   pageSize,
+		"total":       totalCount,
+		"total_pages": totalPages,
 	}
 
 	var stockTakes []models.StockTake
-	if err := query.Find(&stockTakes).Error; err != nil {
+	if err := buildQuery().
+		Order("id desc").
+		Limit(pageSize).
+		Offset((page - 1) * pageSize).
+		Find(&stockTakes).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"success": false,
 			"error":   err.Error(),
@@ -354,6 +388,7 @@ func (c *StockTakeController) GetAllStockTake(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
 			"success": true,
 			"data":    []StockTakeListItem{},
+			"meta":    meta,
 		})
 	}
 
@@ -367,7 +402,6 @@ func (c *StockTakeController) GetAllStockTake(ctx *fiber.Ctx) error {
 		Total       int
 	}
 
-	// ── Total qty sistem (snapshot pas generate stock take) ──
 	var systemAggs []qtyAgg
 	if err := c.DB.Model(&models.StockTakeItem{}).
 		Select("stock_take_id, SUM(system_qty) as total").
@@ -375,13 +409,10 @@ func (c *StockTakeController) GetAllStockTake(ctx *fiber.Ctx) error {
 		Group("stock_take_id").
 		Scan(&systemAggs).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"success": false,
-			"message": "Failed to aggregate system qty",
-			"error":   err.Error(),
+			"success": false, "message": "Failed to aggregate system qty", "error": err.Error(),
 		})
 	}
 
-	// ── Total qty yang sudah dihitung (hasil scan aktual) ──
 	var countedAggs []qtyAgg
 	if err := c.DB.Model(&models.StockTakeBarcode{}).
 		Select("stock_take_id, SUM(counted_qty) as total").
@@ -389,13 +420,10 @@ func (c *StockTakeController) GetAllStockTake(ctx *fiber.Ctx) error {
 		Group("stock_take_id").
 		Scan(&countedAggs).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"success": false,
-			"message": "Failed to aggregate counted qty",
-			"error":   err.Error(),
+			"success": false, "message": "Failed to aggregate counted qty", "error": err.Error(),
 		})
 	}
 
-	// ── Planned Location: distinct location (normalized) dari StockTakeItem, per sesi ──
 	var plannedLocationAggs []qtyAgg
 	if err := c.DB.Model(&models.StockTakeItem{}).
 		Select("stock_take_id, COUNT(DISTINCT UPPER(LTRIM(RTRIM(location)))) as total").
@@ -403,13 +431,10 @@ func (c *StockTakeController) GetAllStockTake(ctx *fiber.Ctx) error {
 		Group("stock_take_id").
 		Scan(&plannedLocationAggs).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"success": false,
-			"message": "Failed to aggregate planned location",
-			"error":   err.Error(),
+			"success": false, "message": "Failed to aggregate planned location", "error": err.Error(),
 		})
 	}
 
-	// ── Planned Item: distinct item_id dari StockTakeItem, per sesi ──
 	var plannedItemAggs []qtyAgg
 	if err := c.DB.Model(&models.StockTakeItem{}).
 		Select("stock_take_id, COUNT(DISTINCT item_id) as total").
@@ -417,34 +442,28 @@ func (c *StockTakeController) GetAllStockTake(ctx *fiber.Ctx) error {
 		Group("stock_take_id").
 		Scan(&plannedItemAggs).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"success": false,
-			"message": "Failed to aggregate planned item",
-			"error":   err.Error(),
+			"success": false, "message": "Failed to aggregate planned item", "error": err.Error(),
 		})
 	}
 
-	// ── Counted Location: distinct location (normalized) dari planned yang match ke scan ──
 	var countedLocationAggs []qtyAgg
 	if err := c.DB.Table("stock_take_items sti").
 		Select("sti.stock_take_id, COUNT(DISTINCT UPPER(LTRIM(RTRIM(sti.location)))) as total").
 		Where("sti.stock_take_id IN ? AND sti.deleted_at IS NULL", stockTakeIDs).
 		Where(`EXISTS (
-		SELECT 1 FROM stock_take_barcodes stb
-		WHERE stb.stock_take_id = sti.stock_take_id
-		AND UPPER(LTRIM(RTRIM(stb.location))) = UPPER(LTRIM(RTRIM(sti.location)))
-		AND stb.item_id = sti.item_id
-		AND stb.deleted_at IS NULL
-	)`).
+			SELECT 1 FROM stock_take_barcodes stb
+			WHERE stb.stock_take_id = sti.stock_take_id
+			AND UPPER(LTRIM(RTRIM(stb.location))) = UPPER(LTRIM(RTRIM(sti.location)))
+			AND stb.item_id = sti.item_id
+			AND stb.deleted_at IS NULL
+		)`).
 		Group("sti.stock_take_id").
 		Scan(&countedLocationAggs).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"success": false,
-			"message": "Failed to aggregate counted location",
-			"error":   err.Error(),
+			"success": false, "message": "Failed to aggregate counted location", "error": err.Error(),
 		})
 	}
 
-	// ── Counted Item: distinct item_id dari planned yang match composite key (item_id + location + division_code) ──
 	var countedItemAggs []qtyAgg
 	if err := c.DB.Table("stock_take_items sti").
 		Select("sti.stock_take_id, COUNT(DISTINCT sti.item_id) as total").
@@ -460,13 +479,10 @@ func (c *StockTakeController) GetAllStockTake(ctx *fiber.Ctx) error {
 		Group("sti.stock_take_id").
 		Scan(&countedItemAggs).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"success": false,
-			"message": "Failed to aggregate counted item",
-			"error":   err.Error(),
+			"success": false, "message": "Failed to aggregate counted item", "error": err.Error(),
 		})
 	}
 
-	// ── Build lookup maps ──
 	toMap := func(aggs []qtyAgg) map[uint]int {
 		m := make(map[uint]int, len(aggs))
 		for _, a := range aggs {
@@ -498,8 +514,299 @@ func (c *StockTakeController) GetAllStockTake(ctx *fiber.Ctx) error {
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
 		"success": true,
 		"data":    result,
+		"meta":    meta,
 	})
 }
+
+func (c *StockTakeController) GetStockTakeStats(ctx *fiber.Ctx) error {
+	statuses := ctx.Query("statuses")
+	startDate := ctx.Query("start_date")
+	endDate := ctx.Query("end_date")
+	searchLocation := ctx.Query("search_location")
+	code := ctx.Query("code")
+
+	buildQuery := func() *gorm.DB {
+		q := c.DB.Model(&models.StockTake{})
+		if statuses != "" {
+			q = q.Where("status IN ?", strings.Split(statuses, ","))
+		}
+		if startDate != "" && endDate != "" {
+			startParsed, errStart := time.Parse("2006-01-02", startDate)
+			endParsed, errEnd := time.Parse("2006-01-02", endDate)
+			if errStart == nil && errEnd == nil {
+				endOfDay := endParsed.Add(23*time.Hour + 59*time.Minute + 59*time.Second)
+				q = q.Where("created_at BETWEEN ? AND ?", startParsed, endOfDay)
+			}
+		}
+		if searchLocation != "" {
+			q = q.Where(
+				"id IN (SELECT stock_take_id FROM stock_take_items WHERE location LIKE ? AND deleted_at IS NULL)",
+				"%"+searchLocation+"%",
+			)
+		}
+		if code != "" {
+			q = q.Where("UPPER(code) LIKE UPPER(?)", "%"+code+"%")
+		}
+		return q
+	}
+
+	var stockTakeIDs []uint
+	if err := buildQuery().Pluck("id", &stockTakeIDs).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false, "error": err.Error(),
+		})
+	}
+
+	stats := fiber.Map{
+		"total_sessions":         len(stockTakeIDs),
+		"total_system_qty":       0,
+		"total_counted_qty":      0,
+		"total_planned_location": 0,
+		"total_counted_location": 0,
+		"total_planned_item":     0,
+		"total_counted_item":     0,
+	}
+
+	if len(stockTakeIDs) == 0 {
+		return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "data": stats})
+	}
+
+	type sumResult struct{ Total int }
+	sumOf := func(q *gorm.DB) int {
+		var r sumResult
+		q.Scan(&r)
+		return r.Total
+	}
+
+	stats["total_system_qty"] = sumOf(c.DB.Model(&models.StockTakeItem{}).
+		Select("ISNULL(SUM(system_qty), 0) as total").
+		Where("stock_take_id IN ? AND deleted_at IS NULL", stockTakeIDs))
+
+	stats["total_counted_qty"] = sumOf(c.DB.Model(&models.StockTakeBarcode{}).
+		Select("ISNULL(SUM(counted_qty), 0) as total").
+		Where("stock_take_id IN ? AND deleted_at IS NULL", stockTakeIDs))
+
+	stats["total_planned_location"] = sumOf(c.DB.Model(&models.StockTakeItem{}).
+		Select("COUNT(DISTINCT CONCAT(stock_take_id, '|', UPPER(LTRIM(RTRIM(location))))) as total").
+		Where("stock_take_id IN ? AND deleted_at IS NULL AND system_qty > 0", stockTakeIDs))
+
+	stats["total_planned_item"] = sumOf(c.DB.Model(&models.StockTakeItem{}).
+		Select("COUNT(DISTINCT CONCAT(stock_take_id, '|', item_id)) as total").
+		Where("stock_take_id IN ? AND deleted_at IS NULL", stockTakeIDs))
+
+	stats["total_counted_location"] = sumOf(c.DB.Table("stock_take_items sti").
+		Select("COUNT(DISTINCT CONCAT(sti.stock_take_id, '|', UPPER(LTRIM(RTRIM(sti.location))))) as total").
+		Where("sti.stock_take_id IN ? AND sti.deleted_at IS NULL", stockTakeIDs).
+		Where(`EXISTS (
+			SELECT 1 FROM stock_take_barcodes stb
+			WHERE stb.stock_take_id = sti.stock_take_id
+			AND UPPER(LTRIM(RTRIM(stb.location))) = UPPER(LTRIM(RTRIM(sti.location)))
+			AND stb.item_id = sti.item_id
+			AND stb.deleted_at IS NULL
+		)`))
+
+	stats["total_counted_item"] = sumOf(c.DB.Table("stock_take_items sti").
+		Select("COUNT(DISTINCT CONCAT(sti.stock_take_id, '|', sti.item_id)) as total").
+		Where("sti.stock_take_id IN ? AND sti.deleted_at IS NULL", stockTakeIDs).
+		Where(`EXISTS (
+			SELECT 1 FROM stock_take_barcodes stb
+			WHERE stb.stock_take_id = sti.stock_take_id
+			AND stb.item_id = sti.item_id
+			AND stb.location = sti.location
+			AND stb.division_code = sti.division_code
+			AND stb.deleted_at IS NULL
+		)`))
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "data": stats})
+}
+
+// func (c *StockTakeController) GetAllStockTake(ctx *fiber.Ctx) error {
+// 	statuses := ctx.Query("statuses")
+// 	startDate := ctx.Query("start_date")
+// 	endDate := ctx.Query("end_date")
+// 	searchLocation := ctx.Query("search_location")
+
+// 	query := c.DB.Model(&models.StockTake{}).Order("id desc")
+
+// 	if statuses != "" {
+// 		statusList := strings.Split(statuses, ",")
+// 		query = query.Where("status IN ?", statusList)
+// 	}
+
+// 	if startDate != "" && endDate != "" {
+// 		startParsed, errStart := time.Parse("2006-01-02", startDate)
+// 		endParsed, errEnd := time.Parse("2006-01-02", endDate)
+// 		if errStart == nil && errEnd == nil {
+// 			endOfDay := endParsed.Add(23*time.Hour + 59*time.Minute + 59*time.Second)
+// 			query = query.Where("created_at BETWEEN ? AND ?", startParsed, endOfDay)
+// 		}
+// 	}
+
+// 	if searchLocation != "" {
+// 		query = query.Where(
+// 			"id IN (SELECT stock_take_id FROM stock_take_items WHERE location LIKE ? AND deleted_at IS NULL)",
+// 			"%"+searchLocation+"%",
+// 		)
+// 	}
+
+// 	var stockTakes []models.StockTake
+// 	if err := query.Find(&stockTakes).Error; err != nil {
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+// 			"success": false,
+// 			"error":   err.Error(),
+// 		})
+// 	}
+
+// 	if len(stockTakes) == 0 {
+// 		return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+// 			"success": true,
+// 			"data":    []StockTakeListItem{},
+// 		})
+// 	}
+
+// 	var stockTakeIDs []uint
+// 	for _, st := range stockTakes {
+// 		stockTakeIDs = append(stockTakeIDs, st.ID)
+// 	}
+
+// 	type qtyAgg struct {
+// 		StockTakeID uint
+// 		Total       int
+// 	}
+
+// 	// ── Total qty sistem (snapshot pas generate stock take) ──
+// 	var systemAggs []qtyAgg
+// 	if err := c.DB.Model(&models.StockTakeItem{}).
+// 		Select("stock_take_id, SUM(system_qty) as total").
+// 		Where("stock_take_id IN ? AND deleted_at IS NULL", stockTakeIDs).
+// 		Group("stock_take_id").
+// 		Scan(&systemAggs).Error; err != nil {
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+// 			"success": false,
+// 			"message": "Failed to aggregate system qty",
+// 			"error":   err.Error(),
+// 		})
+// 	}
+
+// 	// ── Total qty yang sudah dihitung (hasil scan aktual) ──
+// 	var countedAggs []qtyAgg
+// 	if err := c.DB.Model(&models.StockTakeBarcode{}).
+// 		Select("stock_take_id, SUM(counted_qty) as total").
+// 		Where("stock_take_id IN ? AND deleted_at IS NULL", stockTakeIDs).
+// 		Group("stock_take_id").
+// 		Scan(&countedAggs).Error; err != nil {
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+// 			"success": false,
+// 			"message": "Failed to aggregate counted qty",
+// 			"error":   err.Error(),
+// 		})
+// 	}
+
+// 	// ── Planned Location: distinct location (normalized) dari StockTakeItem, per sesi ──
+// 	var plannedLocationAggs []qtyAgg
+// 	if err := c.DB.Model(&models.StockTakeItem{}).
+// 		Select("stock_take_id, COUNT(DISTINCT UPPER(LTRIM(RTRIM(location)))) as total").
+// 		Where("stock_take_id IN ? AND deleted_at IS NULL AND system_qty > 0", stockTakeIDs).
+// 		Group("stock_take_id").
+// 		Scan(&plannedLocationAggs).Error; err != nil {
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+// 			"success": false,
+// 			"message": "Failed to aggregate planned location",
+// 			"error":   err.Error(),
+// 		})
+// 	}
+
+// 	// ── Planned Item: distinct item_id dari StockTakeItem, per sesi ──
+// 	var plannedItemAggs []qtyAgg
+// 	if err := c.DB.Model(&models.StockTakeItem{}).
+// 		Select("stock_take_id, COUNT(DISTINCT item_id) as total").
+// 		Where("stock_take_id IN ? AND deleted_at IS NULL", stockTakeIDs).
+// 		Group("stock_take_id").
+// 		Scan(&plannedItemAggs).Error; err != nil {
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+// 			"success": false,
+// 			"message": "Failed to aggregate planned item",
+// 			"error":   err.Error(),
+// 		})
+// 	}
+
+// 	// ── Counted Location: distinct location (normalized) dari planned yang match ke scan ──
+// 	var countedLocationAggs []qtyAgg
+// 	if err := c.DB.Table("stock_take_items sti").
+// 		Select("sti.stock_take_id, COUNT(DISTINCT UPPER(LTRIM(RTRIM(sti.location)))) as total").
+// 		Where("sti.stock_take_id IN ? AND sti.deleted_at IS NULL", stockTakeIDs).
+// 		Where(`EXISTS (
+// 		SELECT 1 FROM stock_take_barcodes stb
+// 		WHERE stb.stock_take_id = sti.stock_take_id
+// 		AND UPPER(LTRIM(RTRIM(stb.location))) = UPPER(LTRIM(RTRIM(sti.location)))
+// 		AND stb.item_id = sti.item_id
+// 		AND stb.deleted_at IS NULL
+// 	)`).
+// 		Group("sti.stock_take_id").
+// 		Scan(&countedLocationAggs).Error; err != nil {
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+// 			"success": false,
+// 			"message": "Failed to aggregate counted location",
+// 			"error":   err.Error(),
+// 		})
+// 	}
+
+// 	// ── Counted Item: distinct item_id dari planned yang match composite key (item_id + location + division_code) ──
+// 	var countedItemAggs []qtyAgg
+// 	if err := c.DB.Table("stock_take_items sti").
+// 		Select("sti.stock_take_id, COUNT(DISTINCT sti.item_id) as total").
+// 		Where("sti.stock_take_id IN ? AND sti.deleted_at IS NULL", stockTakeIDs).
+// 		Where(`EXISTS (
+// 			SELECT 1 FROM stock_take_barcodes stb
+// 			WHERE stb.stock_take_id = sti.stock_take_id
+// 			AND stb.item_id = sti.item_id
+// 			AND stb.location = sti.location
+// 			AND stb.division_code = sti.division_code
+// 			AND stb.deleted_at IS NULL
+// 		)`).
+// 		Group("sti.stock_take_id").
+// 		Scan(&countedItemAggs).Error; err != nil {
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+// 			"success": false,
+// 			"message": "Failed to aggregate counted item",
+// 			"error":   err.Error(),
+// 		})
+// 	}
+
+// 	// ── Build lookup maps ──
+// 	toMap := func(aggs []qtyAgg) map[uint]int {
+// 		m := make(map[uint]int, len(aggs))
+// 		for _, a := range aggs {
+// 			m[a.StockTakeID] = a.Total
+// 		}
+// 		return m
+// 	}
+
+// 	systemMap := toMap(systemAggs)
+// 	countedMap := toMap(countedAggs)
+// 	plannedLocationMap := toMap(plannedLocationAggs)
+// 	countedLocationMap := toMap(countedLocationAggs)
+// 	plannedItemMap := toMap(plannedItemAggs)
+// 	countedItemMap := toMap(countedItemAggs)
+
+// 	result := make([]StockTakeListItem, 0, len(stockTakes))
+// 	for _, st := range stockTakes {
+// 		result = append(result, StockTakeListItem{
+// 			StockTake:       st,
+// 			TotalSystemQty:  systemMap[st.ID],
+// 			TotalCountedQty: countedMap[st.ID],
+// 			PlannedLocation: plannedLocationMap[st.ID],
+// 			CountedLocation: countedLocationMap[st.ID],
+// 			PlannedItem:     plannedItemMap[st.ID],
+// 			CountedItem:     countedItemMap[st.ID],
+// 		})
+// 	}
+
+// 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+// 		"success": true,
+// 		"data":    result,
+// 	})
+// }
 
 func (c *StockTakeController) GetAllStockTakeSummary(ctx *fiber.Ctx) error {
 	code := strings.TrimSpace(ctx.Query("code"))
