@@ -4,6 +4,7 @@ import (
 	"fiber-app/models"
 	"fiber-app/repositories"
 	"fmt"
+	"log"
 	"math"
 	"net/http"
 	"strconv"
@@ -1248,3 +1249,537 @@ func (c *InventoryController) GetInventoryGroupedByItem(ctx *fiber.Ctx) error {
 		"total": len(inventories),
 	})
 }
+
+// package inventory_controller
+
+// import (
+// 	"fiber-app/models"
+// 	"fmt"
+// 	"log"
+// 	"strings"
+// 	"time"
+
+// 	"github.com/gofiber/fiber/v2"
+// 	"github.com/xuri/excelize/v2"
+// 	"gorm.io/gorm"
+// )
+
+//======================================================================
+// BEGIN BULK UPDATE LOT NUMBER FROM EXCEL
+//======================================================================
+
+type ExcelLotUpdateResponse struct {
+	Success          bool              `json:"success"`
+	Message          string            `json:"message"`
+	MovementID       string            `json:"movement_id,omitempty"`
+	TotalRows        int               `json:"total_rows"`
+	SuccessCount     int               `json:"success_count"`
+	FailedCount      int               `json:"failed_count"`
+	Errors           []ExcelRowError   `json:"errors,omitempty"`
+	ValidationErrors []ValidationError `json:"validation_errors,omitempty"`
+}
+
+type ExcelRowError struct {
+	Row     int    `json:"row"`
+	Message string `json:"message"`
+	Detail  string `json:"detail,omitempty"`
+}
+
+type ValidationError struct {
+	Field   string `json:"field"`
+	Message string `json:"message"`
+	Row     int    `json:"row"`
+}
+
+type ExcelLotUpdateRow struct {
+	ItemCode string
+	Location string
+	Batch    string
+	Row      int
+}
+
+// lotUpdateOutputRow menampung hasil OUTPUT clause dari UPDATE,
+// dipakai buat bikin InventoryMovement tanpa query tambahan.
+type lotUpdateOutputRow struct {
+	ID           uint
+	ItemID       uint
+	ItemCode     string
+	Location     string
+	OwnerCode    string
+	WhsCode      string
+	DivisionCode string
+	Pallet       string
+	QaStatus     string
+	QtyOnhand    float64
+	QtyAvailable float64
+	OldLotNumber string
+	NewLotNumber string
+}
+
+// BulkUpdateLotNumberFromExcel
+// Expects multipart/form-data:
+//   - file        : .xlsx / .xls, kolom: item_code | location | batch (mulai row 2)
+//   - owner_code  : optional, buat scoping
+//   - whs_code    : optional, buat scoping
+//   - reason      : optional, default "Bulk lot number update via Excel"
+func (c *InventoryController) BulkUpdateLotNumberFromExcel(ctx *fiber.Ctx) error {
+	ownerCode := strings.TrimSpace(ctx.FormValue("owner_code"))
+	whsCode := strings.TrimSpace(ctx.FormValue("whs_code"))
+	reason := strings.TrimSpace(ctx.FormValue("reason"))
+	if reason == "" {
+		reason = "Bulk lot number update via Excel"
+	}
+
+	userID := int(ctx.Locals("userID").(float64))
+
+	file, err := ctx.FormFile("file")
+	if err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(ExcelLotUpdateResponse{
+			Success: false,
+			Message: "No file uploaded or invalid file",
+			Errors: []ExcelRowError{
+				{Row: 0, Message: "File Error", Detail: err.Error()},
+			},
+		})
+	}
+
+	if !strings.HasSuffix(strings.ToLower(file.Filename), ".xlsx") &&
+		!strings.HasSuffix(strings.ToLower(file.Filename), ".xls") {
+		return ctx.Status(fiber.StatusBadRequest).JSON(ExcelLotUpdateResponse{
+			Success: false,
+			Message: "Invalid file format. Only .xlsx and .xls files are allowed",
+		})
+	}
+
+	if file.Size > 10*1024*1024 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(ExcelLotUpdateResponse{
+			Success: false,
+			Message: "File size exceeds maximum limit of 10MB",
+		})
+	}
+
+	fileHeader, err := file.Open()
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(ExcelLotUpdateResponse{
+			Success: false,
+			Message: "Failed to open uploaded file",
+			Errors: []ExcelRowError{
+				{Row: 0, Message: "File Processing Error", Detail: err.Error()},
+			},
+		})
+	}
+	defer fileHeader.Close()
+
+	excelFile, err := excelize.OpenReader(fileHeader)
+	if err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(ExcelLotUpdateResponse{
+			Success: false,
+			Message: "Failed to read Excel file. Please ensure the file is not corrupted",
+			Errors: []ExcelRowError{
+				{Row: 0, Message: "Excel Read Error", Detail: err.Error()},
+			},
+		})
+	}
+	defer excelFile.Close()
+
+	sheets := excelFile.GetSheetList()
+	if len(sheets) == 0 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(ExcelLotUpdateResponse{
+			Success: false,
+			Message: "Excel file contains no sheets",
+		})
+	}
+
+	rows, err := excelFile.GetRows(sheets[0])
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(ExcelLotUpdateResponse{
+			Success: false,
+			Message: "Failed to read rows from Excel",
+			Errors: []ExcelRowError{
+				{Row: 0, Message: "Sheet Read Error", Detail: err.Error()},
+			},
+		})
+	}
+
+	if len(rows) < 2 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(ExcelLotUpdateResponse{
+			Success: false,
+			Message: "Excel file must contain at least header row and one data row",
+		})
+	}
+
+	updates, validationErrors := parseLotUpdateRowsFromExcel(rows)
+	if len(validationErrors) > 0 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(ExcelLotUpdateResponse{
+			Success:          false,
+			Message:          fmt.Sprintf("Validation failed with %d errors", len(validationErrors)),
+			ValidationErrors: validationErrors,
+			TotalRows:        len(rows) - 1,
+		})
+	}
+
+	if len(updates) < 1 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(ExcelLotUpdateResponse{
+			Success:   false,
+			Message:   "No valid rows found in Excel file",
+			TotalRows: len(rows) - 1,
+		})
+	}
+
+	if dupErrors := checkDuplicateLotUpdateRows(updates); len(dupErrors) > 0 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(ExcelLotUpdateResponse{
+			Success:          false,
+			Message:          "Duplicate item_code + location found in Excel file",
+			ValidationErrors: dupErrors,
+			TotalRows:        len(rows) - 1,
+		})
+	}
+
+	tx := c.DB.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+			log.Printf("Panic recovered in BulkUpdateLotNumberFromExcel: %v", r)
+		}
+	}()
+
+	missingErrors, err := validateLotUpdateRowsExist(tx, updates, ownerCode, whsCode)
+	if err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(ExcelLotUpdateResponse{
+			Success: false,
+			Message: "Failed to validate inventory rows",
+			Errors: []ExcelRowError{
+				{Row: 0, Message: "Database Error", Detail: err.Error()},
+			},
+		})
+	}
+	if len(missingErrors) > 0 {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusBadRequest).JSON(ExcelLotUpdateResponse{
+			Success:          false,
+			Message:          fmt.Sprintf("%d row(s) not found in inventory (check item_code / location / owner / whs)", len(missingErrors)),
+			ValidationErrors: missingErrors,
+			TotalRows:        len(updates),
+		})
+	}
+
+	movementID := generateLotUpdateMovementID()
+
+	affected, err := bulkUpdateLotNumberWithHistory(tx, updates, ownerCode, whsCode, movementID, reason, userID)
+	if err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(ExcelLotUpdateResponse{
+			Success: false,
+			Message: "Failed to update lot number",
+			Errors: []ExcelRowError{
+				{Row: 0, Message: "Database Update Error", Detail: err.Error()},
+			},
+		})
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(ExcelLotUpdateResponse{
+			Success: false,
+			Message: "Failed to commit transaction",
+			Errors: []ExcelRowError{
+				{Row: 0, Message: "Transaction Commit Error", Detail: err.Error()},
+			},
+		})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(ExcelLotUpdateResponse{
+		Success:      true,
+		Message:      fmt.Sprintf("Successfully updated lot number for %d row(s)", affected),
+		MovementID:   movementID,
+		TotalRows:    len(updates),
+		SuccessCount: int(affected),
+		FailedCount:  len(updates) - int(affected),
+	})
+}
+
+func parseLotUpdateRowsFromExcel(rows [][]string) ([]ExcelLotUpdateRow, []ValidationError) {
+	var updates []ExcelLotUpdateRow
+	var errs []ValidationError
+
+	for i := 1; i < len(rows); i++ {
+		row := rows[i]
+		rowNum := i + 1
+
+		itemCode := strings.TrimSpace(getCell(row, 0))
+		location := strings.TrimSpace(getCell(row, 1))
+		batch := strings.TrimSpace(getCell(row, 2))
+
+		if itemCode == "" && location == "" && batch == "" {
+			continue
+		}
+		if itemCode == "" {
+			errs = append(errs, ValidationError{Field: "ItemCode", Message: "Item code cannot be empty", Row: rowNum})
+			continue
+		}
+		if location == "" {
+			errs = append(errs, ValidationError{Field: "Location", Message: "Location cannot be empty", Row: rowNum})
+			continue
+		}
+		if batch == "" {
+			errs = append(errs, ValidationError{Field: "Batch", Message: "Batch / Lot number cannot be empty", Row: rowNum})
+			continue
+		}
+
+		updates = append(updates, ExcelLotUpdateRow{ItemCode: itemCode, Location: location, Batch: batch, Row: rowNum})
+	}
+
+	return updates, errs
+}
+
+func checkDuplicateLotUpdateRows(updates []ExcelLotUpdateRow) []ValidationError {
+	var errs []ValidationError
+	seen := make(map[string]int)
+
+	for _, u := range updates {
+		key := strings.ToUpper(u.ItemCode) + "|" + strings.ToUpper(u.Location)
+		if existingRow, ok := seen[key]; ok {
+			errs = append(errs, ValidationError{
+				Field:   "Duplicate",
+				Message: fmt.Sprintf("Duplicate item_code + location found (same as row %d): %s / %s", existingRow, u.ItemCode, u.Location),
+				Row:     u.Row,
+			})
+		} else {
+			seen[key] = u.Row
+		}
+	}
+
+	return errs
+}
+
+func validateLotUpdateRowsExist(tx *gorm.DB, updates []ExcelLotUpdateRow, ownerCode, whsCode string) ([]ValidationError, error) {
+	type existingRow struct {
+		ItemCode     string
+		Location     string
+		QtyAvailable float64
+	}
+
+	availableMap := make(map[string]bool) // qty_available > 0
+	existsMap := make(map[string]bool)    // exists regardless of qty
+
+	const chunkSize = 500
+	for i := 0; i < len(updates); i += chunkSize {
+		end := i + chunkSize
+		if end > len(updates) {
+			end = len(updates)
+		}
+		chunk := updates[i:end]
+
+		valueRows := make([]string, 0, len(chunk))
+		args := make([]interface{}, 0, len(chunk)*2)
+		for _, u := range chunk {
+			valueRows = append(valueRows, "(?, ?)")
+			args = append(args, u.ItemCode, u.Location)
+		}
+
+		query := fmt.Sprintf(`
+			SELECT inv.item_code, inv.location, inv.qty_available
+			FROM inventories inv
+			INNER JOIN (VALUES %s) AS data(item_code, location)
+				ON inv.item_code = data.item_code
+			   AND inv.location  = data.location
+			WHERE inv.deleted_at IS NULL`, strings.Join(valueRows, ","))
+
+		if ownerCode != "" {
+			query += " AND inv.owner_code = ?"
+			args = append(args, ownerCode)
+		}
+		if whsCode != "" {
+			query += " AND inv.whs_code = ?"
+			args = append(args, whsCode)
+		}
+
+		var rowsFound []existingRow
+		if err := tx.Raw(query, args...).Scan(&rowsFound).Error; err != nil {
+			return nil, err
+		}
+		for _, r := range rowsFound {
+			key := strings.ToUpper(r.ItemCode) + "|" + strings.ToUpper(r.Location)
+			existsMap[key] = true
+			if r.QtyAvailable > 0 {
+				availableMap[key] = true
+			}
+		}
+	}
+
+	var missing []ValidationError
+	for _, u := range updates {
+		key := strings.ToUpper(u.ItemCode) + "|" + strings.ToUpper(u.Location)
+		switch {
+		case !existsMap[key]:
+			missing = append(missing, ValidationError{
+				Field:   "ItemCode/Location",
+				Message: fmt.Sprintf("Inventory not found for item_code=%s, location=%s", u.ItemCode, u.Location),
+				Row:     u.Row,
+			})
+		case !availableMap[key]:
+			missing = append(missing, ValidationError{
+				Field:   "QtyAvailable",
+				Message: fmt.Sprintf("Skipped: qty_available is 0 for item_code=%s, location=%s", u.ItemCode, u.Location),
+				Row:     u.Row,
+			})
+		}
+	}
+
+	return missing, nil
+}
+
+// bulkUpdateLotNumberWithHistory update lot_number per batch pakai OUTPUT
+// clause (dapet before/after dalam satu round-trip), lalu insert
+// InventoryMovement untuk tiap baris yang berhasil di-update.
+func bulkUpdateLotNumberWithHistory(
+	tx *gorm.DB,
+	updates []ExcelLotUpdateRow,
+	ownerCode, whsCode, movementID, reason string,
+	userID int,
+) (int64, error) {
+	var totalAffected int64
+
+	const chunkSize = 500
+	for i := 0; i < len(updates); i += chunkSize {
+		end := i + chunkSize
+		if end > len(updates) {
+			end = len(updates)
+		}
+		chunk := updates[i:end]
+
+		valueRows := make([]string, 0, len(chunk))
+		args := make([]interface{}, 0, len(chunk)*3)
+		for _, u := range chunk {
+			valueRows = append(valueRows, "(?, ?, ?)")
+			args = append(args, u.ItemCode, u.Location, u.Batch)
+		}
+
+		// query := fmt.Sprintf(`
+		// 	UPDATE inv
+		// 	SET inv.lot_number = data.batch,
+		// 	    inv.updated_at = GETDATE()
+		// 	OUTPUT
+		// 	    inserted.id            AS id,
+		// 	    inserted.item_id       AS item_id,
+		// 	    inserted.item_code     AS item_code,
+		// 	    inserted.location      AS location,
+		// 	    inserted.owner_code    AS owner_code,
+		// 	    inserted.whs_code      AS whs_code,
+		// 	    inserted.division_code AS division_code,
+		// 	    inserted.pallet        AS pallet,
+		// 	    inserted.qa_status     AS qa_status,
+		// 	    inserted.qty_onhand    AS qty_onhand,
+		// 	    inserted.qty_available AS qty_available,
+		// 	    deleted.lot_number     AS old_lot_number,
+		// 	    inserted.lot_number    AS new_lot_number
+		// 	FROM inventories inv
+		// 	INNER JOIN (VALUES %s) AS data(item_code, location, batch)
+		// 		ON inv.item_code = data.item_code
+		// 	   AND inv.location  = data.location
+		// 	WHERE inv.deleted_at IS NULL`, strings.Join(valueRows, ","))
+
+		query := fmt.Sprintf(`
+			UPDATE inv
+			SET inv.lot_number = data.batch,
+			    inv.updated_at = GETDATE()
+			OUTPUT
+			    inserted.id            AS id,
+			    inserted.item_id       AS item_id,
+			    inserted.item_code     AS item_code,
+			    inserted.location      AS location,
+			    inserted.owner_code    AS owner_code,
+			    inserted.whs_code      AS whs_code,
+			    inserted.division_code AS division_code,
+			    inserted.pallet        AS pallet,
+			    inserted.qa_status     AS qa_status,
+			    inserted.qty_onhand    AS qty_onhand,
+			    inserted.qty_available AS qty_available,
+			    deleted.lot_number     AS old_lot_number,
+			    inserted.lot_number    AS new_lot_number
+			FROM inventories inv
+			INNER JOIN (VALUES %s) AS data(item_code, location, batch)
+				ON inv.item_code = data.item_code
+			   AND inv.location  = data.location
+			WHERE inv.deleted_at IS NULL
+			  AND inv.qty_available > 0`, strings.Join(valueRows, ","))
+
+		if ownerCode != "" {
+			query += " AND inv.owner_code = ?"
+			args = append(args, ownerCode)
+		}
+		if whsCode != "" {
+			query += " AND inv.whs_code = ?"
+			args = append(args, whsCode)
+		}
+
+		var outputRows []lotUpdateOutputRow
+		if err := tx.Raw(query, args...).Scan(&outputRows).Error; err != nil {
+			return totalAffected, err
+		}
+
+		if len(outputRows) == 0 {
+			continue
+		}
+
+		movements := make([]models.InventoryMovement, 0, len(outputRows))
+		now := time.Now()
+		for _, r := range outputRows {
+			movements = append(movements, models.InventoryMovement{
+				MovementID:         movementID,
+				InventoryID:        r.ID,
+				RefType:            "LOT_UPDATE",
+				RefID:              r.ID,
+				ItemID:             r.ItemID,
+				ItemCode:           r.ItemCode,
+				QtyOnhandChange:    0,
+				QtyAvailableChange: 0,
+				QtyAllocatedChange: 0,
+				QtySuspendChange:   0,
+				QtyShippedChange:   0,
+				QtyOnhandBefore:    ptrFloat64(r.QtyOnhand),
+				QtyOnhandAfter:     ptrFloat64(r.QtyOnhand),
+				QtyAvailableBefore: ptrFloat64(r.QtyAvailable),
+				QtyAvailableAfter:  ptrFloat64(r.QtyAvailable),
+				FromWhsCode:        r.WhsCode,
+				ToWhsCode:          r.WhsCode,
+				FromLocation:       r.Location,
+				ToLocation:         r.Location,
+				FromDivision:       r.DivisionCode,
+				ToDivision:         r.DivisionCode,
+				OldQaStatus:        r.QaStatus,
+				NewQaStatus:        r.QaStatus,
+				FromPallet:         r.Pallet,
+				ToPallet:           r.Pallet,
+				FromLotNumber:      r.OldLotNumber,
+				ToLotNumber:        r.NewLotNumber,
+				Reason:             reason,
+				CreatedBy:          userID,
+				CreatedAt:          now,
+			})
+		}
+
+		if err := tx.CreateInBatches(&movements, 500).Error; err != nil {
+			return totalAffected, err
+		}
+
+		totalAffected += int64(len(outputRows))
+	}
+
+	return totalAffected, nil
+}
+
+func generateLotUpdateMovementID() string {
+	return fmt.Sprintf("LOTUPD-%s", time.Now().Format("20060102-150405"))
+}
+
+func getCell(row []string, index int) string {
+	if index < len(row) {
+		return row[index]
+	}
+	return ""
+}
+
+//======================================================================
+// END BULK UPDATE LOT NUMBER FROM EXCEL
+//======================================================================
