@@ -264,7 +264,7 @@ func (c *MobileOutboundController) ScanPicking(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	fmt.Println(scanOutbound)
+	// fmt.Println(scanOutbound)
 
 	var inventoryPolicy models.InventoryPolicy
 	if err := c.DB.Debug().Where("owner_code = ?", outboundHeader.OwnerCode).First(&inventoryPolicy).Error; err != nil {
@@ -376,7 +376,7 @@ func (c *MobileOutboundController) ScanPicking(ctx *fiber.Ctx) error {
 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Item already scanned", "data": outboundBarcodes, "is_serial": true})
 		}
 
-		fmt.Println("Inventory Policy Validation SN:", inventoryPolicy.ValidationSN)
+		// fmt.Println("Inventory Policy Validation SN:", inventoryPolicy.ValidationSN)
 		if inventoryPolicy.ValidationSN {
 			_, err := outboundRepo.ValidateSerialNumber(product.ItemCode, scanOutbound.SerialNo, int(outboundHeader.ID))
 			if err != nil {

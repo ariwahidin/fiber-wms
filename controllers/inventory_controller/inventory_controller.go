@@ -494,6 +494,7 @@ func (c *InventoryController) UpdateInventoryPolicy(ctx *fiber.Ctx) error {
 	policy.UseVAS = updateData.UseVAS
 	policy.UseProductionDate = updateData.UseProductionDate
 	policy.UseReceiveLocation = updateData.UseReceiveLocation
+	policy.UseSerialNumber = updateData.UseSerialNumber
 	policy.ShowRecDate = updateData.ShowRecDate
 	policy.RequireExpiryDate = updateData.RequireExpiryDate
 	policy.RequireLotNumber = updateData.RequireLotNumber

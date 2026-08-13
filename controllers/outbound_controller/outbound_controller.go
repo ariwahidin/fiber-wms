@@ -1159,11 +1159,11 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 			queryInventory = queryInventory.Where("i.lot_number = ?", outboundDetail.LotNumber)
 		}
 
-		if invetoryPolicy.UseLotNo && !invetoryPolicy.AllowMixedLot {
-			queryInventory = queryInventory.
-				Where("i.qty_available >= ?", qtyReq).
-				Limit(1)
-		}
+		// if invetoryPolicy.UseLotNo && !invetoryPolicy.AllowMixedLot {
+		// 	queryInventory = queryInventory.
+		// 		Where("i.qty_available >= ?", qtyReq).
+		// 		Limit(1)
+		// }
 
 		if invetoryPolicy.AllocationLotByOrder {
 			if outboundDetail.LotNumber != "" {
@@ -1232,10 +1232,10 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 			})
 		}
 
-		if len(inventories) == 0 && invetoryPolicy.UseLotNo && !invetoryPolicy.AllowMixedLot {
-			tx.Rollback()
-			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Insufficient stock available for item " + outboundDetail.ItemCode + " and AllowMixedLot is false"})
-		}
+		// if len(inventories) == 0 && invetoryPolicy.UseLotNo && !invetoryPolicy.AllowMixedLot {
+		// 	tx.Rollback()
+		// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Insufficient stock available for item " + outboundDetail.ItemCode + " and AllowMixedLot is false"})
+		// }
 
 		if len(inventories) == 0 && invetoryPolicy.UseLotNo && outboundDetail.LotNumber != "" {
 			tx.Rollback()

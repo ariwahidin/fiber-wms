@@ -24,6 +24,7 @@ func NewMobileInboundController(DB *gorm.DB) *MobileInboundController {
 
 func (c *MobileInboundController) GetListInbound(ctx *fiber.Ctx) error {
 	type listInboundResponse struct {
+		OwnerCode          string    `json:"owner_code"`
 		ID                 uint      `json:"id"`
 		InboundNo          string    `json:"inbound_no"`
 		SupplierName       string    `json:"supplier_name"`
@@ -51,7 +52,7 @@ func (c *MobileInboundController) GetListInbound(ctx *fiber.Ctx) error {
 	from inbound_barcodes
 	group by inbound_id)
 
-	SELECT a.id, a.inbound_no, b.supplier_name, a.receipt_id,
+	SELECT a.owner_code, a.id, a.inbound_no, b.supplier_name, a.receipt_id,
 	COALESCE(id.req_qty, 0) as req_qty, COALESCE(ibp.scan_qty, 0) as scan_qty, 
 	COALESCE(ib.qty_stock,0) as qty_stock, ip.require_putaway_scan,
 	a.status, a.updated_at 
@@ -62,6 +63,7 @@ func (c *MobileInboundController) GetListInbound(ctx *fiber.Ctx) error {
 	LEFT JOIN ibp ON a.id = ibp.inbound_id
 	LEFT JOIN inventory_policies ip ON a.owner_code = ip.owner_code
 	WHERE a.status IN ('checking', 'partially received', 'fully received')
+	AND ip.require_receive_scan = 1
 	ORDER by a.id DESC`
 
 	var listInbound []listInboundResponse

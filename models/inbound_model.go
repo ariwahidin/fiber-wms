@@ -85,6 +85,7 @@ type InboundDetail struct {
 	ExpDate       string  `json:"exp_date" gorm:"default:null"`
 	LotNumber     string  `json:"lot_number" gorm:"default:null"`
 	CaseNumber    string  `json:"case_number" gorm:"default:null"`
+	SerialNumber  string  `json:"serial_number" gorm:"default:null"`
 	Uom           string  `json:"uom" required:"required"`
 	IsSerial      string  `json:"is_serial"`
 	SN            string  `json:"sn"`
@@ -167,6 +168,7 @@ type FormItemInbound struct {
 	ItemID          int    `json:"item_id" validate:"required"`
 	ItemName        string `json:"item_name"`
 	Barcode         string `json:"barcode"`
+	SerialNumber    string `json:"serial_number"`
 	ItemCode        string `json:"item_code"`
 	Quantity        int    `json:"quantity" validate:"required,min=1" `
 	Uom             string `json:"uom"`
@@ -202,6 +204,7 @@ type InboundDetailView struct {
 	Uom           string `json:"uom" required:"required"`
 	IsSerial      string `json:"is_serial"`
 	SN            string `json:"sn"`
+	SerialNumber  string `json:"serial_number" gorm:"default:null"`
 	HandlingId    int    `json:"handling_id" required:"required"`
 	HandlingUsed  string `json:"handling_used"`
 	TotalVas      int    `json:"total_vas"`

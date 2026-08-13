@@ -529,6 +529,16 @@ func (r *InboundRepository) ProcessPutawayItem(ctx *fiber.Ctx, inboundBarcodeID 
 		return false, err
 	}
 
+	var inboundHeader models.InboundHeader
+	if err := r.db.Where("id = ?", barcode.InboundId).Take(&inboundHeader).Error; err != nil {
+		return false, errors.New("inbound header not found for item: " + barcode.ItemCode)
+	}
+
+	var inventoryPolicy models.InventoryPolicy
+	if err := r.db.Where("owner_code = ?", inboundHeader.OwnerCode).Take(&inventoryPolicy).Error; err != nil {
+		return false, errors.New("inventory policy not found for owner code: " + inboundHeader.OwnerCode)
+	}
+
 	if barcode.Status != "pending" {
 		return false, fmt.Errorf("item not in pending status")
 	}
@@ -561,21 +571,50 @@ func (r *InboundRepository) ProcessPutawayItem(ctx *fiber.Ctx, inboundBarcodeID 
 	}
 
 	// Cek apakah data inventory dengan kombinasi yang sama sudah ada
+	// var existingInv models.Inventory
+	// invQuery := r.db.Where(`
+	// 		inbound_id = ? AND
+	// 		inbound_detail_id = ? AND
+	// 		item_code = ? AND
+	// 		location = ? AND
+	// 		barcode = ? AND
+	// 		whs_code = ? AND
+	// 		qa_status = ? AND
+	// 		rec_date = ? AND
+	// 		COALESCE(prod_date, '') = COALESCE(?, '') AND
+	// 		COALESCE(exp_date, '') = COALESCE(?, '') AND
+	// 		COALESCE(lot_number, '') = COALESCE(?, '') AND
+	// 		COALESCE(carton_number, '') = COALESCE(?, '')
+	// 	`,
+	// 	barcode.InboundId,
+	// 	barcode.InboundDetailId,
+	// 	barcode.ItemCode,
+	// 	location,
+	// 	product.Barcode,
+	// 	barcode.WhsCode,
+	// 	barcode.QaStatus,
+	// 	barcode.RecDate,
+	// 	barcode.ProdDate,
+	// 	barcode.ExpDate,
+	// 	barcode.LotNumber,
+	// 	CartonSerial,
+	// ).First(&existingInv)
+
 	var existingInv models.Inventory
 	invQuery := r.db.Where(`
-			inbound_id = ? AND
-			inbound_detail_id = ? AND
-			item_code = ? AND
-			location = ? AND
-			barcode = ? AND
-			whs_code = ? AND
-			qa_status = ? AND
-			rec_date = ? AND
-			COALESCE(prod_date, '') = COALESCE(?, '') AND
-			COALESCE(exp_date, '') = COALESCE(?, '') AND
-			COALESCE(lot_number, '') = COALESCE(?, '') AND
-			COALESCE(carton_number, '') = COALESCE(?, '')
-		`,
+        inbound_id = ? AND
+        inbound_detail_id = ? AND
+        item_code = ? AND
+        location = ? AND
+        barcode = ? AND
+        whs_code = ? AND
+        qa_status = ? AND
+        rec_date = ? AND
+        COALESCE(prod_date, '') = COALESCE(?, '') AND
+        COALESCE(exp_date, '') = COALESCE(?, '') AND
+        COALESCE(lot_number, '') = COALESCE(?, '') AND
+        COALESCE(carton_number, '') = COALESCE(?, '')
+    `,
 		barcode.InboundId,
 		barcode.InboundDetailId,
 		barcode.ItemCode,
@@ -588,9 +627,16 @@ func (r *InboundRepository) ProcessPutawayItem(ctx *fiber.Ctx, inboundBarcodeID 
 		barcode.ExpDate,
 		barcode.LotNumber,
 		CartonSerial,
-	).First(&existingInv)
+	)
 
-	if errors.Is(invQuery.Error, gorm.ErrRecordNotFound) {
+	// tambahan kondisional
+	if inventoryPolicy.UseSerialNumber {
+		invQuery = invQuery.Where("serial_number = ?", barcode.SerialNumber)
+	}
+
+	err := invQuery.First(&existingInv).Error
+
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		// Tidak ada data → Insert baru
 		newInv := models.Inventory{
 			InboundID:       detail.InboundId,
@@ -605,6 +651,7 @@ func (r *InboundRepository) ProcessPutawayItem(ctx *fiber.Ctx, inboundBarcodeID 
 			Pallet:          barcode.Pallet,
 			Location:        location,
 			CartonNumber:    CartonSerial,
+			SerialNumber:    barcode.SerialNumber,
 			QaStatus:        barcode.QaStatus,
 			Uom:             uomConversion.ToUom,
 			QtyOrigin:       qtyConverted,
@@ -639,7 +686,7 @@ func (r *InboundRepository) ProcessPutawayItem(ctx *fiber.Ctx, inboundBarcodeID 
 			CreatedBy:          int(userID),
 		})
 
-	} else if invQuery.Error == nil {
+	} else if err == nil {
 		// Sudah ada → Update qty
 		if err := r.db.Model(&existingInv).Updates(map[string]interface{}{
 			"qty_origin":    existingInv.QtyOrigin + qtyConverted,
@@ -669,7 +716,7 @@ func (r *InboundRepository) ProcessPutawayItem(ctx *fiber.Ctx, inboundBarcodeID 
 			CreatedBy:          int(userID),
 		})
 	} else {
-		return false, invQuery.Error
+		return false, err
 	}
 
 	// Update status barcode ke "in stock"

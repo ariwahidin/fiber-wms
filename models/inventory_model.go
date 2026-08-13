@@ -25,6 +25,7 @@ type Inventory struct {
 	ItemId          uint    `json:"item_id"`
 	ItemCode        string  `json:"item_code"`
 	Barcode         string  `json:"barcode" gorm:"not null" validate:"required"`
+	SerialNumber    string  `json:"serial_number" gorm:"default:null"`
 	QaStatus        string  `json:"qa_status"`
 	Uom             string  `json:"uom"`
 	QtyOrigin       float64 `json:"qty_origin" gorm:"default:0"`
@@ -68,6 +69,7 @@ type InventoryPolicy struct {
 	UseVAS                                 bool   `gorm:"default:false" json:"use_vas"`
 	UseProductionDate                      bool   `gorm:"default:false" json:"use_production_date"`
 	UseReceiveLocation                     bool   `gorm:"default:false" json:"use_receive_location"`
+	UseSerialNumber                        bool   `gorm:"default:false" json:"use_serial_number"`
 	ShowRecDate                            bool   `gorm:"default:false" json:"show_rec_date"`
 	RequireExpiryDate                      bool   `gorm:"default:false" json:"require_expiry_date"`
 	RequireLotNumber                       bool   `gorm:"default:false" json:"require_lot_number"`
