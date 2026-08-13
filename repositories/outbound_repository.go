@@ -897,7 +897,10 @@ func (r *OutboundRepository) GetPackingItemsList(outboundID int, packingNo strin
                 h.transporter_code,
 				a.uom_scan,
 				SUM(a.qty_data_scan) as qty_scan,
-				a.barcode_data_scan as barcode_scan
+				a.barcode_data_scan as barcode_scan,
+				a.ctn_length,
+				a.ctn_width,
+				a.ctn_height
         FROM outbound_barcodes a
         INNER JOIN products b ON a.item_id = b.id
         INNER JOIN outbound_packings c ON a.packing_id = c.id
@@ -934,7 +937,10 @@ func (r *OutboundRepository) GetPackingItemsList(outboundID int, packingNo strin
                 c.created_at,
 				a.uom_scan,
 				a.barcode_data_scan,
-				a.pack_ctn_no
+				a.pack_ctn_no,
+				a.ctn_length,
+				a.ctn_width,
+				a.ctn_height
 		ORDER BY CAST(a.pack_ctn_no AS INT) ASC
 	`
 
