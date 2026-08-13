@@ -437,7 +437,7 @@ SELECT
 	// `
 	inboundSQL := `WITH ih AS (
 SELECT a.id, 
-a.inbound_date, a.deleted_at,
+a.inbound_date, a.deleted_at, a.owner_code,
 SUM(b.quantity) as qty,
 CASE a.status
 			WHEN 'open'   THEN 'open'
@@ -447,7 +447,7 @@ CASE a.status
 			WHEN 'complete'    THEN 'complete' END AS [status]
 FROM inbound_headers a
 LEFT JOIN inbound_details b ON a.id = b.inbound_id
-GROUP BY a.id, a.[status], a.inbound_date, a.deleted_at)
+GROUP BY a.id, a.[status], a.inbound_date, a.deleted_at, a.owner_code)
 
 SELECT
 	ih.status                       AS stage_key,
