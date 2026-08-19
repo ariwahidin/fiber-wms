@@ -85,6 +85,7 @@ type InboundDetail struct {
 	ExpDate       string  `json:"exp_date" gorm:"default:null"`
 	LotNumber     string  `json:"lot_number" gorm:"default:null"`
 	CaseNumber    string  `json:"case_number" gorm:"default:null"`
+	CartonNumber  string  `json:"carton_number" gorm:"default:null"`
 	SerialNumber  string  `json:"serial_number" gorm:"default:null"`
 	Uom           string  `json:"uom" required:"required"`
 	IsSerial      string  `json:"is_serial"`
@@ -137,6 +138,7 @@ type InboundBarcode struct {
 	ProdDate        string         `json:"prod_date" gorm:"default:null"`
 	ExpDate         string         `json:"exp_date" gorm:"default:null"`
 	LotNumber       string         `json:"lot_number" gorm:"default:null"`
+	CartonNumber    string         `json:"carton_number" gorm:"default:null"`
 	CaseNumber      string         `json:"case_number" gorm:"default:null"`
 	ItemModel       string         `json:"item_model" gorm:"default:null"`
 	Quantity        float64        `json:"quantity"`

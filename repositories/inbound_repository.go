@@ -570,6 +570,10 @@ func (r *InboundRepository) ProcessPutawayItem(ctx *fiber.Ctx, inboundBarcodeID 
 		CartonSerial = *result.CartonSerial
 	}
 
+	if CartonSerial == "" {
+		CartonSerial = barcode.CartonNumber
+	}
+
 	// Cek apakah data inventory dengan kombinasi yang sama sudah ada
 	// var existingInv models.Inventory
 	// invQuery := r.db.Where(`
@@ -613,7 +617,8 @@ func (r *InboundRepository) ProcessPutawayItem(ctx *fiber.Ctx, inboundBarcodeID 
         COALESCE(prod_date, '') = COALESCE(?, '') AND
         COALESCE(exp_date, '') = COALESCE(?, '') AND
         COALESCE(lot_number, '') = COALESCE(?, '') AND
-        COALESCE(carton_number, '') = COALESCE(?, '')
+        COALESCE(carton_number, '') = COALESCE(?, '') AND
+		COALESCE(serial_number, '') = COALESCE(?, '')
     `,
 		barcode.InboundId,
 		barcode.InboundDetailId,
@@ -627,6 +632,7 @@ func (r *InboundRepository) ProcessPutawayItem(ctx *fiber.Ctx, inboundBarcodeID 
 		barcode.ExpDate,
 		barcode.LotNumber,
 		CartonSerial,
+		barcode.SerialNumber,
 	)
 
 	// tambahan kondisional
@@ -735,6 +741,604 @@ func (r *InboundRepository) ProcessPutawayItem(ctx *fiber.Ctx, inboundBarcodeID 
 	return true, nil
 }
 
+type putawayCalc struct {
+	barcode      models.InboundBarcode
+	product      models.Product
+	detail       models.InboundDetail
+	location     string
+	qtyConverted float64
+	toUom        string
+	cartonSerial string
+	key          InventoryMatchKey
+}
+
+// InventoryMatchKey — struct key untuk matching row Inventory. Comparable native,
+// nggak ada risiko collision dari string concatenation.
+type InventoryMatchKey struct {
+	InboundID       int
+	InboundDetailId int
+	ItemCode        string
+	Location        string
+	Barcode         string
+	WhsCode         string
+	QaStatus        string
+	RecDate         string
+	ProdDate        string
+	ExpDate         string
+	LotNumber       string
+	CartonNumber    string
+	SerialNumber    string // cuma dipakai kalau UseSerialNumber aktif
+}
+
+func buildMatchKey(usesSerial bool, inboundID, detailID int, itemCode, location, barcodeField, whsCode, qaStatus, recDate, prodDate, expDate, lotNumber, cartonSerial, serialNumber string) InventoryMatchKey {
+	k := InventoryMatchKey{
+		InboundID:       inboundID,
+		InboundDetailId: detailID,
+		ItemCode:        itemCode,
+		Location:        location,
+		Barcode:         barcodeField,
+		WhsCode:         whsCode,
+		QaStatus:        qaStatus,
+		RecDate:         recDate,
+		ProdDate:        prodDate,
+		ExpDate:         expDate,
+		LotNumber:       lotNumber,
+		CartonNumber:    cartonSerial,
+	}
+	if usesSerial {
+		k.SerialNumber = serialNumber
+	}
+	return k
+}
+
+func (r *InboundRepository) ProcessPutawayItemsBatch(ctx *fiber.Ctx, barcodeIDs []int) error {
+	userIDFloat, ok := ctx.Locals("userID").(float64)
+	if !ok {
+		return errors.New("invalid user ID")
+	}
+	userID := int(userIDFloat)
+
+	if len(barcodeIDs) == 0 {
+		return nil
+	}
+
+	var barcodes []models.InboundBarcode
+	if err := helpers.FindInChunks(r.db, "id IN ?", barcodeIDs, &barcodes); err != nil {
+		return err
+	}
+
+	for _, b := range barcodes {
+		if b.Status != "pending" {
+			return fmt.Errorf("item not in pending status: barcode id %d", b.ID)
+		}
+	}
+
+	inboundIDSet := map[int]bool{}
+	detailIDSet := map[int]bool{}
+	itemCodeSet := map[string]bool{}
+	barcodeIDsUint := make([]uint, 0, len(barcodes))
+	for _, b := range barcodes {
+		inboundIDSet[b.InboundId] = true
+		detailIDSet[b.InboundDetailId] = true
+		itemCodeSet[b.ItemCode] = true
+		barcodeIDsUint = append(barcodeIDsUint, uint(b.ID))
+	}
+
+	inboundIDs := toIntSlice(inboundIDSet)
+	detailIDs := toIntSlice(detailIDSet)
+	itemCodes := toStringSlice(itemCodeSet)
+
+	var headers []models.InboundHeader
+	if err := helpers.FindInChunks(r.db, "id IN ?", inboundIDs, &headers); err != nil {
+		return err
+	}
+	headerMap := make(map[int]models.InboundHeader, len(headers))
+	ownerCodeSet := map[string]bool{}
+	for _, h := range headers {
+		headerMap[int(h.ID)] = h
+		ownerCodeSet[h.OwnerCode] = true
+	}
+
+	var policies []models.InventoryPolicy
+	if err := helpers.FindInChunks(r.db, "owner_code IN ?", toStringSlice(ownerCodeSet), &policies); err != nil {
+		return err
+	}
+	policyMap := make(map[string]models.InventoryPolicy, len(policies))
+	for _, p := range policies {
+		policyMap[p.OwnerCode] = p
+	}
+
+	var details []models.InboundDetail
+	if err := helpers.FindInChunks(r.db, "id IN ?", detailIDs, &details); err != nil {
+		return err
+	}
+	detailMap := make(map[int]models.InboundDetail, len(details))
+	for _, d := range details {
+		detailMap[int(d.ID)] = d
+	}
+
+	var products []models.Product
+	if err := helpers.FindInChunks(r.db, "item_code IN ?", itemCodes, &products); err != nil {
+		return err
+	}
+	productMap := make(map[string]models.Product, len(products))
+	for _, p := range products {
+		productMap[p.ItemCode] = p
+	}
+
+	scanDataMap, err := r.GetScanDataBatch(barcodeIDsUint)
+	if err != nil {
+		return err
+	}
+
+	var existingInvs []models.Inventory
+	if err := helpers.FindInChunks(r.db, "inbound_detail_id IN ?", detailIDs, &existingInvs); err != nil {
+		return err
+	}
+
+	uomRepo := NewUomRepository(r.db)
+	conversionCache := make(map[string]UomConversionResult)
+
+	getConversion := func(itemCode string, qty float64, fromUom string) (UomConversionResult, error) {
+		cacheKey := itemCode + "|" + fromUom
+		if cached, ok := conversionCache[cacheKey]; ok {
+			cached.FromQty = qty
+			cached.QtyConverted = qty * cached.Rate
+			return cached, nil
+		}
+		res, err := uomRepo.ConversionQty(itemCode, qty, fromUom)
+		if err != nil {
+			return UomConversionResult{}, err
+		}
+		conversionCache[cacheKey] = res
+		return res, nil
+	}
+
+	// pakai FUNCTION package-level buildMatchKey — TIDAK ada closure lokal lagi
+	existingInvMap := make(map[InventoryMatchKey]*models.Inventory, len(existingInvs))
+	for i := range existingInvs {
+		inv := &existingInvs[i]
+		policy := policyMap[inv.OwnerCode]
+		key := buildMatchKey(policy.UseSerialNumber, inv.InboundID, inv.InboundDetailId, inv.ItemCode, inv.Location, inv.Barcode, inv.WhsCode, inv.QaStatus, inv.RecDate, inv.ProdDate, inv.ExpDate, inv.LotNumber, inv.CartonNumber, inv.SerialNumber)
+		existingInvMap[key] = inv
+	}
+
+	calcs := make([]putawayCalc, 0, len(barcodes))
+	for _, barcode := range barcodes {
+		header := headerMap[barcode.InboundId]
+		policy := policyMap[header.OwnerCode]
+		detail := detailMap[barcode.InboundDetailId]
+		product := productMap[barcode.ItemCode]
+
+		location := barcode.Location
+		if location == "" {
+			location = detail.Location
+		}
+
+		uomRes, err := getConversion(barcode.ItemCode, barcode.Quantity, detail.Uom)
+		if err != nil {
+			return err
+		}
+
+		cartonSerial := ""
+		if sd, ok := scanDataMap[uint(barcode.ID)]; ok && sd.CartonSerial != nil {
+			cartonSerial = *sd.CartonSerial
+		}
+		if cartonSerial == "" {
+			cartonSerial = barcode.CartonNumber
+		}
+
+		key := buildMatchKey(policy.UseSerialNumber, barcode.InboundId, barcode.InboundDetailId, barcode.ItemCode, location, product.Barcode, barcode.WhsCode, barcode.QaStatus, barcode.RecDate, barcode.ProdDate, barcode.ExpDate, barcode.LotNumber, cartonSerial, barcode.SerialNumber)
+
+		calcs = append(calcs, putawayCalc{
+			barcode: barcode, product: product, detail: detail,
+			location: location, qtyConverted: uomRes.QtyConverted, toUom: uomRes.ToUom,
+			cartonSerial: cartonSerial, key: key,
+		})
+	}
+
+	newInvByKey := make(map[InventoryMatchKey]*models.Inventory)
+	sumQtyByKey := make(map[InventoryMatchKey]float64)
+	for _, c := range calcs {
+		sumQtyByKey[c.key] += c.qtyConverted
+		if _, exists := existingInvMap[c.key]; exists {
+			continue
+		}
+		if _, exists := newInvByKey[c.key]; !exists {
+			newInvByKey[c.key] = &models.Inventory{
+				InboundID: c.detail.InboundId, InboundDetailId: int(c.detail.ID), RecDate: c.detail.RecDate,
+				ItemId: c.barcode.ItemID, ItemCode: c.barcode.ItemCode, Barcode: c.product.Barcode,
+				WhsCode: c.barcode.WhsCode, OwnerCode: c.barcode.OwnerCode, DivisionCode: c.barcode.DivisionCode,
+				Pallet: c.barcode.Pallet, Location: c.location, CartonNumber: c.cartonSerial,
+				SerialNumber: c.barcode.SerialNumber, QaStatus: c.barcode.QaStatus, Uom: c.toUom,
+				ExpDate: c.barcode.ExpDate, ProdDate: c.barcode.ProdDate, LotNumber: c.barcode.LotNumber,
+				Trans: "INBOUND PUTAWAY", CreatedBy: userID,
+			}
+		}
+	}
+
+	movements := make([]models.InventoryMovement, 0, len(calcs))
+
+	err = r.db.Transaction(func(tx *gorm.DB) error {
+
+		for key, inv := range existingInvMap {
+			add, touched := sumQtyByKey[key]
+			if !touched {
+				continue
+			}
+			if err := tx.Model(inv).Updates(map[string]interface{}{
+				"qty_origin":    inv.QtyOrigin + add,
+				"qty_onhand":    inv.QtyOnhand + add,
+				"qty_available": inv.QtyAvailable + add,
+				"updated_at":    time.Now().UTC(),
+				"updated_by":    userID,
+			}).Error; err != nil {
+				return err
+			}
+		}
+
+		if len(newInvByKey) > 0 {
+			keys := make([]InventoryMatchKey, 0, len(newInvByKey))
+			newInvList := make([]models.Inventory, 0, len(newInvByKey))
+			for key, inv := range newInvByKey {
+				inv.QtyOrigin = sumQtyByKey[key]
+				inv.QtyOnhand = sumQtyByKey[key]
+				inv.QtyAvailable = sumQtyByKey[key]
+				keys = append(keys, key)
+				newInvList = append(newInvList, *inv)
+			}
+			if err := helpers.CreateInChunks(tx, newInvList); err != nil {
+				return err
+			}
+			for i, key := range keys {
+				newInvByKey[key].ID = newInvList[i].ID
+			}
+		}
+
+		for _, c := range calcs {
+			var invID uint
+			if inv, ok := existingInvMap[c.key]; ok {
+				invID = inv.ID
+			} else if inv, ok := newInvByKey[c.key]; ok {
+				invID = inv.ID
+			}
+
+			movements = append(movements, models.InventoryMovement{
+				InventoryID:        invID,
+				MovementID:         uuid.NewString(),
+				RefType:            "INBOUND PUTAWAY",
+				RefID:              uint(c.barcode.InboundId),
+				ItemID:             c.product.ID,
+				ItemCode:           c.product.ItemCode,
+				ToWhsCode:          c.barcode.WhsCode,
+				QtyOnhandChange:    c.qtyConverted,
+				QtyAvailableChange: c.qtyConverted,
+				NewQaStatus:        c.barcode.QaStatus,
+				FromLocation:       c.barcode.Location,
+				ToLocation:         c.location,
+				Reason:             c.detail.InboundNo + " PUTAWAY",
+				CreatedBy:          userID,
+				CreatedAt:          time.Now(),
+			})
+		}
+
+		if err := helpers.CreateInChunks(tx, movements); err != nil {
+			return err
+		}
+
+		now := time.Now().UTC()
+		for _, c := range calcs {
+			if err := tx.Model(&models.InboundBarcode{}).Where("id = ?", c.barcode.ID).Updates(map[string]interface{}{
+				"status":           "in stock",
+				"putaway_location": c.location,
+				"putaway_qty":      int(c.barcode.Quantity),
+				"putaway_at":       now,
+				"putaway_by":       userID,
+				"updated_at":       now,
+				"updated_by":       userID,
+			}).Error; err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// func (r *InboundRepository) ProcessPutawayItemsBatch(ctx *fiber.Ctx, barcodeIDs []int) error {
+// 	userIDFloat, ok := ctx.Locals("userID").(float64)
+// 	if !ok {
+// 		return errors.New("invalid user ID")
+// 	}
+// 	userID := int(userIDFloat)
+
+// 	if len(barcodeIDs) == 0 {
+// 		return nil
+// 	}
+
+// 	// === PATCH 1: barcodes ===
+// 	var barcodes []models.InboundBarcode
+// 	if err := helpers.FindInChunks(r.db, "id IN ?", barcodeIDs, &barcodes); err != nil {
+// 		return err
+// 	}
+
+// 	for _, b := range barcodes {
+// 		if b.Status != "pending" {
+// 			return fmt.Errorf("item not in pending status: barcode id %d", b.ID)
+// 		}
+// 	}
+
+// 	inboundIDSet := map[int]bool{}
+// 	detailIDSet := map[int]bool{}
+// 	itemCodeSet := map[string]bool{}
+// 	barcodeIDsUint := make([]uint, 0, len(barcodes))
+// 	for _, b := range barcodes {
+// 		inboundIDSet[b.InboundId] = true
+// 		detailIDSet[b.InboundDetailId] = true
+// 		itemCodeSet[b.ItemCode] = true
+// 		barcodeIDsUint = append(barcodeIDsUint, uint(b.ID))
+// 	}
+
+// 	inboundIDs := toIntSlice(inboundIDSet)
+// 	detailIDs := toIntSlice(detailIDSet)
+// 	itemCodes := toStringSlice(itemCodeSet)
+
+// 	// === PATCH 2: headers ===
+// 	var headers []models.InboundHeader
+// 	if err := helpers.FindInChunks(r.db, "id IN ?", inboundIDs, &headers); err != nil {
+// 		return err
+// 	}
+// 	headerMap := make(map[int]models.InboundHeader, len(headers))
+// 	ownerCodeSet := map[string]bool{}
+// 	for _, h := range headers {
+// 		headerMap[int(h.ID)] = h
+// 		ownerCodeSet[h.OwnerCode] = true
+// 	}
+
+// 	// === PATCH 3: policies ===
+// 	var policies []models.InventoryPolicy
+// 	if err := helpers.FindInChunks(r.db, "owner_code IN ?", toStringSlice(ownerCodeSet), &policies); err != nil {
+// 		return err
+// 	}
+// 	policyMap := make(map[string]models.InventoryPolicy, len(policies))
+// 	for _, p := range policies {
+// 		policyMap[p.OwnerCode] = p
+// 	}
+
+// 	// === PATCH 4: details ===
+// 	var details []models.InboundDetail
+// 	if err := helpers.FindInChunks(r.db, "id IN ?", detailIDs, &details); err != nil {
+// 		return err
+// 	}
+// 	detailMap := make(map[int]models.InboundDetail, len(details))
+// 	for _, d := range details {
+// 		detailMap[int(d.ID)] = d
+// 	}
+
+// 	// === PATCH 5: products ===
+// 	var products []models.Product
+// 	if err := helpers.FindInChunks(r.db, "item_code IN ?", itemCodes, &products); err != nil {
+// 		return err
+// 	}
+// 	productMap := make(map[string]models.Product, len(products))
+// 	for _, p := range products {
+// 		productMap[p.ItemCode] = p
+// 	}
+
+// 	// === PATCH 6: scan data — sudah di-chunk di dalam GetScanDataBatch (poin A di atas) ===
+// 	scanDataMap, err := r.GetScanDataBatch(barcodeIDsUint)
+// 	if err != nil {
+// 		return err
+// 	}
+
+// 	// === PATCH 7: existing inventory ===
+// 	var existingInvs []models.Inventory
+// 	if err := helpers.FindInChunks(r.db, "inbound_detail_id IN ?", detailIDs, &existingInvs); err != nil {
+// 		return err
+// 	}
+
+// 	// ===== UOM conversion cache (tidak berubah — bukan batch query) =====
+// 	uomRepo := NewUomRepository(r.db)
+// 	conversionCache := make(map[string]UomConversionResult)
+
+// 	getConversion := func(itemCode string, qty float64, fromUom string) (UomConversionResult, error) {
+// 		cacheKey := itemCode + "|" + fromUom
+// 		if cached, ok := conversionCache[cacheKey]; ok {
+// 			cached.FromQty = qty
+// 			cached.QtyConverted = qty * cached.Rate
+// 			return cached, nil
+// 		}
+// 		res, err := uomRepo.ConversionQty(itemCode, qty, fromUom)
+// 		if err != nil {
+// 			return UomConversionResult{}, err
+// 		}
+// 		conversionCache[cacheKey] = res
+// 		return res, nil
+// 	}
+
+// 	buildKey := func(usesSerial bool, invID, detailID int, itemCode, location, barcodeField, whsCode, qaStatus, recDate, prodDate, expDate, lotNumber, cartonSerial, serialNumber string) string {
+// 		k := fmt.Sprintf("%d|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s", detailID, itemCode, location, barcodeField, whsCode, qaStatus, recDate, prodDate, expDate, lotNumber, cartonSerial)
+// 		if usesSerial {
+// 			k += "|" + serialNumber
+// 		}
+// 		return fmt.Sprintf("%d|%s", invID, k)
+// 	}
+
+// 	existingInvMap := make(map[string]*models.Inventory, len(existingInvs))
+// 	for i := range existingInvs {
+// 		inv := &existingInvs[i]
+// 		policy := policyMap[inv.OwnerCode]
+// 		key := buildKey(policy.UseSerialNumber, inv.InboundID, inv.InboundDetailId, inv.ItemCode, inv.Location, inv.Barcode, inv.WhsCode, inv.QaStatus, inv.RecDate, inv.ProdDate, inv.ExpDate, inv.LotNumber, inv.CartonNumber, inv.SerialNumber)
+// 		existingInvMap[key] = inv
+// 	}
+
+// 	// ===== PASS 1: hitung semua barcode =====
+// 	calcs := make([]putawayCalc, 0, len(barcodes))
+// 	for _, barcode := range barcodes {
+// 		header := headerMap[barcode.InboundId]
+// 		policy := policyMap[header.OwnerCode]
+// 		detail := detailMap[barcode.InboundDetailId]
+// 		product := productMap[barcode.ItemCode]
+
+// 		location := barcode.Location
+// 		if location == "" {
+// 			location = detail.Location
+// 		}
+
+// 		uomRes, err := getConversion(barcode.ItemCode, barcode.Quantity, detail.Uom)
+// 		if err != nil {
+// 			return err
+// 		}
+
+// 		cartonSerial := ""
+// 		if sd, ok := scanDataMap[uint(barcode.ID)]; ok && sd.CartonSerial != nil {
+// 			cartonSerial = *sd.CartonSerial
+// 		}
+// 		if cartonSerial == "" {
+// 			cartonSerial = barcode.CartonNumber
+// 		}
+
+// 		key := buildKey(policy.UseSerialNumber, barcode.InboundId, barcode.InboundDetailId, barcode.ItemCode, location, product.Barcode, barcode.WhsCode, barcode.QaStatus, barcode.RecDate, barcode.ProdDate, barcode.ExpDate, barcode.LotNumber, cartonSerial, barcode.SerialNumber)
+
+// 		calcs = append(calcs, putawayCalc{
+// 			barcode: barcode, product: product, detail: detail,
+// 			location: location, qtyConverted: uomRes.QtyConverted, toUom: uomRes.ToUom,
+// 			cartonSerial: cartonSerial, key: key,
+// 		})
+// 	}
+
+// 	// ===== PASS 2a: accumulate qty per key =====
+// 	newInvByKey := make(map[string]*models.Inventory)
+// 	sumQtyByKey := make(map[string]float64)
+// 	for _, c := range calcs {
+// 		sumQtyByKey[c.key] += c.qtyConverted
+// 		if _, exists := existingInvMap[c.key]; exists {
+// 			continue
+// 		}
+// 		if _, exists := newInvByKey[c.key]; !exists {
+// 			newInvByKey[c.key] = &models.Inventory{
+// 				InboundID: c.detail.InboundId, InboundDetailId: int(c.detail.ID), RecDate: c.detail.RecDate,
+// 				ItemId: c.barcode.ItemID, ItemCode: c.barcode.ItemCode, Barcode: c.product.Barcode,
+// 				WhsCode: c.barcode.WhsCode, OwnerCode: c.barcode.OwnerCode, DivisionCode: c.barcode.DivisionCode,
+// 				Pallet: c.barcode.Pallet, Location: c.location, CartonNumber: c.cartonSerial,
+// 				SerialNumber: c.barcode.SerialNumber, QaStatus: c.barcode.QaStatus, Uom: c.toUom,
+// 				ExpDate: c.barcode.ExpDate, ProdDate: c.barcode.ProdDate, LotNumber: c.barcode.LotNumber,
+// 				Trans: "INBOUND PUTAWAY", CreatedBy: userID,
+// 			}
+// 		}
+// 	}
+
+// 	// Update existing rows — masih per-row karena payload beda tiap row (Updates map beda value),
+// 	// tapi ini UPDATE murni, bukan Create, jadi TIDAK kena limit 2100 parameter (cuma ~6 param/query)
+// 	for key, inv := range existingInvMap {
+// 		add, touched := sumQtyByKey[key]
+// 		if !touched {
+// 			continue
+// 		}
+// 		if err := r.db.Model(inv).Updates(map[string]interface{}{
+// 			"qty_origin":    inv.QtyOrigin + add,
+// 			"qty_onhand":    inv.QtyOnhand + add,
+// 			"qty_available": inv.QtyAvailable + add,
+// 			"updated_at":    time.Now().UTC(),
+// 			"updated_by":    userID,
+// 		}).Error; err != nil {
+// 			return err
+// 		}
+// 	}
+
+// 	if len(newInvByKey) > 0 {
+// 		keys := make([]string, 0, len(newInvByKey))
+// 		newInvList := make([]models.Inventory, 0, len(newInvByKey))
+// 		for key, inv := range newInvByKey {
+// 			inv.QtyOrigin = sumQtyByKey[key]
+// 			inv.QtyOnhand = sumQtyByKey[key]
+// 			inv.QtyAvailable = sumQtyByKey[key]
+// 			keys = append(keys, key)
+// 			newInvList = append(newInvList, *inv)
+// 		}
+// 		if err := helpers.CreateInChunks(r.db, newInvList); err != nil {
+// 			return err
+// 		}
+// 		for i, key := range keys {
+// 			newInvByKey[key].ID = newInvList[i].ID
+// 		}
+// 	}
+
+// 	// ===== PASS 2b: bangun ledger movement =====
+// 	movements := make([]models.InventoryMovement, 0, len(calcs))
+// 	for _, c := range calcs {
+// 		var invID uint
+// 		if inv, ok := existingInvMap[c.key]; ok {
+// 			invID = inv.ID
+// 		} else if inv, ok := newInvByKey[c.key]; ok {
+// 			invID = inv.ID
+// 		}
+
+// 		movements = append(movements, models.InventoryMovement{
+// 			InventoryID:        invID,
+// 			MovementID:         uuid.NewString(),
+// 			RefType:            "INBOUND PUTAWAY",
+// 			RefID:              uint(c.barcode.InboundId),
+// 			ItemID:             c.product.ID,
+// 			ItemCode:           c.product.ItemCode,
+// 			ToWhsCode:          c.barcode.WhsCode,
+// 			QtyOnhandChange:    c.qtyConverted,
+// 			QtyAvailableChange: c.qtyConverted,
+// 			NewQaStatus:        c.barcode.QaStatus,
+// 			FromLocation:       c.barcode.Location,
+// 			ToLocation:         c.location,
+// 			Reason:             c.detail.InboundNo + " PUTAWAY",
+// 			CreatedBy:          userID,
+// 			CreatedAt:          time.Now(),
+// 		})
+// 	}
+
+// 	// === PATCH 9: insert movements — pakai CreateInChunks ===
+// 	if err := helpers.CreateInChunks(r.db, movements); err != nil {
+// 		return err
+// 	}
+
+// 	// ===== Update status barcode → "in stock" — per row, UPDATE murni, aman dari limit =====
+// 	now := time.Now().UTC()
+// 	for _, c := range calcs {
+// 		if err := r.db.Model(&models.InboundBarcode{}).Where("id = ?", c.barcode.ID).Updates(map[string]interface{}{
+// 			"status":           "in stock",
+// 			"putaway_location": c.location,
+// 			"putaway_qty":      int(c.barcode.Quantity),
+// 			"putaway_at":       now,
+// 			"putaway_by":       userID,
+// 			"updated_at":       now,
+// 			"updated_by":       userID,
+// 		}).Error; err != nil {
+// 			return err
+// 		}
+// 	}
+
+// 	return nil
+// }
+
+// helper kecil
+func toIntSlice(m map[int]bool) []int {
+	s := make([]int, 0, len(m))
+	for k := range m {
+		s = append(s, k)
+	}
+	return s
+}
+func toStringSlice(m map[string]bool) []string {
+	s := make([]string, 0, len(m))
+	for k := range m {
+		s = append(s, k)
+	}
+	return s
+}
+
 type resultDetail struct {
 	// di isi nanti
 	ID        uint   `json:"id"`
@@ -789,7 +1393,7 @@ func (r *InboundRepository) GetInboundDetailByInboundID(inboundID uint) ([]resul
 	return result, nil
 }
 
-type resulInboundBarcodeByOutboundDetailID struct {
+type ResulInboundBarcodeByOutboundDetailID struct {
 	ID        uint   `json:"id"`
 	ItemCode  string `json:"item_code"`
 	ItemID    uint   `json:"item_id"`
@@ -802,7 +1406,34 @@ type resulInboundBarcodeByOutboundDetailID struct {
 	ExpDate   string `json:"exp_date"`
 }
 
-func (r *InboundRepository) GetInboundBarcodeByOutboundDetailID(outboundDetailID uint) (resulInboundBarcodeByOutboundDetailID, error) {
+func (r *InboundRepository) GetInboundBarcodesByDetailIDs(detailIDs []uint) (map[uint]ResulInboundBarcodeByOutboundDetailID, error) {
+	if len(detailIDs) == 0 {
+		return map[uint]ResulInboundBarcodeByOutboundDetailID{}, nil
+	}
+
+	sql := `select a.inbound_detail_id, a.item_code, a.item_id, a.status,
+		sum(a.quantity) as total_scan, a.qa_status, 
+		a.rec_date, a.prod_date, a.lot_number, a.exp_date				
+		from inbound_barcodes a
+		where inbound_detail_id IN ?
+		group by a.inbound_detail_id, a.item_code, a.item_id, a.status, 
+		a.qa_status, a.rec_date, a.prod_date, a.lot_number, a.exp_date
+		order by a.inbound_detail_id asc;`
+
+	var results []ResulInboundBarcodeByOutboundDetailID
+	if err := r.db.Raw(sql, detailIDs).Scan(&results).Error; err != nil {
+		return nil, err
+	}
+
+	resultMap := make(map[uint]ResulInboundBarcodeByOutboundDetailID, len(results))
+	for _, res := range results {
+		resultMap[res.ID] = res // sesuaikan nama field sesuai struct resulInboundBarcodeByOutboundDetailID kamu
+	}
+
+	return resultMap, nil
+}
+
+func (r *InboundRepository) GetInboundBarcodeByOutboundDetailID(outboundDetailID uint) (ResulInboundBarcodeByOutboundDetailID, error) {
 
 	// sql := `select a.inbound_detail_id, a.item_code, a.item_id, a.status,
 	// 	sum(a.quantity) as total_scan, a.qa_status, a.rec_date, a.prod_date, a.lot_number, a.exp_date
@@ -820,9 +1451,9 @@ func (r *InboundRepository) GetInboundBarcodeByOutboundDetailID(outboundDetailID
 		a.qa_status, a.rec_date, a.prod_date, a.lot_number, a.exp_date
 		order by a.inbound_detail_id asc;`
 
-	var result resulInboundBarcodeByOutboundDetailID
+	var result ResulInboundBarcodeByOutboundDetailID
 	if err := r.db.Raw(sql, outboundDetailID).Scan(&result).Error; err != nil {
-		return resulInboundBarcodeByOutboundDetailID{}, err
+		return ResulInboundBarcodeByOutboundDetailID{}, err
 	}
 
 	return result, nil
@@ -1059,6 +1690,85 @@ func (r *InboundRepository) GetScanData(inboundBarcodeID uint) (*ScanDataResult,
 		return nil, err
 	}
 	return &result, nil
+}
+
+func (r *InboundRepository) GetScanDataBatch(barcodeIDs []uint) (map[uint]ScanDataResult, error) {
+	resultMap := make(map[uint]ScanDataResult)
+	if len(barcodeIDs) == 0 {
+		return resultMap, nil
+	}
+
+	query := `
+		SELECT
+			ib.id AS inbound_barcode_id,
+			ib.inbound_id,
+			ib.inbound_detail_id,
+			ib.lot_number,
+			ib.scan_data AS raw_scan_data,
+			CASE 
+				WHEN ib.scan_data IS NULL OR LEN(TRIM(ib.scan_data)) = 0 THEN 'INVALID - EMPTY'
+				WHEN CHARINDEX('(1)SKU=', ib.scan_data) = 0 THEN 'INVALID - UNKNOWN FORMAT'
+				WHEN CHARINDEX('(6)CARTON_SERIAL=', ib.scan_data) > 0 THEN 'CARTON'
+				ELSE 'UNIT'
+			END AS item_type,
+			CASE WHEN ib.scan_data IS NOT NULL AND CHARINDEX('(1)SKU=', ib.scan_data) > 0 AND CHARINDEX('(2)', ib.scan_data) > 0 THEN
+				SUBSTRING(ib.scan_data, CHARINDEX('(1)SKU=', ib.scan_data) + 7, CHARINDEX('(2)', ib.scan_data) - CHARINDEX('(1)SKU=', ib.scan_data) - 7)
+			END AS sku,
+			CASE WHEN ib.scan_data IS NOT NULL AND CHARINDEX('(2)EAN=', ib.scan_data) > 0 AND CHARINDEX('(3)', ib.scan_data) > 0 THEN
+				SUBSTRING(ib.scan_data, CHARINDEX('(2)EAN=', ib.scan_data) + 7, CHARINDEX('(3)', ib.scan_data) - CHARINDEX('(2)EAN=', ib.scan_data) - 7)
+			END AS ean,
+			CASE WHEN ib.scan_data IS NOT NULL AND CHARINDEX('(3)PRODUCT=', ib.scan_data) > 0 AND CHARINDEX('(4)', ib.scan_data) > 0 THEN
+				SUBSTRING(ib.scan_data, CHARINDEX('(3)PRODUCT=', ib.scan_data) + 11, CHARINDEX('(4)', ib.scan_data) - CHARINDEX('(3)PRODUCT=', ib.scan_data) - 11)
+			END AS product,
+			CASE WHEN ib.scan_data IS NOT NULL AND CHARINDEX('(4)BRAND=', ib.scan_data) > 0 AND CHARINDEX('(5)', ib.scan_data) > 0 THEN
+				SUBSTRING(ib.scan_data, CHARINDEX('(4)BRAND=', ib.scan_data) + 9, CHARINDEX('(5)', ib.scan_data) - CHARINDEX('(4)BRAND=', ib.scan_data) - 9)
+			END AS brand,
+			CASE WHEN ib.scan_data IS NOT NULL AND CHARINDEX('(5)MODEL=', ib.scan_data) > 0 AND CHARINDEX('(6)', ib.scan_data) > 0 THEN
+				SUBSTRING(ib.scan_data, CHARINDEX('(5)MODEL=', ib.scan_data) + 9, CHARINDEX('(6)', ib.scan_data) - CHARINDEX('(5)MODEL=', ib.scan_data) - 9)
+			END AS model,
+			CASE WHEN CHARINDEX('(6)SERIAL=', ib.scan_data) > 0 AND CHARINDEX('(7)', ib.scan_data) > 0 THEN
+				SUBSTRING(ib.scan_data, CHARINDEX('(6)SERIAL=', ib.scan_data) + 10, CHARINDEX('(7)', ib.scan_data) - CHARINDEX('(6)SERIAL=', ib.scan_data) - 10)
+			END AS serial,
+			CASE WHEN CHARINDEX('(6)CARTON_SERIAL=', ib.scan_data) > 0 AND CHARINDEX('(7)', ib.scan_data) > 0 THEN
+				SUBSTRING(ib.scan_data, CHARINDEX('(6)CARTON_SERIAL=', ib.scan_data) + 17, CHARINDEX('(7)', ib.scan_data) - CHARINDEX('(6)CARTON_SERIAL=', ib.scan_data) - 17)
+			END AS carton_serial,
+			CASE WHEN ib.scan_data IS NOT NULL AND CHARINDEX('(7)BATCH=', ib.scan_data) > 0 AND CHARINDEX('(8)', ib.scan_data) > 0 THEN
+				TRIM(SUBSTRING(ib.scan_data, CHARINDEX('(7)BATCH=', ib.scan_data) + 9, CHARINDEX('(8)', ib.scan_data) - CHARINDEX('(7)BATCH=', ib.scan_data) - 9))
+			END AS batch,
+			CASE WHEN ib.scan_data IS NOT NULL AND CHARINDEX('(8)MFG_DATE=', ib.scan_data) > 0 THEN
+				TRIM(CASE WHEN CHARINDEX('(9)', ib.scan_data) > 0 THEN
+					SUBSTRING(ib.scan_data, CHARINDEX('(8)MFG_DATE=', ib.scan_data) + 12, CHARINDEX('(9)', ib.scan_data) - CHARINDEX('(8)MFG_DATE=', ib.scan_data) - 12)
+				ELSE
+					SUBSTRING(ib.scan_data, CHARINDEX('(8)MFG_DATE=', ib.scan_data) + 12, LEN(ib.scan_data) - CHARINDEX('(8)MFG_DATE=', ib.scan_data) - 11)
+				END)
+			END AS mfg_date_raw,
+			TRY_CONVERT(DATE,
+				CASE WHEN ib.scan_data IS NOT NULL AND CHARINDEX('(8)MFG_DATE=', ib.scan_data) > 0 THEN
+					TRIM(CASE WHEN CHARINDEX('(9)', ib.scan_data) > 0 THEN
+						SUBSTRING(ib.scan_data, CHARINDEX('(8)MFG_DATE=', ib.scan_data) + 12, CHARINDEX('(9)', ib.scan_data) - CHARINDEX('(8)MFG_DATE=', ib.scan_data) - 12)
+					ELSE
+						SUBSTRING(ib.scan_data, CHARINDEX('(8)MFG_DATE=', ib.scan_data) + 12, LEN(ib.scan_data) - CHARINDEX('(8)MFG_DATE=', ib.scan_data) - 11)
+					END)
+				END
+			, 112) AS mfg_date,
+			CASE WHEN CHARINDEX('(9)QTY_PER_CARTON=', ib.scan_data) > 0 THEN
+				TRY_CAST(TRIM(SUBSTRING(ib.scan_data, CHARINDEX('(9)QTY_PER_CARTON=', ib.scan_data) + 18, LEN(ib.scan_data) - CHARINDEX('(9)QTY_PER_CARTON=', ib.scan_data) - 17)) AS INT)
+			END AS qty_per_carton
+		FROM inbound_barcodes ib
+		WHERE ib.id IN ?
+	`
+
+	for _, chunk := range helpers.ChunkSlice(barcodeIDs, helpers.ChunkSizeIN) {
+		var part []ScanDataResult
+		if err := r.db.Raw(query, chunk).Scan(&part).Error; err != nil {
+			return nil, err
+		}
+		for _, res := range part {
+			resultMap[res.InboundBarcodeID] = res
+		}
+	}
+
+	return resultMap, nil
 }
 
 type InboundFilterParams struct {

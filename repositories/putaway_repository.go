@@ -25,96 +25,96 @@ import (
 //    Lokasi: inbound_repository.go
 // ─────────────────────────────────────────────────────────────
 
-func (r *InboundRepository) GetScanDataBatch(inboundBarcodeIDs []uint) (map[uint]*ScanDataResult, error) {
-	if len(inboundBarcodeIDs) == 0 {
-		return map[uint]*ScanDataResult{}, nil
-	}
+// func (r *InboundRepository) GetScanDataBatch(inboundBarcodeIDs []uint) (map[uint]*ScanDataResult, error) {
+// 	if len(inboundBarcodeIDs) == 0 {
+// 		return map[uint]*ScanDataResult{}, nil
+// 	}
 
-	query := `
-		SELECT
-			ib.id AS inbound_barcode_id,
-			ib.inbound_id,
-			ib.inbound_detail_id,
-			ib.lot_number,
-			ib.scan_data AS raw_scan_data,
-			CASE 
-				WHEN ib.scan_data IS NULL OR LEN(TRIM(ib.scan_data)) = 0 THEN 'INVALID - EMPTY'
-				WHEN CHARINDEX('(1)SKU=', ib.scan_data) = 0 THEN 'INVALID - UNKNOWN FORMAT'
-				WHEN CHARINDEX('(6)CARTON_SERIAL=', ib.scan_data) > 0 THEN 'CARTON'
-				ELSE 'UNIT'
-			END AS item_type,
-			CASE WHEN ib.scan_data IS NOT NULL AND CHARINDEX('(1)SKU=', ib.scan_data) > 0 AND CHARINDEX('(2)', ib.scan_data) > 0 THEN
-				SUBSTRING(ib.scan_data, CHARINDEX('(1)SKU=', ib.scan_data) + 7, CHARINDEX('(2)', ib.scan_data) - CHARINDEX('(1)SKU=', ib.scan_data) - 7)
-			END AS sku,
-			CASE WHEN ib.scan_data IS NOT NULL AND CHARINDEX('(2)EAN=', ib.scan_data) > 0 AND CHARINDEX('(3)', ib.scan_data) > 0 THEN
-				SUBSTRING(ib.scan_data, CHARINDEX('(2)EAN=', ib.scan_data) + 7, CHARINDEX('(3)', ib.scan_data) - CHARINDEX('(2)EAN=', ib.scan_data) - 7)
-			END AS ean,
-			CASE WHEN ib.scan_data IS NOT NULL AND CHARINDEX('(3)PRODUCT=', ib.scan_data) > 0 AND CHARINDEX('(4)', ib.scan_data) > 0 THEN
-				SUBSTRING(ib.scan_data, CHARINDEX('(3)PRODUCT=', ib.scan_data) + 11, CHARINDEX('(4)', ib.scan_data) - CHARINDEX('(3)PRODUCT=', ib.scan_data) - 11)
-			END AS product,
-			CASE WHEN ib.scan_data IS NOT NULL AND CHARINDEX('(4)BRAND=', ib.scan_data) > 0 AND CHARINDEX('(5)', ib.scan_data) > 0 THEN
-				SUBSTRING(ib.scan_data, CHARINDEX('(4)BRAND=', ib.scan_data) + 9, CHARINDEX('(5)', ib.scan_data) - CHARINDEX('(4)BRAND=', ib.scan_data) - 9)
-			END AS brand,
-			CASE WHEN ib.scan_data IS NOT NULL AND CHARINDEX('(5)MODEL=', ib.scan_data) > 0 AND CHARINDEX('(6)', ib.scan_data) > 0 THEN
-				SUBSTRING(ib.scan_data, CHARINDEX('(5)MODEL=', ib.scan_data) + 9, CHARINDEX('(6)', ib.scan_data) - CHARINDEX('(5)MODEL=', ib.scan_data) - 9)
-			END AS model,
-			CASE WHEN CHARINDEX('(6)SERIAL=', ib.scan_data) > 0 AND CHARINDEX('(7)', ib.scan_data) > 0 THEN
-				SUBSTRING(ib.scan_data, CHARINDEX('(6)SERIAL=', ib.scan_data) + 10, CHARINDEX('(7)', ib.scan_data) - CHARINDEX('(6)SERIAL=', ib.scan_data) - 10)
-			END AS serial,
-			CASE WHEN CHARINDEX('(6)CARTON_SERIAL=', ib.scan_data) > 0 AND CHARINDEX('(7)', ib.scan_data) > 0 THEN
-				SUBSTRING(ib.scan_data, CHARINDEX('(6)CARTON_SERIAL=', ib.scan_data) + 17, CHARINDEX('(7)', ib.scan_data) - CHARINDEX('(6)CARTON_SERIAL=', ib.scan_data) - 17)
-			END AS carton_serial,
-			CASE WHEN ib.scan_data IS NOT NULL AND CHARINDEX('(7)BATCH=', ib.scan_data) > 0 AND CHARINDEX('(8)', ib.scan_data) > 0 THEN
-				TRIM(SUBSTRING(ib.scan_data, CHARINDEX('(7)BATCH=', ib.scan_data) + 9, CHARINDEX('(8)', ib.scan_data) - CHARINDEX('(7)BATCH=', ib.scan_data) - 9))
-			END AS batch,
-			CASE WHEN ib.scan_data IS NOT NULL AND CHARINDEX('(8)MFG_DATE=', ib.scan_data) > 0 THEN
-				TRIM(CASE
-					WHEN CHARINDEX('(9)', ib.scan_data) > 0 THEN
-						SUBSTRING(ib.scan_data, CHARINDEX('(8)MFG_DATE=', ib.scan_data) + 12, CHARINDEX('(9)', ib.scan_data) - CHARINDEX('(8)MFG_DATE=', ib.scan_data) - 12)
-					ELSE
-						SUBSTRING(ib.scan_data, CHARINDEX('(8)MFG_DATE=', ib.scan_data) + 12, LEN(ib.scan_data) - CHARINDEX('(8)MFG_DATE=', ib.scan_data) - 11)
-				END)
-			END AS mfg_date_raw,
-			TRY_CONVERT(DATE,
-				CASE WHEN ib.scan_data IS NOT NULL AND CHARINDEX('(8)MFG_DATE=', ib.scan_data) > 0 THEN
-					TRIM(CASE
-						WHEN CHARINDEX('(9)', ib.scan_data) > 0 THEN
-							SUBSTRING(ib.scan_data, CHARINDEX('(8)MFG_DATE=', ib.scan_data) + 12, CHARINDEX('(9)', ib.scan_data) - CHARINDEX('(8)MFG_DATE=', ib.scan_data) - 12)
-						ELSE
-							SUBSTRING(ib.scan_data, CHARINDEX('(8)MFG_DATE=', ib.scan_data) + 12, LEN(ib.scan_data) - CHARINDEX('(8)MFG_DATE=', ib.scan_data) - 11)
-					END)
-				END
-			, 112) AS mfg_date,
-			CASE WHEN CHARINDEX('(9)QTY_PER_CARTON=', ib.scan_data) > 0 THEN
-				TRY_CAST(
-					TRIM(SUBSTRING(ib.scan_data, CHARINDEX('(9)QTY_PER_CARTON=', ib.scan_data) + 18, LEN(ib.scan_data) - CHARINDEX('(9)QTY_PER_CARTON=', ib.scan_data) - 17))
-				AS INT)
-			END AS qty_per_carton
-		FROM inbound_barcodes ib
-		WHERE ib.id IN ?
-	`
+// 	query := `
+// 		SELECT
+// 			ib.id AS inbound_barcode_id,
+// 			ib.inbound_id,
+// 			ib.inbound_detail_id,
+// 			ib.lot_number,
+// 			ib.scan_data AS raw_scan_data,
+// 			CASE
+// 				WHEN ib.scan_data IS NULL OR LEN(TRIM(ib.scan_data)) = 0 THEN 'INVALID - EMPTY'
+// 				WHEN CHARINDEX('(1)SKU=', ib.scan_data) = 0 THEN 'INVALID - UNKNOWN FORMAT'
+// 				WHEN CHARINDEX('(6)CARTON_SERIAL=', ib.scan_data) > 0 THEN 'CARTON'
+// 				ELSE 'UNIT'
+// 			END AS item_type,
+// 			CASE WHEN ib.scan_data IS NOT NULL AND CHARINDEX('(1)SKU=', ib.scan_data) > 0 AND CHARINDEX('(2)', ib.scan_data) > 0 THEN
+// 				SUBSTRING(ib.scan_data, CHARINDEX('(1)SKU=', ib.scan_data) + 7, CHARINDEX('(2)', ib.scan_data) - CHARINDEX('(1)SKU=', ib.scan_data) - 7)
+// 			END AS sku,
+// 			CASE WHEN ib.scan_data IS NOT NULL AND CHARINDEX('(2)EAN=', ib.scan_data) > 0 AND CHARINDEX('(3)', ib.scan_data) > 0 THEN
+// 				SUBSTRING(ib.scan_data, CHARINDEX('(2)EAN=', ib.scan_data) + 7, CHARINDEX('(3)', ib.scan_data) - CHARINDEX('(2)EAN=', ib.scan_data) - 7)
+// 			END AS ean,
+// 			CASE WHEN ib.scan_data IS NOT NULL AND CHARINDEX('(3)PRODUCT=', ib.scan_data) > 0 AND CHARINDEX('(4)', ib.scan_data) > 0 THEN
+// 				SUBSTRING(ib.scan_data, CHARINDEX('(3)PRODUCT=', ib.scan_data) + 11, CHARINDEX('(4)', ib.scan_data) - CHARINDEX('(3)PRODUCT=', ib.scan_data) - 11)
+// 			END AS product,
+// 			CASE WHEN ib.scan_data IS NOT NULL AND CHARINDEX('(4)BRAND=', ib.scan_data) > 0 AND CHARINDEX('(5)', ib.scan_data) > 0 THEN
+// 				SUBSTRING(ib.scan_data, CHARINDEX('(4)BRAND=', ib.scan_data) + 9, CHARINDEX('(5)', ib.scan_data) - CHARINDEX('(4)BRAND=', ib.scan_data) - 9)
+// 			END AS brand,
+// 			CASE WHEN ib.scan_data IS NOT NULL AND CHARINDEX('(5)MODEL=', ib.scan_data) > 0 AND CHARINDEX('(6)', ib.scan_data) > 0 THEN
+// 				SUBSTRING(ib.scan_data, CHARINDEX('(5)MODEL=', ib.scan_data) + 9, CHARINDEX('(6)', ib.scan_data) - CHARINDEX('(5)MODEL=', ib.scan_data) - 9)
+// 			END AS model,
+// 			CASE WHEN CHARINDEX('(6)SERIAL=', ib.scan_data) > 0 AND CHARINDEX('(7)', ib.scan_data) > 0 THEN
+// 				SUBSTRING(ib.scan_data, CHARINDEX('(6)SERIAL=', ib.scan_data) + 10, CHARINDEX('(7)', ib.scan_data) - CHARINDEX('(6)SERIAL=', ib.scan_data) - 10)
+// 			END AS serial,
+// 			CASE WHEN CHARINDEX('(6)CARTON_SERIAL=', ib.scan_data) > 0 AND CHARINDEX('(7)', ib.scan_data) > 0 THEN
+// 				SUBSTRING(ib.scan_data, CHARINDEX('(6)CARTON_SERIAL=', ib.scan_data) + 17, CHARINDEX('(7)', ib.scan_data) - CHARINDEX('(6)CARTON_SERIAL=', ib.scan_data) - 17)
+// 			END AS carton_serial,
+// 			CASE WHEN ib.scan_data IS NOT NULL AND CHARINDEX('(7)BATCH=', ib.scan_data) > 0 AND CHARINDEX('(8)', ib.scan_data) > 0 THEN
+// 				TRIM(SUBSTRING(ib.scan_data, CHARINDEX('(7)BATCH=', ib.scan_data) + 9, CHARINDEX('(8)', ib.scan_data) - CHARINDEX('(7)BATCH=', ib.scan_data) - 9))
+// 			END AS batch,
+// 			CASE WHEN ib.scan_data IS NOT NULL AND CHARINDEX('(8)MFG_DATE=', ib.scan_data) > 0 THEN
+// 				TRIM(CASE
+// 					WHEN CHARINDEX('(9)', ib.scan_data) > 0 THEN
+// 						SUBSTRING(ib.scan_data, CHARINDEX('(8)MFG_DATE=', ib.scan_data) + 12, CHARINDEX('(9)', ib.scan_data) - CHARINDEX('(8)MFG_DATE=', ib.scan_data) - 12)
+// 					ELSE
+// 						SUBSTRING(ib.scan_data, CHARINDEX('(8)MFG_DATE=', ib.scan_data) + 12, LEN(ib.scan_data) - CHARINDEX('(8)MFG_DATE=', ib.scan_data) - 11)
+// 				END)
+// 			END AS mfg_date_raw,
+// 			TRY_CONVERT(DATE,
+// 				CASE WHEN ib.scan_data IS NOT NULL AND CHARINDEX('(8)MFG_DATE=', ib.scan_data) > 0 THEN
+// 					TRIM(CASE
+// 						WHEN CHARINDEX('(9)', ib.scan_data) > 0 THEN
+// 							SUBSTRING(ib.scan_data, CHARINDEX('(8)MFG_DATE=', ib.scan_data) + 12, CHARINDEX('(9)', ib.scan_data) - CHARINDEX('(8)MFG_DATE=', ib.scan_data) - 12)
+// 						ELSE
+// 							SUBSTRING(ib.scan_data, CHARINDEX('(8)MFG_DATE=', ib.scan_data) + 12, LEN(ib.scan_data) - CHARINDEX('(8)MFG_DATE=', ib.scan_data) - 11)
+// 					END)
+// 				END
+// 			, 112) AS mfg_date,
+// 			CASE WHEN CHARINDEX('(9)QTY_PER_CARTON=', ib.scan_data) > 0 THEN
+// 				TRY_CAST(
+// 					TRIM(SUBSTRING(ib.scan_data, CHARINDEX('(9)QTY_PER_CARTON=', ib.scan_data) + 18, LEN(ib.scan_data) - CHARINDEX('(9)QTY_PER_CARTON=', ib.scan_data) - 17))
+// 				AS INT)
+// 			END AS qty_per_carton
+// 		FROM inbound_barcodes ib
+// 		WHERE ib.id IN ?
+// 	`
 
-	resultMap := make(map[uint]*ScanDataResult)
+// 	resultMap := make(map[uint]*ScanDataResult)
 
-	chunkSize := 2000
-	for i := 0; i < len(inboundBarcodeIDs); i += chunkSize {
-		end := i + chunkSize
-		if end > len(inboundBarcodeIDs) {
-			end = len(inboundBarcodeIDs)
-		}
-		chunk := inboundBarcodeIDs[i:end]
+// 	chunkSize := 2000
+// 	for i := 0; i < len(inboundBarcodeIDs); i += chunkSize {
+// 		end := i + chunkSize
+// 		if end > len(inboundBarcodeIDs) {
+// 			end = len(inboundBarcodeIDs)
+// 		}
+// 		chunk := inboundBarcodeIDs[i:end]
 
-		var results []ScanDataResult
-		if err := r.db.Raw(query, chunk).Scan(&results).Error; err != nil {
-			return nil, err
-		}
-		for j := range results {
-			resultMap[results[j].InboundBarcodeID] = &results[j]
-		}
-	}
+// 		var results []ScanDataResult
+// 		if err := r.db.Raw(query, chunk).Scan(&results).Error; err != nil {
+// 			return nil, err
+// 		}
+// 		for j := range results {
+// 			resultMap[results[j].InboundBarcodeID] = &results[j]
+// 		}
+// 	}
 
-	return resultMap, nil
-}
+// 	return resultMap, nil
+// }
 
 // ─────────────────────────────────────────────────────────────
 // 2. ProcessPutawayItemFast

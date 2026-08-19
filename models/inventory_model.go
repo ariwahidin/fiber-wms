@@ -70,6 +70,8 @@ type InventoryPolicy struct {
 	UseProductionDate                      bool   `gorm:"default:false" json:"use_production_date"`
 	UseReceiveLocation                     bool   `gorm:"default:false" json:"use_receive_location"`
 	UseSerialNumber                        bool   `gorm:"default:false" json:"use_serial_number"`
+	UseCartonNumber                        bool   `gorm:"default:false" json:"use_carton_number"`
+	UseCaseNumber                          bool   `gorm:"default:false" json:"use_case_number"`
 	ShowRecDate                            bool   `gorm:"default:false" json:"show_rec_date"`
 	RequireExpiryDate                      bool   `gorm:"default:false" json:"require_expiry_date"`
 	RequireLotNumber                       bool   `gorm:"default:false" json:"require_lot_number"`

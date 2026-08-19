@@ -213,6 +213,7 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 		Uploaded     bool     `json:"uploaded"`
 		InnerSerials []string `json:"innerSerials"`
 		CaseNumber   string   `json:"caseNumber"`
+		CartonNumber string   `json:"cartonNumber"`
 		ItemModel    string   `json:"itemModel"`
 	}
 
@@ -409,6 +410,7 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 				scanInbound.ProdDate, scanInbound.ExpDate,
 				scanInbound.LotNo, scanInbound.QrRaw,
 				scanInbound.CaseNumber,
+				scanInbound.CartonNumber,
 				userID,
 			)
 			// Simpan case number di ScanData jika ada
@@ -467,6 +469,7 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 			scanInbound.ProdDate, scanInbound.ExpDate,
 			scanInbound.LotNo, scanInbound.QrRaw,
 			scanInbound.CaseNumber,
+			scanInbound.CartonNumber,
 			userID,
 		)
 
@@ -506,6 +509,7 @@ func buildInboundBarcode(
 	lotNo string,
 	qrRaw string,
 	caseNumber string,
+	cartonNumber string,
 	createdBy int,
 ) models.InboundBarcode {
 	return models.InboundBarcode{
@@ -529,6 +533,7 @@ func buildInboundBarcode(
 			return serial
 		}(),
 		CaseNumber:   caseNumber,
+		CartonNumber: cartonNumber,
 		SerialNumber: serial,
 		RecDate:      detail.RecDate,
 		ProdDate:     prodDate,
