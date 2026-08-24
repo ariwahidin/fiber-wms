@@ -1243,6 +1243,7 @@ func (c *InventoryController) TransferInventory(ctx *fiber.Ctx) error {
 				ItemCode:        sourceInventory.ItemCode,
 				Barcode:         sourceInventory.Barcode,
 				CartonNumber:    sourceInventory.CartonNumber,
+				SerialNumber:    sourceInventory.SerialNumber,
 				QaStatus:        newQaStatus,
 				Uom:             sourceInventory.Uom,
 				QtyOrigin:       take,

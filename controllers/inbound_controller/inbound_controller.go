@@ -494,15 +494,15 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 			})
 		}
 
-		if InventoryPolicy.RequireLotNumber {
-			if item.LotNumber == "" {
-				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-					"success": false,
-					"message": "Lot number cannot be empty",
-					"error":   "Lot number cannot be empty",
-				})
-			}
-		}
+		// if InventoryPolicy.RequireLotNumber {
+		// 	if item.LotNumber == "" {
+		// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+		// 			"success": false,
+		// 			"message": "Lot number cannot be empty",
+		// 			"error":   "Lot number cannot be empty",
+		// 		})
+		// 	}
+		// }
 
 		if InventoryPolicy.UseReceiveLocation {
 			if item.Location == "" {
@@ -639,8 +639,11 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 		itemCodeSet := make(map[string]bool, len(payloadItem))
 		detailIDs := make([]uint, 0, len(payloadItem))
 
+		fmt.Println("detail IDs length:", len(payloadItem))
+
 		for _, item := range payloadItem {
 			itemCodeSet[item.ItemCode] = true
+			fmt.Println("item ID:", item.ID)
 			if item.ID > 0 {
 				detailIDs = append(detailIDs, uint(item.ID))
 			}
@@ -686,8 +689,18 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 			}
 		}
 
+		fmt.Println("detail Map : ", len(detailMap))
+
+		// debug isi detailMap
+		for k, v := range detailMap {
+			fmt.Println("detail Map : ", k, v)
+		}
+
 		// Batch fetch InboundBarcode aggregate (gantikan GetInboundBarcodeByOutboundDetailID per-item)
 		barcodeMap := make(map[uint]repositories.ResulInboundBarcodeByOutboundDetailID)
+
+		// debug isi barcodeMap
+
 		if len(detailIDs) > 0 {
 			bm, err := inboundRepo.GetInboundBarcodesByDetailIDs(detailIDs)
 			if err != nil {
@@ -695,6 +708,10 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 			}
 			barcodeMap = bm
+		}
+
+		for k, v := range barcodeMap {
+			fmt.Println("barcode Map : ", k, v)
 		}
 
 		// Batch fetch InboundBarcode "in stock" (buat serial/carton/case check)
@@ -711,6 +728,8 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 		}
 
 		// ===== Loop item pakai map lookup, no query =====
+
+		// var totalItem = 0
 		for _, item := range payloadItem {
 
 			product, ok := productMap[item.ItemCode]
@@ -725,7 +744,14 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 				return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "UOM conversion not found"})
 			}
 
+			fmt.Println("Processing item ID:", item.ID, "ItemCode:", item.ItemCode)
+
 			inboundDetail, found := detailMap[uint(item.ID)]
+
+			fmt.Println("Found inbound detail:", found)
+			if found {
+				fmt.Println("Found inbound detail:", inboundDetail)
+			}
 
 			if !InventoryPolicy.UseLotNo {
 				item.LotNumber = InboundHeader.InboundNo
@@ -772,29 +798,51 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 			}
 
 			// Update existing detail
+			// inboundBarcode, hasBarcode := barcodeMap[uint(inboundDetail.ID)]
+			// if !hasBarcode {
+			// 	// setara dengan cabang ErrRecordNotFound di versi lama -> skip update
+			// 	continue
+			// }
+
 			inboundBarcode, hasBarcode := barcodeMap[uint(inboundDetail.ID)]
-			if !hasBarcode {
-				// setara dengan cabang ErrRecordNotFound di versi lama -> skip update
-				continue
+
+			if hasBarcode {
+				if inboundBarcode.ID > 0 {
+					if inboundBarcode.ItemID != product.ID {
+						tx.Rollback()
+						return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Item " + inboundDetail.ItemCode + " already scanned, cannot update to " + item.ItemCode})
+					}
+				}
+
+				if inboundBarcode.ItemID == product.ID {
+					if inboundBarcode.TotalScan > int(item.Quantity) {
+						tx.Rollback()
+						return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Quantity update for item " + item.ItemCode + " is less than the total scanned quantity"})
+					}
+				}
 			}
+
+			// kode update inboundDetail tetap lanjut di bawah, di luar if-else ini
+
+			fmt.Println("Inbound Barcode for detail ID", inboundDetail.ID, ":", inboundBarcode)
 
 			if inboundBarcode.ID > 0 {
 				if inboundBarcode.ItemID != product.ID {
 					tx.Rollback()
 					return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Item " + inboundDetail.ItemCode + " already scanned, cannot update to " + item.ItemCode})
 				}
-				if inboundBarcode.ExpDate != item.ExpDate {
-					tx.Rollback()
-					return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Item " + item.ItemCode + " already scanned, cannot update Expiry Date"})
-				}
-				if inboundBarcode.LotNumber != item.LotNumber {
-					tx.Rollback()
-					return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Item " + item.ItemCode + " already scanned, cannot update Lot Number"})
-				}
-				if inboundBarcode.ProdDate != item.ProdDate {
-					tx.Rollback()
-					return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Item " + item.ItemCode + " already scanned, cannot update Production Date"})
-				}
+				// if inboundBarcode.ExpDate != item.ExpDate {
+				// 	tx.Rollback()
+				// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Item " + item.ItemCode + " already scanned, cannot update Expiry Date"})
+				// }
+				// if inboundBarcode.LotNumber != item.LotNumber {
+				// 	tx.Rollback()
+				// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Item " + item.ItemCode + " already scanned, cannot update Lot Number"})
+				// }
+				// if inboundBarcode.ProdDate != item.ProdDate {
+				// 	tx.Rollback()
+				// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Item " + item.ItemCode + " already scanned, cannot update Production Date"})
+				// }
 			}
 
 			if inboundBarcode.ItemID == product.ID {
@@ -819,6 +867,8 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 				}
 			}
 
+			fmt.Println("Updating item ID:", inboundDetail.ID, "ItemCode:", item.ItemCode)
+
 			inboundDetail.ItemId = product.ID
 			inboundDetail.ItemCode = item.ItemCode
 			inboundDetail.Barcode = uomConversion.Ean
@@ -840,6 +890,8 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 			inboundDetail.QaStatus = item.QaStatus
 			inboundDetail.DivisionCode = item.DivisionCode
 			inboundDetail.UpdatedBy = userID
+
+			// totalItem += int(inputQty)
 
 			if err := tx.Save(&inboundDetail).Error; err != nil {
 				tx.Rollback()
@@ -1758,6 +1810,13 @@ func (c *InboundController) PutawayByInboundNo(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	inboundRepo := repositories.NewInboundRepository(c.DB)
+
+	palletID, err := inboundRepo.GeneratePalletID(inboundHeader.InboundNo)
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
 	if !invPolicy.RequireReceiveScan {
 
 		var allRcvLocationIsFilled bool = true
@@ -1813,7 +1872,7 @@ func (c *InboundController) PutawayByInboundNo(ctx *fiber.Ctx) error {
 					CartonNumber:    detail.CartonNumber,
 					CaseNumber:      detail.CaseNumber,
 					SerialNumber:    inputSerialNumber,
-					Pallet:          payload.InboundNo,
+					Pallet:          palletID,
 					Location:        location.LocationCode,
 					Quantity:        newQtyScanned,
 					WhsCode:         detail.WhsCode,

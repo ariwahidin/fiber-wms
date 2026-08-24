@@ -43,7 +43,7 @@ func (c *SupplierController) CreateSupplier(ctx *fiber.Ctx) error {
 
 	supplier := models.Supplier{
 		OwnerCode:    supplierInput.OwnerCode,
-		SupplierCode: supplierInput.SupplierCode,
+		SupplierCode: strings.ToUpper(supplierInput.SupplierCode),
 		SupplierName: supplierInput.SupplierName,
 		SuppAddr1:    supplierInput.SuppAddr1,
 		SuppCity:     supplierInput.SuppCity,
@@ -102,7 +102,7 @@ func (c *SupplierController) UpdateSupplier(ctx *fiber.Ctx) error {
 	}
 
 	supplier := models.Supplier{
-		SupplierCode: supplierInput.SupplierCode,
+		SupplierCode: strings.ToUpper(supplierInput.SupplierCode),
 		SupplierName: supplierInput.SupplierName,
 		SuppAddr1:    supplierInput.SuppAddr1,
 		SuppCity:     supplierInput.SuppCity,

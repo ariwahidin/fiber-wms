@@ -517,6 +517,40 @@ func (r *InboundRepository) GenerateInboundNo() (string, error) {
 	return inboundNo, nil
 }
 
+func (r *InboundRepository) GeneratePalletID(inboundNo string) (string, error) {
+	prefix := inboundNo + "-"
+
+	var pallets []string
+	if err := r.db.Model(&models.InboundBarcode{}).
+		Where("pallet LIKE ?", prefix+"%").
+		Pluck("pallet", &pallets).Error; err != nil {
+		return "", err
+	}
+
+	maxSeq := 0
+	for _, p := range pallets {
+		seqStr := strings.TrimPrefix(p, prefix)
+		if seq, err := strconv.Atoi(seqStr); err == nil && seq > maxSeq {
+			maxSeq = seq
+		}
+	}
+
+	newPalletID := fmt.Sprintf("%s%d", prefix, maxSeq+1)
+
+	// pastiin ngga ada yang sama (jaga-jaga race condition)
+	var count int64
+	if err := r.db.Model(&models.InboundBarcode{}).
+		Where("pallet = ?", newPalletID).
+		Count(&count).Error; err != nil {
+		return "", err
+	}
+	if count > 0 {
+		return "", fmt.Errorf("pallet ID %s sudah ada", newPalletID)
+	}
+
+	return newPalletID, nil
+}
+
 func (r *InboundRepository) ProcessPutawayItem(ctx *fiber.Ctx, inboundBarcodeID int, location string) (bool, error) {
 	userID, ok := ctx.Locals("userID").(float64)
 	movementID := uuid.NewString()
@@ -617,8 +651,7 @@ func (r *InboundRepository) ProcessPutawayItem(ctx *fiber.Ctx, inboundBarcodeID 
         COALESCE(prod_date, '') = COALESCE(?, '') AND
         COALESCE(exp_date, '') = COALESCE(?, '') AND
         COALESCE(lot_number, '') = COALESCE(?, '') AND
-        COALESCE(carton_number, '') = COALESCE(?, '') AND
-		COALESCE(serial_number, '') = COALESCE(?, '')
+        COALESCE(carton_number, '') = COALESCE(?, '')
     `,
 		barcode.InboundId,
 		barcode.InboundDetailId,
@@ -632,7 +665,6 @@ func (r *InboundRepository) ProcessPutawayItem(ctx *fiber.Ctx, inboundBarcodeID 
 		barcode.ExpDate,
 		barcode.LotNumber,
 		CartonSerial,
-		barcode.SerialNumber,
 	)
 
 	// tambahan kondisional
@@ -641,6 +673,11 @@ func (r *InboundRepository) ProcessPutawayItem(ctx *fiber.Ctx, inboundBarcodeID 
 	}
 
 	err := invQuery.First(&existingInv).Error
+
+	serialNumber := ""
+	if inventoryPolicy.UseSerialNumber && barcode.SerialNumber != "" {
+		serialNumber = barcode.SerialNumber
+	}
 
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		// Tidak ada data → Insert baru
@@ -657,7 +694,7 @@ func (r *InboundRepository) ProcessPutawayItem(ctx *fiber.Ctx, inboundBarcodeID 
 			Pallet:          barcode.Pallet,
 			Location:        location,
 			CartonNumber:    CartonSerial,
-			SerialNumber:    barcode.SerialNumber,
+			SerialNumber:    serialNumber,
 			QaStatus:        barcode.QaStatus,
 			Uom:             uomConversion.ToUom,
 			QtyOrigin:       qtyConverted,
@@ -1411,7 +1448,7 @@ func (r *InboundRepository) GetInboundBarcodesByDetailIDs(detailIDs []uint) (map
 		return map[uint]ResulInboundBarcodeByOutboundDetailID{}, nil
 	}
 
-	sql := `select a.inbound_detail_id, a.item_code, a.item_id, a.status,
+	sql := `select a.inbound_detail_id as id, a.item_code, a.item_id, a.status,
 		sum(a.quantity) as total_scan, a.qa_status, 
 		a.rec_date, a.prod_date, a.lot_number, a.exp_date				
 		from inbound_barcodes a
@@ -1420,8 +1457,10 @@ func (r *InboundRepository) GetInboundBarcodesByDetailIDs(detailIDs []uint) (map
 		a.qa_status, a.rec_date, a.prod_date, a.lot_number, a.exp_date
 		order by a.inbound_detail_id asc;`
 
+	fmt.Println("SQL Query:", sql)
+
 	var results []ResulInboundBarcodeByOutboundDetailID
-	if err := r.db.Raw(sql, detailIDs).Scan(&results).Error; err != nil {
+	if err := r.db.Debug().Raw(sql, detailIDs).Scan(&results).Error; err != nil {
 		return nil, err
 	}
 

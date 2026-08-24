@@ -379,6 +379,7 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 		newInventory.LotNumber = inventory.LotNumber
 		newInventory.InventoryNumber = inventory.InventoryNumber
 		newInventory.CartonNumber = inventory.CartonNumber
+		newInventory.SerialNumber = inventory.SerialNumber
 		newInventory.CreatedAt = time.Now()
 		newInventory.CreatedBy = int(ctx.Locals("userID").(float64))
 
@@ -627,7 +628,6 @@ func (c *MobileInventoryController) ConfirmTransferByInventoryID(ctx *fiber.Ctx)
 	newInventory.Barcode = inventory.Barcode
 	newInventory.WhsCode = inventory.WhsCode
 	newInventory.Pallet = inventory.Pallet
-	// newInventory.Location = input.ToLocation
 	newInventory.Location = location.LocationCode
 	newInventory.QaStatus = inventory.QaStatus
 	newInventory.QtyOrigin = float64(input.QtyTransfer)
@@ -641,6 +641,8 @@ func (c *MobileInventoryController) ConfirmTransferByInventoryID(ctx *fiber.Ctx)
 	newInventory.ProdDate = inventory.ProdDate
 	newInventory.LotNumber = inventory.LotNumber
 	newInventory.InventoryNumber = inventory.InventoryNumber
+	newInventory.CartonNumber = inventory.CartonNumber
+	newInventory.SerialNumber = inventory.SerialNumber
 	newInventory.CreatedAt = time.Now()
 	newInventory.CreatedBy = int(ctx.Locals("userID").(float64))
 
@@ -689,17 +691,16 @@ func (c *MobileInventoryController) ConfirmTransferByInventoryID(ctx *fiber.Ctx)
 		FromWhsCode:        inventory.WhsCode,
 		ToWhsCode:          newInventory.WhsCode,
 		FromLocation:       input.FromLocation,
-		// ToLocation:         input.ToLocation,
-		ToLocation:   location.LocationCode,
-		OldQaStatus:  inventory.QaStatus,
-		NewQaStatus:  newInventory.QaStatus,
-		FromDivision: inventory.DivisionCode,
-		ToDivision:   newInventory.DivisionCode,
-		FromPallet:   inventory.Pallet,    // ← BARU
-		ToPallet:     newInventory.Pallet, // ← BARU
-		Reason:       "TRANSFER USING SCANNER",
-		CreatedBy:    int(ctx.Locals("userID").(float64)),
-		CreatedAt:    time.Now(),
+		ToLocation:         location.LocationCode,
+		OldQaStatus:        inventory.QaStatus,
+		NewQaStatus:        newInventory.QaStatus,
+		FromDivision:       inventory.DivisionCode,
+		ToDivision:         newInventory.DivisionCode,
+		FromPallet:         inventory.Pallet,    // ← BARU
+		ToPallet:           newInventory.Pallet, // ← BARU
+		Reason:             "TRANSFER USING SCANNER",
+		CreatedBy:          int(ctx.Locals("userID").(float64)),
+		CreatedAt:          time.Now(),
 	}
 
 	if err := tx.Create(&destMovement).Error; err != nil {

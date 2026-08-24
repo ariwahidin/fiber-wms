@@ -359,11 +359,6 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 	userID := int(ctx.Locals("userID").(float64))
 	scanType := "SERIAL"
 
-	// if product.HasSerial == "N" {
-	// 	scanType = "BARCODE"
-	// 	scanInbound.Serial = scanInbound.Barcode
-	// }
-
 	// ── Case 1: CARTON dengan inner serial range ──────────────────────────
 	if len(scanInbound.InnerSerials) > 0 {
 
@@ -402,6 +397,11 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 
 			}
 
+			cartonNumber := scanInbound.CartonNumber
+			if cartonNumber == "" {
+				cartonNumber = scanInbound.CaseNumber
+			}
+
 			record := buildInboundBarcode(
 				inboundHeader, inboundDetail, product, scanInbound.ItemModel,
 				scanInbound.Location, product.Barcode,
@@ -409,8 +409,8 @@ func (c *MobileInboundController) ScanInbound(ctx *fiber.Ctx) error {
 				1, // qty per serial = 1
 				scanInbound.ProdDate, scanInbound.ExpDate,
 				scanInbound.LotNo, scanInbound.QrRaw,
-				scanInbound.CaseNumber,
-				scanInbound.CartonNumber,
+				cartonNumber,
+				cartonNumber,
 				userID,
 			)
 			// Simpan case number di ScanData jika ada
@@ -973,7 +973,10 @@ func (c *MobileInboundController) PutawayAll(ctx *fiber.Ctx) error {
 
 	// --- Validate location ---
 	t = time.Now()
-	if err := tx.Where("location_code = ?", req.Location).First(&models.Location{}).Error; err != nil {
+
+	var location models.Location
+
+	if err := tx.Where("location_code = ?", req.Location).First(&location).Error; err != nil {
 		tx.Rollback()
 		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
 			"error": "Location " + req.Location + " not registered: " + err.Error(),
@@ -981,12 +984,20 @@ func (c *MobileInboundController) PutawayAll(ctx *fiber.Ctx) error {
 	}
 	log.Printf("[PutawayAll] Validate location | location=%s | took=%s", req.Location, time.Since(t))
 
+	// if err := tx.Where("location_code = ?", req.Location).First(&models.Location{}).Error; err != nil {
+	// 	tx.Rollback()
+	// 	return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
+	// 		"error": "Location " + req.Location + " not registered: " + err.Error(),
+	// 	})
+	// }
+	// log.Printf("[PutawayAll] Validate location | location=%s | took=%s", req.Location, time.Since(t))
+
 	if inventoryPolicy.PickingExcludeLocationsUnderCycleCount {
 
 		// --- Check cycle count ---
 		t = time.Now()
 		locationRepo := repositories.NewLocationRepository(tx)
-		underCount, err := locationRepo.IsLocationUnderCycleCount(inboundHeader.WhsCode, req.Location)
+		underCount, err := locationRepo.IsLocationUnderCycleCount(inboundHeader.WhsCode, location.LocationCode)
 		if err != nil {
 			tx.Rollback()
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
@@ -1006,7 +1017,7 @@ func (c *MobileInboundController) PutawayAll(ctx *fiber.Ctx) error {
 	t = time.Now()
 	for _, itemID := range req.ItemIDs {
 		tItem := time.Now()
-		_, err := inboundRepo.ProcessPutawayItem(ctx, itemID, req.Location)
+		_, err := inboundRepo.ProcessPutawayItem(ctx, itemID, location.LocationCode)
 		if err != nil {
 			tx.Rollback()
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
