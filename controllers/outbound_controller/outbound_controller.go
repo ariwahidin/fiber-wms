@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -92,6 +93,9 @@ type OutboundItem struct {
 	VasID        int               `json:"vas_id"`
 	ExpDate      string            `json:"exp_date"`
 	LotNumber    string            `json:"lot_number"`
+	CartonNumber string            `json:"carton_number"`
+	CaseNumber   string            `json:"case_number"`
+	SerialNumber string            `json:"serial_number"`
 	DivisionCode string            `json:"division_code"`
 }
 
@@ -157,27 +161,14 @@ func (c *OutboundController) CreateOutbound(ctx *fiber.Ctx) error {
 			})
 		}
 
-		// key := fmt.Sprintf("%s|%s", item.ItemCode, item.UOM)
-
-		// if itemCodes[key] {
-		// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-		// 		"success": false,
-		// 		"message": "Duplicate item found: " + item.ItemCode,
-		// 		"error": fmt.Sprintf("Duplicate item with code %s,  uom %s",
-		// 			item.ItemCode, item.UOM),
-		// 	})
-		// }
-
-		// itemCodes[key] = true
-
-		key := fmt.Sprintf("%s|%s|%s|%s", item.ItemCode, item.UOM, item.LotNumber, item.ExpDate)
+		key := fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s", item.ItemCode, item.UOM, item.LotNumber, item.ExpDate, item.CartonNumber, item.CaseNumber, item.SerialNumber)
 
 		if itemCodes[key] {
 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 				"success": false,
 				"message": "Duplicate item found: " + item.ItemCode,
-				"error": fmt.Sprintf("Duplicate item with code %s,  uom %s, lot number %s, and expiration date %s",
-					item.ItemCode, item.UOM, item.LotNumber, item.ExpDate),
+				"error": fmt.Sprintf("Duplicate item with code %s,  uom %s, lot number %s, expiration date %s, carton number %s, case number %s, serial number %s",
+					item.ItemCode, item.UOM, item.LotNumber, item.ExpDate, item.CartonNumber, item.CaseNumber, item.SerialNumber),
 			})
 		}
 
@@ -318,17 +309,6 @@ func (c *OutboundController) CreateOutbound(ctx *fiber.Ctx) error {
 		})
 	}
 
-	// res := tx.Create(&OutboundHeader)
-
-	// if res.Error != nil {
-	// 	tx.Rollback()
-	// 	return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-	// 		"success": false,
-	// 		"message": "Failed to insert outbound header",
-	// 		"error":   res.Error.Error(),
-	// 	})
-	// }
-
 	var outboundID uint
 	if res.RowsAffected == 1 {
 		outboundID = OutboundHeader.ID
@@ -392,6 +372,9 @@ func (c *OutboundController) CreateOutbound(ctx *fiber.Ctx) error {
 		OutboundDetail.Quantity = item.Quantity
 		OutboundDetail.ExpDate = item.ExpDate
 		OutboundDetail.LotNumber = item.LotNumber
+		OutboundDetail.CartonNumber = item.CartonNumber
+		OutboundDetail.CaseNumber = item.CaseNumber
+		OutboundDetail.SerialNumber = item.SerialNumber
 		OutboundDetail.WhsCode = OutboundHeader.WhsCode
 		if item.DivisionCode == "" {
 			OutboundDetail.DivisionCode = "REGULAR"
@@ -708,14 +691,14 @@ func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
 
 		// itemCodes[item.ItemCode] = true // tandai sebagai sudah ditemukan
 
-		key := fmt.Sprintf("%s|%s|%s|%s", item.ItemCode, item.UOM, item.LotNumber, item.ExpDate)
+		key := fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s", item.ItemCode, item.UOM, item.LotNumber, item.ExpDate, item.CartonNumber, item.CaseNumber, item.SerialNumber)
 
 		if itemCodes[key] {
 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 				"success": false,
 				"message": "Duplicate item found: " + item.ItemCode,
-				"error": fmt.Sprintf("Duplicate item with code %s,  uom %s, lot number %s, and expiration date %s",
-					item.ItemCode, item.UOM, item.LotNumber, item.ExpDate),
+				"error": fmt.Sprintf("Duplicate item with code %s,  uom %s, lot number %s, expiration date %s, carton number %s, case number %s, serial number %s",
+					item.ItemCode, item.UOM, item.LotNumber, item.ExpDate, item.CartonNumber, item.CaseNumber, item.SerialNumber),
 			})
 		}
 
@@ -884,6 +867,9 @@ func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
 					Quantity:     item.Quantity,
 					ExpDate:      item.ExpDate,
 					LotNumber:    item.LotNumber,
+					CartonNumber: item.CartonNumber,
+					CaseNumber:   item.CaseNumber,
+					SerialNumber: item.SerialNumber,
 					Location:     item.Location,
 					WhsCode:      OutboundHeader.WhsCode,
 					OwnerCode:    OutboundHeader.OwnerCode,
@@ -923,6 +909,9 @@ func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
 				outboundDetail.QaStatus = "A"
 				outboundDetail.ExpDate = item.ExpDate
 				outboundDetail.LotNumber = item.LotNumber
+				outboundDetail.CartonNumber = item.CartonNumber
+				outboundDetail.CaseNumber = item.CaseNumber
+				outboundDetail.SerialNumber = item.SerialNumber
 				outboundDetail.Quantity = item.Quantity
 				outboundDetail.Location = item.Location
 				outboundDetail.Remarks = item.Remarks
@@ -1040,6 +1029,44 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 	if err := tx.Debug().Where("outbound_id = ?", id).Find(&outboundDetails).Error; err != nil {
 		tx.Rollback()
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	// validate customer
+	var customer models.Customer
+	if err := tx.Debug().First(&customer, "customer_code = ?", outboundHeader.CustomerCode).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"success": false,
+				"message": "Customer not found",
+				"error":   err.Error(),
+			})
+		}
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to get customer",
+			"error":   err.Error(),
+		})
+	}
+
+	// validate shipto
+	var customerShipTo models.Customer
+	if err := tx.Debug().First(&customerShipTo, "customer_code = ?", outboundHeader.DelivTo).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"success": false,
+				"message": "Delivery to not found",
+				"error":   err.Error(),
+			})
+		}
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to get delivery to",
+			"error":   err.Error(),
+		})
 	}
 
 	var invetoryPolicy models.InventoryPolicy
@@ -1179,6 +1206,27 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 			}
 		}
 
+		if invetoryPolicy.AllocationCaseByOrder {
+			if outboundDetail.CaseNumber != "" && invetoryPolicy.UseCaseNumber {
+				queryInventory = queryInventory.
+					Where("i.case_number = ? AND i.qty_available > 0", outboundDetail.CaseNumber)
+			}
+		}
+
+		if invetoryPolicy.AllocationCartonByOrder {
+			if outboundDetail.CartonNumber != "" && invetoryPolicy.UseCartonNumber {
+				queryInventory = queryInventory.
+					Where("i.carton_number = ? AND i.qty_available > 0", outboundDetail.CartonNumber)
+			}
+		}
+
+		if invetoryPolicy.AllocationSerialByOrder {
+			if outboundDetail.SerialNumber != "" && invetoryPolicy.UseSerialNumber {
+				queryInventory = queryInventory.
+					Where("i.serial_number = ? AND i.qty_available > 0", outboundDetail.SerialNumber)
+			}
+		}
+
 		// if invetoryPolicy.UseFEFO {
 		// 	queryInventory = queryInventory.Order("i.exp_date, i.lot_number, i.rec_date, i.qty_available, i.pallet, i.location ASC")
 		// } else {
@@ -1287,7 +1335,9 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 				RecDate:          inventory.RecDate,
 				ExpDate:          inventory.ExpDate,
 				LotNumber:        inventory.LotNumber,
+				CartonNumber:     inventory.CartonNumber,
 				CaseNumber:       inventory.CaseNumber,
+				SerialNumber:     inventory.SerialNumber,
 				ProdDate:         inventory.ProdDate,
 				WhsCode:          inventory.WhsCode,
 				QaStatus:         inventory.QaStatus,
@@ -1366,6 +1416,132 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Picking Outbound Success"})
 }
 
+func (c *OutboundController) PackingAll(ctx *fiber.Ctx) error {
+	outboundIDParam := ctx.Params("id")
+	outboundID, err := strconv.Atoi(outboundIDParam)
+	if err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid outbound ID"})
+	}
+
+	var outboundHeader models.OutboundHeader
+	if err := c.DB.Debug().First(&outboundHeader, "id = ?", outboundID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Outbound not found"})
+		}
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	// Ambil semua picking sheet untuk outbound ini
+	var pickings []models.OutboundPicking
+	if err := c.DB.Debug().Where("outbound_id = ?", outboundHeader.ID).Find(&pickings).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	if len(pickings) == 0 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "No picking data found for this outbound"})
+	}
+
+	// ---- Group by CartonNumber (kosong dianggap 1 grup sendiri) ----
+	cartonGroups := make(map[string][]models.OutboundPicking)
+	var cartonKeys []string
+	for _, p := range pickings {
+		key := p.CartonNumber // bisa kosong, itu tetap valid sebagai 1 grup
+		if _, exists := cartonGroups[key]; !exists {
+			cartonKeys = append(cartonKeys, key)
+		}
+		cartonGroups[key] = append(cartonGroups[key], p)
+	}
+
+	// ---- Sort ascending (string compare biasa, cuma buat urutan konsisten) ----
+	sort.Strings(cartonKeys)
+
+	userID := int(ctx.Locals("userID").(float64))
+
+	txErr := c.DB.Transaction(func(tx *gorm.DB) error {
+
+		// Buat/ambil OutboundPacking dengan PackingNo = OutboundNo
+		var packing models.OutboundPacking
+		if err := tx.Where("packing_no = ?", outboundHeader.OutboundNo).First(&packing).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				packing = models.OutboundPacking{
+					PackingNo: outboundHeader.OutboundNo,
+					// CreatedAt: time.Now(),
+					CreatedBy: userID,
+				}
+				if err := tx.Create(&packing).Error; err != nil {
+					return err
+				}
+			} else {
+				return err
+			}
+		}
+
+		// Index carton dimulai dari 1, sesuai urutan hasil sort
+		for i, cartonKey := range cartonKeys {
+			packCtnNo := strconv.Itoa(i + 1)
+			rows := cartonGroups[cartonKey]
+
+			for _, p := range rows {
+
+				var product models.Product
+				if err := tx.Where("id = ?", p.ItemID).First(&product).Error; err != nil {
+					return fmt.Errorf("product not found for item_code %s: %w", p.ItemCode, err)
+				}
+
+				outboundBarcode := models.OutboundBarcode{
+					PackingId:        packing.ID,
+					PackingNo:        packing.PackingNo,
+					PackCtnNo:        packCtnNo,
+					InventoryID:      p.InventoryID,
+					OutboundId:       outboundHeader.ID,
+					OutboundNo:       outboundHeader.OutboundNo,
+					OutboundDetailId: p.OutboundDetailId,
+					PickingSheetId:   int(p.ID),
+					ItemID:           int(p.ItemID),
+					ItemCode:         p.ItemCode,
+					Barcode:          p.Barcode,
+					Uom:              p.Uom,
+					SerialNumber:     p.SerialNumber,
+					RecDate:          p.RecDate,
+					ProdDate:         p.ProdDate,
+					ExpDate:          p.ExpDate,
+					LotNumber:        p.LotNumber,
+					CaseNumber:       p.CaseNumber,
+					Quantity:         p.Quantity,
+					Status:           "pending",
+					QtyDataScan:      p.Quantity,
+					UomScan:          p.Uom,
+					IsSerial:         product.HasSerial == "Y",
+					CartonID:         0,
+					CartonCode:       p.CartonNumber,
+					CreatedBy:        userID,
+				}
+
+				if err := tx.Create(&outboundBarcode).Error; err != nil {
+					return err
+				}
+			}
+		}
+
+		// Update status header via repo yang sudah ada (dipakai juga di mobile scanner)
+		pickingRepo := repositories.NewOutboundPickingRepository(tx)
+		if err := pickingRepo.ConfirmPacking(outboundHeader.OutboundNo, userID); err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	if txErr != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": txErr.Error()})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": "Outbound " + outboundHeader.OutboundNo + " packed successfully",
+	})
+}
+
 func (c *OutboundController) GetPickingSheet(ctx *fiber.Ctx) error {
 	id, err := ctx.ParamsInt("id")
 	if err != nil {
@@ -1418,33 +1594,52 @@ func (c *OutboundController) PickingComplete(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	if invetoryPolicy.RequirePickingScan {
-		// Check outbound item scan complete
-		outboundItems, err := repo.GetOutboundItemByID(inputBody.OutboundID)
-		if err != nil {
+	// if invetoryPolicy.RequirePickingScan {
+	// 	// Check outbound item scan complete
+	// 	outboundItems, err := repo.GetOutboundItemByID(inputBody.OutboundID)
+	// 	if err != nil {
+	// 		tx.Rollback()
+	// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	// 	}
+
+	// 	if len(outboundItems) == 0 {
+	// 		tx.Rollback()
+	// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Outbound scanned not found"})
+	// 	}
+
+	// 	for _, outboundItem := range outboundItems {
+	// 		if outboundItem.QtyReq != outboundItem.QtyScan {
+	// 			tx.Rollback()
+	// 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Scan not complete"})
+	// 		}
+	// 	}
+	// } else {
+
+	// 	err := repo.InsertIntoOutboundBarcodeFromOutboundPicking(tx, ctx, outboundHeader.ID) // insert into outbound barcodes
+	// 	if err != nil {
+	// 		tx.Rollback()
+	// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error(), "message": "Failed to insert into outbound barcodes"})
+	// 	}
+
+	// }
+
+	// Check outbound item scan complete
+	outboundItems, err := repo.GetOutboundItemByID(inputBody.OutboundID)
+	if err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	if len(outboundItems) == 0 {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Outbound scanned not found"})
+	}
+
+	for _, outboundItem := range outboundItems {
+		if outboundItem.QtyReq != outboundItem.QtyScan {
 			tx.Rollback()
-			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Scan not complete"})
 		}
-
-		if len(outboundItems) == 0 {
-			tx.Rollback()
-			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Outbound scanned not found"})
-		}
-
-		for _, outboundItem := range outboundItems {
-			if outboundItem.QtyReq != outboundItem.QtyScan {
-				tx.Rollback()
-				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Scan not complete"})
-			}
-		}
-	} else {
-
-		err := repo.InsertIntoOutboundBarcodeFromOutboundPicking(tx, ctx, outboundHeader.ID) // insert into outbound barcodes
-		if err != nil {
-			tx.Rollback()
-			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error(), "message": "Failed to insert into outbound barcodes"})
-		}
-
 	}
 
 	var outboundDetails []models.OutboundDetail

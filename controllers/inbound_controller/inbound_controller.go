@@ -57,27 +57,28 @@ type Inbound struct {
 }
 
 type InboundItem struct {
-	ID           int     `json:"ID"`
-	InboundID    int     `json:"inbound_id"`
-	ItemCode     string  `json:"item_code"`
-	Quantity     float64 `json:"quantity"`
-	QaStatus     string  `json:"qa_status"`
-	Location     string  `json:"location"`
-	WhsCode      string  `json:"whs_code"`
-	UOM          string  `json:"uom"`
-	RecDate      string  `json:"rec_date"`
-	ProdDate     string  `json:"prod_date"`
-	ExpDate      string  `json:"exp_date"`
-	LotNumber    string  `json:"lot_number"`
-	SerialNumber string  `json:"serial_number"`
-	CartonNumber string  `json:"carton_number"`
-	CaseNumber   string  `json:"case_number"`
-	Remarks      string  `json:"remarks"`
-	IsSerial     string  `json:"is_serial"`
-	Mode         string  `json:"mode"`
-	RefId        int     `json:"ref_id"`
-	RefNo        string  `json:"ref_no"`
-	DivisionCode string  `json:"division_code"`
+	ID            int      `json:"ID"`
+	InboundID     int      `json:"inbound_id"`
+	ItemCode      string   `json:"item_code"`
+	Quantity      float64  `json:"quantity"`
+	QaStatus      string   `json:"qa_status"`
+	Location      string   `json:"location"`
+	WhsCode       string   `json:"whs_code"`
+	UOM           string   `json:"uom"`
+	RecDate       string   `json:"rec_date"`
+	ProdDate      string   `json:"prod_date"`
+	ExpDate       string   `json:"exp_date"`
+	LotNumber     string   `json:"lot_number"`
+	SerialNumber  string   `json:"serial_number"`
+	SerialNumbers []string `json:"serial_numbers"`
+	CartonNumber  string   `json:"carton_number"`
+	CaseNumber    string   `json:"case_number"`
+	Remarks       string   `json:"remarks"`
+	IsSerial      string   `json:"is_serial"`
+	Mode          string   `json:"mode"`
+	RefId         int      `json:"ref_id"`
+	RefNo         string   `json:"ref_no"`
+	DivisionCode  string   `json:"division_code"`
 }
 
 type ItemInboundBarcode struct {
@@ -422,6 +423,74 @@ func (c *InboundController) CreateInbound(ctx *fiber.Ctx) error {
 				"error":   res.Error.Error(),
 			})
 		}
+
+		// Insert serial numbers kalau product pakai serial
+		if len(item.SerialNumbers) > 0 {
+
+			// validasi jumlah serial harus sama dengan qty
+			if len(item.SerialNumbers) != int(item.Quantity) {
+				tx.Rollback()
+				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+					"success": false,
+					"message": "Jumlah serial number tidak sesuai dengan quantity untuk item " + item.ItemCode,
+					"error":   "Jumlah serial number tidak sesuai dengan quantity",
+				})
+			}
+
+			seen := make(map[string]bool)
+			for _, sn := range item.SerialNumbers {
+				sn = strings.TrimSpace(sn)
+				if sn == "" {
+					tx.Rollback()
+					return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+						"success": false,
+						"message": "Serial number tidak boleh kosong untuk item " + item.ItemCode,
+						"error":   "Serial number kosong",
+					})
+				}
+				if seen[sn] {
+					tx.Rollback()
+					return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+						"success": false,
+						"message": "Serial number duplikat: " + sn,
+						"error":   "Serial number duplikat",
+					})
+				}
+				seen[sn] = true
+
+				// cek serial sudah ada di sistem (belum pernah dipakai / masih aktif)
+				var existing models.InboundSerial
+				errCheck := tx.Debug().Where("serial_number = ?", sn).First(&existing).Error
+				if errCheck == nil {
+					tx.Rollback()
+					return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+						"success": false,
+						"message": "Serial number sudah terdaftar: " + sn,
+						"error":   "Serial number sudah terdaftar",
+					})
+				} else if !errors.Is(errCheck, gorm.ErrRecordNotFound) {
+					tx.Rollback()
+					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": errCheck.Error()})
+				}
+
+				inboundSerial := models.InboundSerial{
+					InboundId:       int(inboundID),
+					InboundDetailId: int(InboundDetail.ID),
+					SerialNumber:    sn,
+					CreatedBy:       userID,
+					UpdatedBy:       userID,
+				}
+
+				if err := tx.Create(&inboundSerial).Error; err != nil {
+					tx.Rollback()
+					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+						"success": false,
+						"message": "Failed to insert inbound serial",
+						"error":   err.Error(),
+					})
+				}
+			}
+		}
 	}
 
 	errHistory := helpers.InsertTransactionHistory(
@@ -727,7 +796,84 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 			}
 		}
 
+		// Batch fetch existing InboundSerial
+		serialMap := make(map[uint][]models.InboundSerial)
+		if len(detailIDs) > 0 {
+			var existingSerials []models.InboundSerial
+			if err := tx.Where("inbound_detail_id IN ?", detailIDs).Find(&existingSerials).Error; err != nil {
+				tx.Rollback()
+				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+			}
+			for _, s := range existingSerials {
+				serialMap[uint(s.InboundDetailId)] = append(serialMap[uint(s.InboundDetailId)], s)
+			}
+		}
+
 		// ===== Loop item pakai map lookup, no query =====
+
+		syncInboundSerials := func(detailID uint, itemCode string, serials []string, alreadyInStock bool) error {
+			if len(serials) == 0 {
+				return nil
+			}
+
+			trimmed := make([]string, 0, len(serials))
+			seen := make(map[string]bool)
+			for _, sn := range serials {
+				sn = strings.TrimSpace(sn)
+				if sn == "" {
+					return fmt.Errorf("serial number tidak boleh kosong untuk item %s", itemCode)
+				}
+				if seen[sn] {
+					return fmt.Errorf("serial number duplikat: %s", sn)
+				}
+				seen[sn] = true
+				trimmed = append(trimmed, sn)
+			}
+
+			if alreadyInStock {
+				existingSet := make(map[string]bool)
+				for _, e := range serialMap[detailID] {
+					existingSet[e.SerialNumber] = true
+				}
+				for _, sn := range trimmed {
+					if !existingSet[sn] {
+						if !existingSet[sn] {
+							return fmt.Errorf("item %s sudah discan, tidak bisa mengubah serial number", itemCode)
+						}
+					}
+				}
+				return nil
+			}
+
+			for _, sn := range trimmed {
+				var existing models.InboundSerial
+				errCheck := tx.Debug().Where("serial_number = ? AND inbound_detail_id != ?", sn, detailID).First(&existing).Error
+				if errCheck == nil {
+					return fmt.Errorf("serial number sudah terdaftar: %s", sn)
+				} else if !errors.Is(errCheck, gorm.ErrRecordNotFound) {
+					return errCheck
+				}
+			}
+
+			if err := tx.Where("inbound_detail_id = ?", detailID).Delete(&models.InboundSerial{}).Error; err != nil {
+				return err
+			}
+
+			for _, sn := range trimmed {
+				newSerial := models.InboundSerial{
+					InboundId:       int(InboundHeader.ID),
+					InboundDetailId: int(detailID),
+					SerialNumber:    sn,
+					CreatedBy:       userID,
+					UpdatedBy:       userID,
+				}
+				if err := tx.Create(&newSerial).Error; err != nil {
+					return err
+				}
+			}
+
+			return nil
+		}
 
 		// var totalItem = 0
 		for _, item := range payloadItem {
@@ -757,11 +903,12 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 				item.LotNumber = InboundHeader.InboundNo
 			}
 
-			inputQty := item.Quantity
-			if item.SerialNumber != "" {
-				inputQty = 1
-			}
+			// inputQty := item.Quantity
+			// if item.SerialNumber != "" {
+			// 	inputQty = 1
+			// }
 
+			inputQty := item.Quantity
 			if !found {
 				// Create new detail
 				newDetail := models.InboundDetail{
@@ -793,6 +940,22 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 				if err := tx.Create(&newDetail).Error; err != nil {
 					tx.Rollback()
 					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+				}
+
+				if err := tx.Create(&newDetail).Error; err != nil {
+					tx.Rollback()
+					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+				}
+
+				if len(item.SerialNumbers) > 0 {
+					if len(item.SerialNumbers) != int(item.Quantity) {
+						tx.Rollback()
+						return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Jumlah serial number tidak sesuai quantity untuk item " + item.ItemCode})
+					}
+					if err := syncInboundSerials(newDetail.ID, item.ItemCode, item.SerialNumbers, false); err != nil {
+						tx.Rollback()
+						return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+					}
 				}
 				continue
 			}
@@ -893,9 +1056,28 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 
 			// totalItem += int(inputQty)
 
+			// if err := tx.Save(&inboundDetail).Error; err != nil {
+			// 	tx.Rollback()
+			// 	return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+			// }
+
 			if err := tx.Save(&inboundDetail).Error; err != nil {
 				tx.Rollback()
 				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+			}
+
+			if len(item.SerialNumbers) > 0 {
+				if len(item.SerialNumbers) != int(item.Quantity) {
+					tx.Rollback()
+					return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Jumlah serial number tidak sesuai quantity untuk item " + item.ItemCode})
+				}
+
+				_, alreadyInStock := inStockMap[int(inboundDetail.ID)]
+
+				if err := syncInboundSerials(inboundDetail.ID, item.ItemCode, item.SerialNumbers, alreadyInStock); err != nil {
+					tx.Rollback()
+					return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+				}
 			}
 		}
 
@@ -1404,7 +1586,6 @@ func (c *InboundController) GetInboundByID(ctx *fiber.Ctx) error {
 	limit := ctx.QueryInt("limit", 5000)
 
 	var inbound models.InboundHeader
-	fmt.Println("GetInboundByID inbound_no:", inbound_no)
 
 	var totalDetails int64
 	c.DB.Model(&models.InboundDetail{}).
@@ -1413,7 +1594,6 @@ func (c *InboundController) GetInboundByID(ctx *fiber.Ctx) error {
 
 	if err := c.DB.Debug().
 		Preload("InboundReferences").
-		// Received dihapus dari sini
 		Preload("Details", func(db *gorm.DB) *gorm.DB {
 			return db.Limit(limit).Order("id ASC")
 		}).
@@ -1431,14 +1611,90 @@ func (c *InboundController) GetInboundByID(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	// Ambil serial number per detail
+	detailIDs := make([]uint, 0, len(inbounDetails))
+	for _, d := range inbounDetails {
+		detailIDs = append(detailIDs, d.ID)
+	}
+
+	serialsByDetail := make(map[uint][]string)
+	if len(detailIDs) > 0 {
+		var serials []models.InboundSerial
+		if err := c.DB.Where("inbound_detail_id IN ?", detailIDs).Find(&serials).Error; err != nil {
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+		for _, s := range serials {
+			serialsByDetail[uint(s.InboundDetailId)] = append(serialsByDetail[uint(s.InboundDetailId)], s.SerialNumber)
+		}
+	}
+
+	// Attach ke tiap detail via map, response gabungan
+	type detailWithSerial struct {
+		repositories.ResultDetail
+		SerialNumbers []string `json:"serial_numbers"`
+	}
+
+	responseDetails := make([]detailWithSerial, 0, len(inbounDetails))
+	for _, d := range inbounDetails {
+		sn := serialsByDetail[d.ID]
+		if sn == nil {
+			sn = []string{}
+		}
+		responseDetails = append(responseDetails, detailWithSerial{
+			ResultDetail:  d,
+			SerialNumbers: sn,
+		})
+	}
+
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
 		"success":       true,
 		"data":          inbound,
-		"details":       inbounDetails,
+		"details":       responseDetails,
 		"details_limit": limit,
 		"details_total": totalDetails,
 	})
 }
+
+// func (c *InboundController) GetInboundByID(ctx *fiber.Ctx) error {
+// 	inbound_no := ctx.Params("inbound_no")
+// 	limit := ctx.QueryInt("limit", 5000)
+
+// 	var inbound models.InboundHeader
+// 	fmt.Println("GetInboundByID inbound_no:", inbound_no)
+
+// 	var totalDetails int64
+// 	c.DB.Model(&models.InboundDetail{}).
+// 		Where("inbound_no = ?", inbound_no).
+// 		Count(&totalDetails)
+
+// 	if err := c.DB.Debug().
+// 		Preload("InboundReferences").
+// 		// Received dihapus dari sini
+// 		Preload("Details", func(db *gorm.DB) *gorm.DB {
+// 			return db.Limit(limit).Order("id ASC")
+// 		}).
+// 		First(&inbound, "inbound_no = ?", inbound_no).Error; err != nil {
+
+// 		if errors.Is(err, gorm.ErrRecordNotFound) {
+// 			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Inbound not found"})
+// 		}
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+// 	}
+
+// 	inboundRepo := repositories.NewInboundRepository(c.DB)
+// 	inbounDetails, err := inboundRepo.GetInboundDetailByInboundID(inbound.ID)
+// 	if err != nil {
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+// 	}
+
+// 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+// 		"success":       true,
+// 		"data":          inbound,
+// 		"details":       inbounDetails,
+// 		"details_limit": limit,
+// 		"details_total": totalDetails,
+// 	})
+// }
 
 func (c *InboundController) GetReceivedByInboundNo(ctx *fiber.Ctx) error {
 	inbound_no := ctx.Params("inbound_no")
@@ -1698,6 +1954,11 @@ func (c *InboundController) DeleteItem(ctx *fiber.Ctx) error {
 	}
 
 DELETE:
+	// hapus serial number yang terkait dulu (kalau ada), baru detail-nya
+	if err := c.DB.Debug().Unscoped().Where("inbound_detail_id = ?", inboundDetail.ID).Delete(&models.InboundSerial{}).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
 	// hard delete
 	if err := c.DB.Debug().Unscoped().Delete(&inboundDetail).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
@@ -1705,6 +1966,56 @@ DELETE:
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Item deleted successfully"})
 }
+
+// func (c *InboundController) DeleteItem(ctx *fiber.Ctx) error {
+
+// 	inbound_detail_id := ctx.Params("id")
+// 	var inboundDetail models.InboundDetail
+// 	if err := c.DB.Debug().First(&inboundDetail, "id = ?", inbound_detail_id).Error; err != nil {
+// 		if errors.Is(err, gorm.ErrRecordNotFound) {
+// 			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Item not found"})
+// 		}
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+// 	}
+
+// 	var InboundHeader models.InboundHeader
+// 	if err := c.DB.Debug().First(&InboundHeader, "inbound_no = ?", inboundDetail.InboundNo).Error; err != nil {
+// 		if errors.Is(err, gorm.ErrRecordNotFound) {
+// 			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Inbound not found"})
+// 		}
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+// 	}
+
+// 	if InboundHeader.Status != "open" {
+// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Inbound " + inboundDetail.InboundNo + " is not open", "message": "Inbound not open"})
+// 	}
+
+// 	inboundRepo := repositories.NewInboundRepository(c.DB)
+
+// 	inboundBarcode, err := inboundRepo.GetInboundBarcodeByOutboundDetailID(uint(inboundDetail.ID))
+// 	if err != nil {
+
+// 		if errors.Is(err, gorm.ErrRecordNotFound) {
+// 			// data barcode tidak ada → boleh lanjut delete
+// 			goto DELETE
+// 		}
+
+// 		return ctx.Status(fiber.StatusInternalServerError).
+// 			JSON(fiber.Map{"error": err.Error()})
+// 	}
+
+// 	if inboundBarcode.ItemID == inboundDetail.ItemId {
+// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "This item is already scanned", "message": "Item already scanned"})
+// 	}
+
+// DELETE:
+// 	// hard delete
+// 	if err := c.DB.Debug().Unscoped().Delete(&inboundDetail).Error; err != nil {
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+// 	}
+
+// 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Item deleted successfully"})
+// }
 
 func (c *InboundController) GetPutawaySheet(ctx *fiber.Ctx) error {
 	id, err := ctx.ParamsInt("id")

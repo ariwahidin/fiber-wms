@@ -20,31 +20,33 @@ type InboundRepository struct {
 }
 
 type ListInbound struct {
-	ID              uint   `json:"id"`
-	InboundNo       string `json:"inbound_no"`
-	ReceiptID       string `json:"receipt_id"`
-	SupplierID      string `json:"supplier_id"`
-	SupplierName    string `json:"supplier_name"`
-	Status          string `json:"status"`
-	Invoice         string `json:"invoice"`
-	TransporterID   string `json:"transporter_id"`
-	DriverName      string `json:"driver_name"`
-	TruckID         string `json:"truck_id"`
-	NoTruck         string `json:"no_truck"`
-	Type            string `json:"type"`
-	InboundDate     string `json:"inbound_date"`
-	Container       string `json:"container"`
-	Origin          string `json:"origin"`
-	OwnerCode       string `json:"owner_code"`
-	ArrivalTime     string `json:"arrival_time"`
-	StartUnloading  string `json:"start_unloading"`
-	EndUnloading    string `json:"end_unloading"`
-	RemarksHeader   string `json:"remarks_header"`
-	TotalLine       int    `json:"total_line"`
-	TotalQty        int    `json:"total_qty"`
-	QtyScan         int    `json:"qty_scan"`
-	QtyPutaway      int    `json:"qty_putaway"`
-	TransporterName string `json:"transporter_name"`
+	ID                 uint   `json:"id"`
+	InboundNo          string `json:"inbound_no"`
+	ReceiptID          string `json:"receipt_id"`
+	SupplierID         string `json:"supplier_id"`
+	SupplierName       string `json:"supplier_name"`
+	Status             string `json:"status"`
+	Invoice            string `json:"invoice"`
+	TransporterID      string `json:"transporter_id"`
+	DriverName         string `json:"driver_name"`
+	TruckID            string `json:"truck_id"`
+	NoTruck            string `json:"no_truck"`
+	Type               string `json:"type"`
+	InboundDate        string `json:"inbound_date"`
+	Container          string `json:"container"`
+	Origin             string `json:"origin"`
+	OwnerCode          string `json:"owner_code"`
+	ArrivalTime        string `json:"arrival_time"`
+	StartUnloading     string `json:"start_unloading"`
+	EndUnloading       string `json:"end_unloading"`
+	RemarksHeader      string `json:"remarks_header"`
+	TotalLine          int    `json:"total_line"`
+	TotalQty           int    `json:"total_qty"`
+	QtyScan            int    `json:"qty_scan"`
+	QtyPutaway         int    `json:"qty_putaway"`
+	TransporterName    string `json:"transporter_name"`
+	RequireReceiveScan bool   `json:"require_receive_scan"`
+	RequirePutawayScan bool   `json:"require_putaway_scan"`
 }
 
 type HeaderInbound struct {
@@ -608,36 +610,6 @@ func (r *InboundRepository) ProcessPutawayItem(ctx *fiber.Ctx, inboundBarcodeID 
 		CartonSerial = barcode.CartonNumber
 	}
 
-	// Cek apakah data inventory dengan kombinasi yang sama sudah ada
-	// var existingInv models.Inventory
-	// invQuery := r.db.Where(`
-	// 		inbound_id = ? AND
-	// 		inbound_detail_id = ? AND
-	// 		item_code = ? AND
-	// 		location = ? AND
-	// 		barcode = ? AND
-	// 		whs_code = ? AND
-	// 		qa_status = ? AND
-	// 		rec_date = ? AND
-	// 		COALESCE(prod_date, '') = COALESCE(?, '') AND
-	// 		COALESCE(exp_date, '') = COALESCE(?, '') AND
-	// 		COALESCE(lot_number, '') = COALESCE(?, '') AND
-	// 		COALESCE(carton_number, '') = COALESCE(?, '')
-	// 	`,
-	// 	barcode.InboundId,
-	// 	barcode.InboundDetailId,
-	// 	barcode.ItemCode,
-	// 	location,
-	// 	product.Barcode,
-	// 	barcode.WhsCode,
-	// 	barcode.QaStatus,
-	// 	barcode.RecDate,
-	// 	barcode.ProdDate,
-	// 	barcode.ExpDate,
-	// 	barcode.LotNumber,
-	// 	CartonSerial,
-	// ).First(&existingInv)
-
 	var existingInv models.Inventory
 	invQuery := r.db.Where(`
         inbound_id = ? AND
@@ -651,6 +623,7 @@ func (r *InboundRepository) ProcessPutawayItem(ctx *fiber.Ctx, inboundBarcodeID 
         COALESCE(prod_date, '') = COALESCE(?, '') AND
         COALESCE(exp_date, '') = COALESCE(?, '') AND
         COALESCE(lot_number, '') = COALESCE(?, '') AND
+		COALESCE(case_number, '') = COALESCE(?, '') AND
         COALESCE(carton_number, '') = COALESCE(?, '')
     `,
 		barcode.InboundId,
@@ -664,6 +637,7 @@ func (r *InboundRepository) ProcessPutawayItem(ctx *fiber.Ctx, inboundBarcodeID 
 		barcode.ProdDate,
 		barcode.ExpDate,
 		barcode.LotNumber,
+		barcode.CaseNumber,
 		CartonSerial,
 	)
 
@@ -672,7 +646,8 @@ func (r *InboundRepository) ProcessPutawayItem(ctx *fiber.Ctx, inboundBarcodeID 
 		invQuery = invQuery.Where("serial_number = ?", barcode.SerialNumber)
 	}
 
-	err := invQuery.First(&existingInv).Error
+	fmt.Println("Inventory Existing Executed ")
+	err := invQuery.Debug().First(&existingInv).Error
 
 	serialNumber := ""
 	if inventoryPolicy.UseSerialNumber && barcode.SerialNumber != "" {
@@ -693,6 +668,7 @@ func (r *InboundRepository) ProcessPutawayItem(ctx *fiber.Ctx, inboundBarcodeID 
 			DivisionCode:    barcode.DivisionCode,
 			Pallet:          barcode.Pallet,
 			Location:        location,
+			CaseNumber:      barcode.CaseNumber,
 			CartonNumber:    CartonSerial,
 			SerialNumber:    serialNumber,
 			QaStatus:        barcode.QaStatus,
@@ -1376,7 +1352,7 @@ func toStringSlice(m map[string]bool) []string {
 	return s
 }
 
-type resultDetail struct {
+type ResultDetail struct {
 	// di isi nanti
 	ID        uint   `json:"id"`
 	ItemCode  string `json:"item_code"`
@@ -1392,7 +1368,7 @@ type resultDetail struct {
 	LotNumber string `json:"lot_number"`
 }
 
-func (r *InboundRepository) GetInboundDetailByInboundID(inboundID uint) ([]resultDetail, error) {
+func (r *InboundRepository) GetInboundDetailByInboundID(inboundID uint) ([]ResultDetail, error) {
 
 	sql := `with inb_barcode as (
 			select item_id, inbound_id, inbound_detail_id, sum(quantity) as qty_scan  
@@ -1418,13 +1394,13 @@ func (r *InboundRepository) GetInboundDetailByInboundID(inboundID uint) ([]resul
 		where a.inbound_id = ?
 		order by a.id asc;`
 
-	var result []resultDetail
+	var result []ResultDetail
 	if err := r.db.Raw(sql, inboundID).Scan(&result).Error; err != nil {
 		return nil, err
 	}
 
 	if len(result) == 0 {
-		return []resultDetail{}, nil
+		return []ResultDetail{}, nil
 	}
 
 	return result, nil
@@ -1899,11 +1875,14 @@ func (r *InboundRepository) GetInboundListWithFilter(params InboundFilterParams)
 
 	query := `
     WITH base AS (
-        SELECT id, inbound_no, receipt_id, owner_code,
-               driver, truck_id, no_truck, inbound_date,
-               container, origin, arrival_time, start_unloading, end_unloading,
-               status, remarks, type, supplier, transporter
+        SELECT a.id, a.inbound_no, a.receipt_id, a.owner_code,
+               a.driver, a.truck_id, a.no_truck, a.inbound_date,
+               a.container, a.origin, a.arrival_time, a.start_unloading, a.end_unloading,
+               a.status, a.remarks, a.type, a.supplier, a.transporter,
+			   b.require_receive_scan,
+			   b.require_putaway_scan
         FROM inbound_headers a
+		INNER JOIN inventory_policies b ON a.owner_code = b.owner_code
         WHERE 1=1
           AND inbound_date >= ` + startDate + `
           AND inbound_date <= ` + endDate + `
@@ -1938,7 +1917,8 @@ func (r *InboundRepository) GetInboundListWithFilter(params InboundFilterParams)
            a.origin, a.arrival_time, a.start_unloading, a.end_unloading,
            a.status, a.remarks as remarks_header,
            b.total_line, b.total_qty, COALESCE(ib.qty_scan, 0) as qty_scan, COALESCE(ipu.qty_scan, 0) as qty_putaway,
-           d.transporter_name, a.type
+           d.transporter_name, a.type,
+		   a.require_receive_scan, a.require_putaway_scan
     FROM base a
     LEFT JOIN detail b ON a.id = b.inbound_id
     LEFT JOIN suppliers c ON a.supplier = c.supplier_code
@@ -1950,7 +1930,8 @@ func (r *InboundRepository) GetInboundListWithFilter(params InboundFilterParams)
     ` + itemWhere + `
     ORDER BY a.id DESC`
 
-	if err := r.db.Raw(query, args...).Scan(&listInbound).Error; err != nil {
+	fmt.Println("Query Inbound Execute: ", query, args)
+	if err := r.db.Debug().Raw(query, args...).Scan(&listInbound).Error; err != nil {
 		return nil, err
 	}
 

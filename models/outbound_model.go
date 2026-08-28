@@ -78,7 +78,9 @@ type OutboundDetail struct {
 	ProdDate     string  `json:"prod_date" gorm:"default:null"`
 	ExpDate      string  `json:"exp_date" gorm:"default:null"`
 	LotNumber    string  `json:"lot_number" gorm:"default:null"`
+	CartonNumber string  `json:"carton_number" gorm:"default:null"`
 	CaseNumber   string  `json:"case_number" gorm:"default:null"`
+	SerialNumber string  `json:"serial_number" gorm:"default:null"`
 	ScanQty      int     `json:"scan_qty" gorm:"default:0"`
 	Location     string  `json:"location" required:"required"`
 	Status       string  `json:"status" gorm:"default:'draft'"`
@@ -122,7 +124,9 @@ type OutboundPicking struct {
 	ProdDate         string  `json:"prod_date" gorm:"default:null"`
 	ExpDate          string  `json:"exp_date" gorm:"default:null"`
 	LotNumber        string  `json:"lot_number" gorm:"default:null"`
+	CartonNumber     string  `json:"carton_number" gorm:"default:null"`
 	CaseNumber       string  `json:"case_number" gorm:"default:null"`
+	SerialNumber     string  `json:"serial_number" gorm:"default:null"`
 	Uom              string  `json:"uom"`
 	Reason           string  `json:"reason"`
 	QtyDisplay       float64 `json:"qty_display"`

@@ -85,8 +85,12 @@ type InventoryPolicy struct {
 	RequireReceiveScan                     bool   `gorm:"default:false" json:"require_receive_scan"`
 	ValidateReceiveScan                    bool   `gorm:"default:false" json:"validate_receive_scan"`
 	RequirePutawayScan                     bool   `gorm:"default:false" json:"require_putaway_scan"`
+	InboundCanInputSerial                  bool   `gorm:"default:false" json:"inbound_can_input_serial"`
 	AllocationLotByOrder                   bool   `gorm:"default:false" json:"allocation_lot_by_order"`
 	AllocationLocationByOrder              bool   `gorm:"default:false" json:"allocation_location_by_order"`
+	AllocationCaseByOrder                  bool   `gorm:"default:false" json:"allocation_case_by_order"`
+	AllocationCartonByOrder                bool   `gorm:"default:false" json:"allocation_carton_by_order"`
+	AllocationSerialByOrder                bool   `gorm:"default:false" json:"allocation_serial_by_order"`
 	PickingWithScanner                     bool   `gorm:"default:false" json:"picking_with_scanner"`
 	PickingExcludeLocationsUnderCycleCount bool   `gorm:"default:false" json:"picking_exclude_locations_under_cycle_count"`
 	CreatedBy                              int

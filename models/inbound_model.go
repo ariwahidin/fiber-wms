@@ -101,6 +101,18 @@ type InboundDetail struct {
 	DeletedBy     int
 }
 
+type InboundSerial struct {
+	gorm.Model
+
+	InboundId       int    `json:"inbound_id" gorm:"default:null"`
+	InboundDetailId int    `gorm:"foreignKey:InboundDetailId" json:"inbound_detail_id"`
+	SerialNumber    string `json:"serial_number"`
+
+	CreatedBy int
+	UpdatedBy int
+	DeletedBy int
+}
+
 type InboundDetailHandling struct {
 	gorm.Model
 	InboundDetailId   int `gorm:"foreignKey:InboundDetailId" json:"inbound_detail_id"`
@@ -154,14 +166,6 @@ type InboundBarcode struct {
 	PutawayBy       int       `json:"putaway_by" gorm:"default:null"`
 	PutawayAt       time.Time `json:"putaway_at" gorm:"default:null"`
 }
-
-// func (i *InboundBarcode) BeforeCreate(tx *gorm.DB) (err error) {
-// 	fmt.Println("ID Inbound Barcode Before Create : ", i.ID)
-// 	if i.ID == 0 {
-// 		i.ID = types.SnowflakeID(idgen.GenerateID())
-// 	}
-// 	return nil
-// }
 
 type FormItemInbound struct {
 	InboundDetailID int    `json:"inbound_detail_id"`

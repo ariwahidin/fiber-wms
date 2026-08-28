@@ -28,6 +28,7 @@ func MigrateBusinessUnit(db *gorm.DB) error {
 		&models.Supplier{},
 		&models.InboundHeader{},
 		&models.InboundDetail{},
+		&models.InboundSerial{},
 		&models.InboundReference{},
 		&models.Transporter{},
 		&models.Truck{},

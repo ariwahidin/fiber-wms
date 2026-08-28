@@ -174,30 +174,32 @@ func (r *OutboundRepository) CreateItemOutbound(header *models.OutboundHeader, d
 }
 
 type OutboundList struct {
-	ID           uint    `json:"ID"`
-	OutboundNo   string  `json:"outbound_no"`
-	ShipmentID   string  `json:"shipment_id"`
-	OwnerCode    string  `json:"owner_code"`
-	OutboundDate string  `json:"outbound_date"`
-	OrderNo      string  `json:"order_no"`
-	CustomerCode string  `json:"customer_code"`
-	CustomerName string  `json:"customer_name"`
-	TotalItem    int     `json:"total_item"`
-	QtyReq       int     `json:"qty_req"`
-	QtyPlan      int     `json:"qty_plan"`
-	QtyPack      int     `json:"qty_pack"`
-	TotalQty     int     `json:"total_qty"`
-	Status       string  `json:"status"`
-	TotalPrice   int     `json:"total_price"`
-	DelivTo      string  `json:"deliv_to"`
-	DelivToName  string  `json:"deliv_to_name"`
-	DelivAddress string  `json:"deliv_address"`
-	DelivCity    string  `json:"deliv_city"`
-	QtyKoli      int     `json:"qty_koli"`
-	TotalCBM     float64 `json:"total_cbm"`
-	UseVas       bool    `json:"use_vas"`
-	OrderType    string  `json:"order_type"`
-	Source       string  `json:"source"`
+	ID                 uint    `json:"ID"`
+	OutboundNo         string  `json:"outbound_no"`
+	ShipmentID         string  `json:"shipment_id"`
+	OwnerCode          string  `json:"owner_code"`
+	OutboundDate       string  `json:"outbound_date"`
+	OrderNo            string  `json:"order_no"`
+	CustomerCode       string  `json:"customer_code"`
+	CustomerName       string  `json:"customer_name"`
+	TotalItem          int     `json:"total_item"`
+	QtyReq             int     `json:"qty_req"`
+	QtyPlan            int     `json:"qty_plan"`
+	QtyPack            int     `json:"qty_pack"`
+	TotalQty           int     `json:"total_qty"`
+	Status             string  `json:"status"`
+	TotalPrice         int     `json:"total_price"`
+	DelivTo            string  `json:"deliv_to"`
+	DelivToName        string  `json:"deliv_to_name"`
+	DelivAddress       string  `json:"deliv_address"`
+	DelivCity          string  `json:"deliv_city"`
+	QtyKoli            int     `json:"qty_koli"`
+	TotalCBM           float64 `json:"total_cbm"`
+	UseVas             bool    `json:"use_vas"`
+	OrderType          string  `json:"order_type"`
+	Source             string  `json:"source"`
+	RequirePickingScan bool    `json:"require_picking_scan"`
+	RequirePackingScan bool    `json:"require_packing_scan"`
 }
 
 func (r *OutboundRepository) GetAllOutboundList() ([]OutboundList, error) {
@@ -405,6 +407,7 @@ func (r *OutboundRepository) GetOutboundPicking() ([]OutboundList, error) {
 }
 
 type PaperPickingSheet struct {
+	OrderType       string  `json:"order_type"`
 	OutboundNo      string  `json:"outbound_no"`
 	InventoryID     int     `json:"inventory_id,omitempty"` // gak ada di select, bisa dihapus kalau gak dipakai
 	ItemID          int     `json:"item_id"`
@@ -413,6 +416,7 @@ type PaperPickingSheet struct {
 	Uom             string  `json:"uom"`
 	Barcode         string  `json:"barcode"`
 	ItemName        string  `json:"item_name"`
+	UnitModel       string  `json:"unit_model"`
 	Pallet          string  `json:"pallet"`
 	Location        string  `json:"location"`
 	Cbm             float64 `json:"cbm"`
@@ -437,85 +441,108 @@ type PaperPickingSheet struct {
 	TransporterCode string  `json:"transporter_code"`
 	ProdDate        string  `json:"prod_date"`
 	ExpDate         string  `json:"exp_date"`
+	CaseNumber      string  `json:"case_number"`
 	LotNumber       string  `json:"lot_number"`
+	CartonNumber    string  `json:"carton_number"`
+	SerialNumber    string  `json:"serial_number"`
 	OwnerCode       string  `json:"owner_code"`
+	UseCartonNumber bool    `json:"use_carton_number"`
+	UseFifo         bool    `json:"use_fifo"`
+	UseSerialNumber bool    `json:"use_serial_number"`
 }
 
 func (r *OutboundRepository) GetPickingSheet(outbound_id int) ([]PaperPickingSheet, error) {
 	var outboundList []PaperPickingSheet
 
 	sql := `select
-	e.cust_address,
-	e.cust_city,
-	e.deliv_to,
-	e.deliv_address,
-	e.deliv_city,
-	e.qty_koli,
-	e.qty_koli_seal,
-	e.remarks,
-	e.picker_name,
-	e.plan_pickup_date,
-	e.plan_pickup_time,
-	a.item_id, 
-	a.item_code, 
-	sum(a.quantity) as sum_quantity,
-	uc.conversion_rate as rate,
-	sum(a.quantity) / uc.conversion_rate as quantity,
-	od.uom,
-	a.pallet, a.location,
-	b.barcode, b.item_name, b.cbm, 
-	c.rec_date, 
-	c.prod_date,
-	c.exp_date,
-	c.lot_number,
-	c.owner_code,
-	c.whs_code,
-	ROUND(b.cbm * sum(a.quantity), 4) as cbm,
-	b.item_name,
-	e.outbound_no, 
-	e.customer_code, 
-	e.outbound_date, 
-	e.shipment_id,
-	f.customer_name,
-	g.customer_name as deliv_to_name,
-	h.transporter_code
-	from outbound_pickings a
-	inner join products b on a.item_id = b.id
-	inner join outbound_details od on od.id = a.outbound_detail_id
-	inner join uom_conversions uc on uc.item_code = b.item_code and uc.from_uom = od.uom AND uc.to_uom = b.uom
-	inner join inventories c on a.inventory_id = c.id
-	inner join outbound_headers e on a.outbound_id = e.id
-	inner join customers f on e.customer_code = f.customer_code
-	inner join customers g on e.deliv_to = g.customer_code
-	left join transporters h on e.transporter_code = h.transporter_code
-	where a.outbound_id = ?
-	group by a.location, a.pallet, a.item_id, a.item_code,
-	b.barcode, b.item_name, b.cbm, 
-	c.owner_code,
-	c.rec_date, 
-	c.prod_date,
-	c.exp_date,
-	c.lot_number,
-	c.whs_code,
-	e.outbound_no, e.customer_code, f.customer_name, e.outbound_date, e.shipment_id,
-	e.cust_address,
-	e.cust_city,
-	e.deliv_to,
-	e.deliv_address,
-	e.deliv_city,
-	e.qty_koli,
-	e.qty_koli_seal,
-	e.remarks,
-	e.picker_name,
-	e.plan_pickup_date,
-	e.plan_pickup_time,
-	g.customer_name,
-	h.transporter_code,
-	a.outbound_detail_id,
-	uc.conversion_rate,
-	od.uom
-	Order By a.outbound_detail_id ASC`
+        e.order_type,
+        e.cust_address,
+        e.cust_city,
+        e.deliv_to,
+        e.deliv_address,
+        e.deliv_city,
+        e.qty_koli,
+        e.qty_koli_seal,
+        e.remarks,
+        e.picker_name,
+        e.plan_pickup_date,
+        e.plan_pickup_time,
+        a.item_id, 
+        a.item_code, 
+        sum(a.quantity) as sum_quantity,
+        uc.conversion_rate as rate,
+        sum(a.quantity) / uc.conversion_rate as quantity,
+        od.uom,
+        a.pallet, a.location,
+        b.barcode, b.item_name, b.cbm, 
+        c.rec_date, 
+        c.prod_date,
+        c.exp_date,
+		c.case_number,
+        c.lot_number,
+		c.carton_number,
+		c.serial_number,
+        c.owner_code,
+        c.whs_code,
+        ROUND(b.cbm * sum(a.quantity), 4) as cbm,
+        b.item_name,
+		b.unit_model,
+        e.outbound_no, 
+        e.customer_code, 
+        e.outbound_date, 
+        e.shipment_id,
+        f.customer_name,
+        g.customer_name as deliv_to_name,
+        h.transporter_code,
+		ips.use_carton_number,
+		ips.use_fifo,
+		ips.use_serial_number
+        from outbound_pickings a
+        inner join products b on a.item_id = b.id
+        inner join outbound_details od on od.id = a.outbound_detail_id
+        inner join uom_conversions uc on uc.item_code = b.item_code and uc.from_uom = od.uom AND uc.to_uom = b.uom
+        inner join inventories c on a.inventory_id = c.id
+        inner join outbound_headers e on a.outbound_id = e.id
+        inner join customers f on e.customer_code = f.customer_code
+        inner join customers g on e.deliv_to = g.customer_code
+        left join transporters h on e.transporter_code = h.transporter_code
+		left join inventory_policies ips on ips.owner_code = e.owner_code
+        where a.outbound_id = ?
+        group by 
+        e.order_type, a.location, a.pallet, a.item_id, a.item_code,
+        b.barcode, b.item_name, b.cbm, b.unit_model,
+        c.owner_code,
+        c.rec_date, 
+        c.prod_date,
+        c.exp_date,
+		c.case_number,
+        c.lot_number,
+		c.carton_number,
+		c.serial_number,
+        c.whs_code,
+        e.outbound_no, e.customer_code, f.customer_name, e.outbound_date, e.shipment_id,
+        e.cust_address,
+        e.cust_city,
+        e.deliv_to,
+        e.deliv_address,
+        e.deliv_city,
+        e.qty_koli,
+        e.qty_koli_seal,
+        e.remarks,
+        e.picker_name,
+        e.plan_pickup_date,
+        e.plan_pickup_time,
+        g.customer_name,
+        h.transporter_code,
+        a.outbound_detail_id,
+        uc.conversion_rate,
+        od.uom,
+		ips.use_carton_number,
+		ips.use_fifo,
+		ips.use_serial_number
+        Order By a.outbound_detail_id ASC`
 
+	fmt.Println("Picking Sheet Query Executed")
 	if err := r.db.Debug().Raw(sql, outbound_id).Scan(&outboundList).Error; err != nil {
 		return nil, err
 	}
@@ -1401,7 +1428,9 @@ func (r *OutboundRepository) GetOutboundListWithFilter(params OutboundFilterPara
         cd.cust_city     AS deliv_city,
         a.qty_koli,
         od.total_cbm,
-        a.[source]
+        a.[source],
+      	ipc.require_picking_scan,
+		ipc.require_packing_scan
     FROM base a
     LEFT JOIN od  ON a.id = od.outbound_id
     LEFT JOIN ps  ON a.id = ps.outbound_id
@@ -1409,12 +1438,14 @@ func (r *OutboundRepository) GetOutboundListWithFilter(params OutboundFilterPara
     LEFT JOIN customers cs ON a.customer_code = cs.customer_code
     LEFT JOIN customers cd ON a.deliv_to = cd.customer_code
     LEFT JOIN ord ON a.id = ord.outbound_id
+	LEFT JOIN inventory_policies ipc ON a.owner_code = ipc.owner_code
     ` + itemJoin + `
     WHERE (1=1 ` + outerSearch + `)
     ` + itemWhere + `
     ORDER BY a.id DESC`
 
-	if err := r.db.Raw(query, args...).Scan(&outboundList).Error; err != nil {
+	fmt.Println("Outbound List Executed")
+	if err := r.db.Debug().Raw(query, args...).Scan(&outboundList).Error; err != nil {
 		return nil, err
 	}
 
