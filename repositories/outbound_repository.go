@@ -889,6 +889,7 @@ type PackingItem struct {
 	CtnMaxWeight    float64   `json:"ctn_max_weight"`
 	CtnTareWeight   float64   `json:"ctn_tare_weight"`
 	CtnVolume       float64   `json:"ctn_volume"`
+	SerialRemarks   string    `json:"serial_remarks"`
 }
 
 func (r *OutboundRepository) GetPackingItemsList(outboundID int, packingNo string) ([]PackingItem, error) {
@@ -971,12 +972,46 @@ func (r *OutboundRepository) GetPackingItemsList(outboundID int, packingNo strin
 		ORDER BY CAST(a.pack_ctn_no AS INT) ASC
 	`
 
+	// if err := r.db.Debug().Raw(sql, outboundID, packingNo).Scan(&result).Error; err != nil {
+	// 	return nil, err
+	// }
+
 	if err := r.db.Debug().Raw(sql, outboundID, packingNo).Scan(&result).Error; err != nil {
 		return nil, err
 	}
 
 	if len(result) == 0 {
-		result = []PackingItem{}
+		return []PackingItem{}, nil
+	}
+
+	// Ambil semua serial number untuk outbound ini, join ke outbound_details buat dapat item_code
+	type serialRow struct {
+		ItemCode     string
+		SerialNumber string
+	}
+	var serialRows []serialRow
+	if err := r.db.Table("outbound_serials os").
+		Select("od.item_code as item_code, os.serial_number as serial_number").
+		Joins("INNER JOIN outbound_details od ON od.id = os.outbound_detail_id").
+		Where("os.outbound_id = ?", outboundID).
+		Scan(&serialRows).Error; err != nil {
+		return nil, err
+	}
+
+	// Group serial by item_code
+	serialsByItem := make(map[string][]string)
+	for _, s := range serialRows {
+		if s.SerialNumber == "" {
+			continue
+		}
+		serialsByItem[s.ItemCode] = append(serialsByItem[s.ItemCode], s.SerialNumber)
+	}
+
+	// Attach ke tiap row hasil query utama
+	for i := range result {
+		if sn, ok := serialsByItem[result[i].ItemCode]; ok {
+			result[i].SerialRemarks = strings.Join(sn, ", ")
+		}
 	}
 
 	return result, nil

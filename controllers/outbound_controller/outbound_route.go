@@ -39,6 +39,7 @@ func SetupOutboundRoutes(app *fiber.App) {
 	api.Get("/:outbound_no", outboundController.GetOutboundByID)
 	api.Put("/:outbound_no", outboundController.UpdateOutboundByID)
 	// api.Post("/item/:id", outboundController.SaveItem)
+	api.Post("/item/:id/serial", outboundController.SaveOutboundSerial)
 	api.Get("/item/:id", outboundController.GetItem)
 	api.Delete("/item/:id", outboundController.DeleteItem)
 	api.Post("/picking/:id", outboundController.PickingOutbound)

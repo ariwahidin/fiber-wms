@@ -583,8 +583,72 @@ func (c *OutboundController) GetOutboundByID(ctx *fiber.Ctx) error {
 	if err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
-	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "data": fiber.Map{"outbound": OutboundHeader, "barcodes": OutboundBarcodes}, "message": "Outbound found"})
+
+	// Ambil OutboundSerial untuk semua detail, group by detail ID
+	detailIDs := make([]uint, 0, len(OutboundHeader.OutboundDetails))
+	for _, d := range OutboundHeader.OutboundDetails {
+		detailIDs = append(detailIDs, d.ID)
+	}
+
+	serialsByDetail := make(map[uint][]string)
+	if len(detailIDs) > 0 {
+		var serials []models.OutboundSerial
+		if err := c.DB.Where("outbound_detail_id IN ?", detailIDs).Find(&serials).Error; err != nil {
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+		for _, s := range serials {
+			serialsByDetail[uint(s.OutboundDetailId)] = append(serialsByDetail[uint(s.OutboundDetailId)], s.SerialNumber)
+		}
+	}
+
+	// Sisipkan serial_numbers ke tiap detail sebagai field tambahan di response
+	type detailWithSerial struct {
+		models.OutboundDetail
+		SerialNumbers []string `json:"serial_numbers"`
+	}
+
+	detailsWithSerial := make([]detailWithSerial, 0, len(OutboundHeader.OutboundDetails))
+	for _, d := range OutboundHeader.OutboundDetails {
+		sn := serialsByDetail[d.ID]
+		if sn == nil {
+			sn = []string{}
+		}
+		detailsWithSerial = append(detailsWithSerial, detailWithSerial{
+			OutboundDetail: d,
+			SerialNumbers:  sn,
+		})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"data": fiber.Map{
+			"outbound": OutboundHeader,
+			"barcodes": OutboundBarcodes,
+			"details":  detailsWithSerial, // tambahan: detail + serial_numbers
+		},
+		"message": "Outbound found",
+	})
 }
+
+// func (c *OutboundController) GetOutboundByID(ctx *fiber.Ctx) error {
+// 	outbound_no := ctx.Params("outbound_no")
+// 	var OutboundHeader models.OutboundHeader
+// 	if err := c.DB.Debug().
+// 		Preload("OutboundDetails.Product").
+// 		First(&OutboundHeader, "outbound_no = ?", outbound_no).Error; err != nil {
+// 		if errors.Is(err, gorm.ErrRecordNotFound) {
+// 			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Inbound not found"})
+// 		}
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+// 	}
+
+// 	outboundRepo := repositories.NewOutboundRepository(c.DB)
+// 	OutboundBarcodes, err := outboundRepo.GetOutboundBarcodeByOutboundID(OutboundHeader.ID)
+// 	if err != nil {
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+// 	}
+// 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "data": fiber.Map{"outbound": OutboundHeader, "barcodes": OutboundBarcodes}, "message": "Outbound found"})
+// }
 
 func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
 	outbound_no := ctx.Params("outbound_no")
@@ -875,7 +939,6 @@ func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
 					OwnerCode:    OutboundHeader.OwnerCode,
 					CustomerCode: customer.CustomerCode,
 					Uom:          item.UOM,
-					// DivisionCode: "REGULAR",
 					DivisionCode: DivisionCode,
 					QaStatus:     "A",
 					Remarks:      item.Remarks,
@@ -893,8 +956,6 @@ func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
 			}
 
 		} else if err == nil {
-			// ✅ Ditemukan → update
-
 			if OutboundHeader.Status == "open" {
 				outboundDetail.OutboundID = OutboundHeader.ID
 				outboundDetail.ItemID = int(product.ID)
@@ -903,7 +964,6 @@ func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
 				outboundDetail.Uom = item.UOM
 				outboundDetail.WhsCode = OutboundHeader.WhsCode
 				outboundDetail.OwnerCode = OutboundHeader.OwnerCode
-				// outboundDetail.DivisionCode = "REGULAR"
 				outboundDetail.DivisionCode = DivisionCode
 				outboundDetail.CustomerCode = customer.CustomerCode
 				outboundDetail.QaStatus = "A"
@@ -950,6 +1010,85 @@ func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
 	}
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Update Outbound successfully", "data": OutboundHeader})
+}
+
+func (c *OutboundController) SaveOutboundSerial(ctx *fiber.Ctx) error {
+	detailIDParam := ctx.Params("id")
+	detailID, err := strconv.Atoi(detailIDParam)
+	if err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid detail ID"})
+	}
+
+	var payload struct {
+		SerialNumbers []string `json:"serial_numbers"`
+	}
+	if err := ctx.BodyParser(&payload); err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid payload"})
+	}
+
+	var outboundDetail models.OutboundDetail
+	if err := c.DB.Debug().First(&outboundDetail, "id = ?", detailID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Outbound detail not found"})
+		}
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	var outboundHeader models.OutboundHeader
+	if err := c.DB.Debug().First(&outboundHeader, "id = ?", outboundDetail.OutboundID).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	// Validasi jumlah & isi
+	trimmed := make([]string, 0, len(payload.SerialNumbers))
+	seen := make(map[string]bool)
+	for _, sn := range payload.SerialNumbers {
+		sn = strings.TrimSpace(sn)
+		if sn == "" {
+			continue // izinkan kosong (belum lengkap semua), skip aja
+		}
+		if seen[sn] {
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Duplicate serial number: " + sn})
+		}
+		seen[sn] = true
+		trimmed = append(trimmed, sn)
+	}
+
+	if len(trimmed) > int(outboundDetail.Quantity) {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Serial number is more than expected quantity"})
+	}
+
+	userID := int(ctx.Locals("userID").(float64))
+
+	txErr := c.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Unscoped().Where("outbound_detail_id = ?", detailID).Delete(&models.OutboundSerial{}).Error; err != nil {
+			return err
+		}
+
+		for _, sn := range trimmed {
+			newSerial := models.OutboundSerial{
+				OutboundId:       int(outboundDetail.OutboundID),
+				OutboundDetailId: detailID,
+				SerialNumber:     sn,
+				CreatedBy:        userID,
+				UpdatedBy:        userID,
+			}
+			if err := tx.Create(&newSerial).Error; err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+
+	if txErr != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": txErr.Error()})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": "Serial number saved successfully",
+	})
 }
 
 func (c *OutboundController) GetItem(ctx *fiber.Ctx) error {

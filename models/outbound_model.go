@@ -269,6 +269,17 @@ type OutboundBarcode struct {
 	Product        Product        `json:"product" gorm:"foreignKey:ItemID;references:ID"`
 }
 
+type OutboundSerial struct {
+	gorm.Model
+	OutboundId       int    `json:"outbound_id" gorm:"default:null"`
+	OutboundDetailId int    `gorm:"foreignKey:OutboundDetailId" json:"outbound_detail_id"`
+	SerialNumber     string `json:"serial_number"`
+
+	CreatedBy int
+	UpdatedBy int
+	DeletedBy int
+}
+
 type OutboundPacking struct {
 	gorm.Model
 	PackingNo string

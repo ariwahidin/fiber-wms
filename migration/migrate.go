@@ -55,6 +55,7 @@ func MigrateBusinessUnit(db *gorm.DB) error {
 		&models.Menu{},
 		&models.OrderConsole{},
 		&models.OutboundBarcode{},
+		&models.OutboundSerial{},
 		&models.OutboundPacking{},
 		&models.Category{},
 		&models.TransactionHistory{},
