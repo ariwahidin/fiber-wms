@@ -378,6 +378,7 @@ func (c *MobileInventoryController) ConfirmTransferByLocationAndBarcode(ctx *fib
 		newInventory.ProdDate = inventory.ProdDate
 		newInventory.LotNumber = inventory.LotNumber
 		newInventory.InventoryNumber = inventory.InventoryNumber
+		newInventory.CaseNumber = inventory.CaseNumber
 		newInventory.CartonNumber = inventory.CartonNumber
 		newInventory.SerialNumber = inventory.SerialNumber
 		newInventory.CreatedAt = time.Now()
@@ -641,6 +642,7 @@ func (c *MobileInventoryController) ConfirmTransferByInventoryID(ctx *fiber.Ctx)
 	newInventory.ProdDate = inventory.ProdDate
 	newInventory.LotNumber = inventory.LotNumber
 	newInventory.InventoryNumber = inventory.InventoryNumber
+	newInventory.CaseNumber = inventory.CaseNumber
 	newInventory.CartonNumber = inventory.CartonNumber
 	newInventory.SerialNumber = inventory.SerialNumber
 	newInventory.CreatedAt = time.Now()

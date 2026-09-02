@@ -1082,6 +1082,11 @@ func (c *InventoryController) GetCartonInventory(ctx *fiber.Ctx) error {
 	if lot := strings.TrimSpace(ctx.Query("lot_number")); lot != "" {
 		query = query.Where("lot_number = ?", lot)
 	}
+
+	if owner := strings.TrimSpace(ctx.Query("owner_code")); owner != "" {
+		query = query.Where("owner_code = ?", owner)
+	}
+
 	if recDate := strings.TrimSpace(ctx.Query("rec_date")); recDate != "" {
 		query = query.Where("rec_date = ?", recDate)
 	}
@@ -1099,6 +1104,7 @@ func (c *InventoryController) GetCartonInventory(ctx *fiber.Ctx) error {
 	// Group by carton_number
 	type CartonGroup struct {
 		CartonNumber string             `json:"carton_number"`
+		CaseNumber   string             `json:"case_number"`
 		ItemCode     string             `json:"item_code"`
 		ItemName     string             `json:"item_name"`
 		WhsCode      string             `json:"whs_code"`
@@ -1127,6 +1133,7 @@ func (c *InventoryController) GetCartonInventory(ctx *fiber.Ctx) error {
 
 		if _, exists := groupMap[key]; !exists {
 			groupMap[key] = &CartonGroup{
+				CaseNumber:   inv.CaseNumber,
 				CartonNumber: inv.CartonNumber,
 				ItemCode:     inv.ItemCode,
 				ItemName:     inv.Product.ItemName,
@@ -1190,6 +1197,7 @@ func (c *InventoryController) GetInventoryGroupedByItem(ctx *fiber.Ctx) error {
 		LotNumber         string  `json:"lot_number"`
 		Pallet            string  `json:"pallet"`
 		CartonNumber      string  `json:"carton_number"`
+		CaseNumber        string  `json:"case_number"`
 		TotalQtyAvailable float64 `json:"qty_available"`
 		RecordCount       int     `json:"record_count"`
 	}
@@ -1212,6 +1220,7 @@ func (c *InventoryController) GetInventoryGroupedByItem(ctx *fiber.Ctx) error {
             inventories.lot_number,
             inventories.pallet,
             inventories.carton_number,
+			inventories.case_number,
             SUM(inventories.qty_available) as total_qty_available,
             COUNT(*) as record_count
         `).
@@ -1234,7 +1243,8 @@ func (c *InventoryController) GetInventoryGroupedByItem(ctx *fiber.Ctx) error {
             inventories.exp_date,
             inventories.lot_number,
             inventories.pallet,
-            inventories.carton_number
+            inventories.carton_number,
+			inventories.case_number
         `).
 		Order("inventories.whs_code ASC, inventories.location ASC").
 		Find(&inventories)
@@ -1784,3 +1794,114 @@ func getCell(row []string, index int) string {
 //======================================================================
 // END BULK UPDATE LOT NUMBER FROM EXCEL
 //======================================================================
+
+// DTO untuk baris detail (level record asli, bukan agregat)
+type InventoryDetailRow struct {
+	InventoryNumber int     `json:"inventory_number"`
+	Location        string  `json:"location"`
+	WhsCode         string  `json:"whs_code"`
+	DivisionCode    string  `json:"division_code"`
+	OwnerCode       string  `json:"owner_code"`
+	ItemCode        string  `json:"item_code"`
+	ItemName        string  `json:"item_name"`
+	Barcode         string  `json:"barcode"`
+	Category        string  `json:"category"`
+	Group           string  `json:"group"`
+	QaStatus        string  `json:"qa_status"`
+	Uom             string  `json:"uom"`
+	RecDate         string  `json:"rec_date"`
+	ProdDate        string  `json:"prod_date"`
+	ExpDate         string  `json:"exp_date"`
+	LotNumber       string  `json:"lot_number"`
+	Pallet          string  `json:"pallet"`
+	CartonNumber    string  `json:"carton_number"`
+	CaseNumber      string  `json:"case_number"`
+	SerialNumber    string  `json:"serial_number"`
+	QtyOrigin       float64 `json:"qty_origin"`
+	QtyOnhand       float64 `json:"qty_onhand"`
+	QtyAvailable    float64 `json:"qty_available"`
+	QtyAllocated    float64 `json:"qty_allocated"`
+	QtySuspend      float64 `json:"qty_suspend"`
+	QtyShipped      float64 `json:"qty_shipped"`
+}
+
+// func (c *InventoryController) GetAvailableInventoryDetail(ctx *fiber.Ctx) error {
+// 	location := ctx.Query("location")
+// 	category := ctx.Query("category")
+// 	group := ctx.Query("group")
+// 	qaStatus := ctx.Query("qa_status")
+// 	search := ctx.Query("search")
+
+// 	query := c.DB.Model(&models.Inventory{}).
+// 		Joins("JOIN products ON products.id = inventories.item_id").
+// 		Where("inventories.qty_available > ?", 0)
+
+// 	if location != "" {
+// 		query = query.Where("inventories.location = ?", location)
+// 	}
+// 	if category != "" {
+// 		query = query.Where("products.category = ?", category) // sesuaikan nama kolom di tabel products
+// 	}
+// 	if group != "" {
+// 		query = query.Where("products.group = ?", group) // sesuaikan nama kolom di tabel products
+// 	}
+// 	if qaStatus != "" {
+// 		query = query.Where("inventories.qa_status = ?", qaStatus)
+// 	}
+// 	if search != "" {
+// 		like := "%" + search + "%"
+// 		query = query.Where(
+// 			"inventories.item_code LIKE ? OR products.item_name LIKE ? OR inventories.barcode LIKE ? OR inventories.location LIKE ? OR inventories.division_code LIKE ?",
+// 			like, like, like, like, like,
+// 		)
+// 	}
+
+// 	var inventories []models.Inventory
+// 	if err := query.
+// 		Preload("Product").
+// 		Order("inventories.item_code ASC, inventories.location ASC, inventories.id ASC").
+// 		Find(&inventories).Error; err != nil {
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+// 			"success": false,
+// 			"message": "Failed to fetch inventory detail",
+// 		})
+// 	}
+
+// 	result := make([]InventoryDetailRow, 0, len(inventories))
+// 	for _, inv := range inventories {
+// 		result = append(result, InventoryDetailRow{
+// 			InventoryNumber: inv.InventoryNumber,
+// 			Location:        inv.Location,
+// 			WhsCode:         inv.WhsCode,
+// 			DivisionCode:    inv.DivisionCode,
+// 			OwnerCode:       inv.OwnerCode,
+// 			ItemCode:        inv.ItemCode,
+// 			ItemName:        inv.Product.ItemName,
+// 			Barcode:         inv.Barcode,
+// 			Category:        inv.Product.Category, // sesuaikan field struct Product
+// 			Group:           inv.Product.Group,    // sesuaikan field struct Product
+// 			QaStatus:        inv.QaStatus,
+// 			Uom:             inv.Uom,
+// 			RecDate:         inv.RecDate,
+// 			ProdDate:        inv.ProdDate,
+// 			ExpDate:         inv.ExpDate,
+// 			LotNumber:       inv.LotNumber,
+// 			Pallet:          inv.Pallet,
+// 			CartonNumber:    inv.CartonNumber,
+// 			CaseNumber:      inv.CaseNumber,
+// 			SerialNumber:    inv.SerialNumber,
+// 			QtyOrigin:       inv.QtyOrigin,
+// 			QtyOnhand:       inv.QtyOnhand,
+// 			QtyAvailable:    inv.QtyAvailable,
+// 			QtyAllocated:    inv.QtyAllocated,
+// 			QtySuspend:      inv.QtySuspend,
+// 			QtyShipped:      inv.QtyShipped,
+// 		})
+// 	}
+
+// 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+// 		"success": true,
+// 		"data":    result,
+// 		"total":   len(result),
+// 	})
+// }
