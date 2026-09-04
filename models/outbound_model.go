@@ -27,6 +27,8 @@ type OutboundHeader struct {
 	PackingCompleteBy   int       `json:"packing_complete_by" gorm:"default:null"`
 	ChangeToDraftTime   time.Time `json:"change_to_draft_time" gorm:"default:null"`
 	ChangeToDraftBy     int       `json:"change_to_draft_by"`
+	CancelTime          time.Time `json:"cancel_time" gorm:"default:null"`
+	CancelBy            int       `json:"cancel_by" gorm:"default:null"`
 	User_Def1           string    `json:"user_def1"`
 	User_Def2           string    `json:"user_def2"`
 	User_Def3           string    `json:"user_def3"`
@@ -55,6 +57,7 @@ type OutboundHeader struct {
 	Integration         bool      `json:"integration" gorm:"default:false"`
 	Source              string    `json:"source" gorm:"default:'MANUAL'"`
 	AwbNo               string    `json:"awb_no"`
+	ActionReason        string    `json:"action_reason"`
 	CreatedBy           int
 	UpdatedBy           int
 	DeletedBy           int

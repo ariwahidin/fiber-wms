@@ -318,6 +318,33 @@ func (c *ProductController) GetAllProducts(ctx *fiber.Ctx) error {
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Products found", "data": products})
 }
 
+type ProductWithStock struct {
+	models.Product
+	QtyAvailable float64 `json:"qty_available"`
+}
+
+func (c *ProductController) GetAllProductsWithStock(ctx *fiber.Ctx) error {
+	var products []ProductWithStock
+	query := c.DB.Table("products").
+		Select(`products.*, COALESCE((
+			SELECT SUM(inventories.qty_available)
+			FROM inventories
+			WHERE inventories.item_id = products.id
+			AND inventories.deleted_at IS NULL
+		), 0) as qty_available`).
+		Order("products.item_code ASC")
+
+	if owner := ctx.Query("owner"); owner != "" {
+		query = query.Where("products.owner_code = ?", owner)
+	}
+
+	if err := query.Find(&products).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Products found", "data": products})
+}
+
 func (c *ProductController) GetAllCategory(ctx *fiber.Ctx) error {
 	var categories []models.Category
 	if err := c.DB.Find(&categories).Error; err != nil {

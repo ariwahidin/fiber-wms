@@ -14,6 +14,7 @@ func SetupProductRoutes(app *fiber.App) {
 	api.Use(database.InjectDBMiddleware(productController))
 
 	api.Get("/owner-codes", productController.GetOwnerCodes)
+	api.Get("/stock-available", productController.GetAllProductsWithStock)
 	api.Post("/export", productController.ExportProduct)
 	api.Post("/", productController.CreateProduct)
 	api.Get("/lookup", productController.LookupProduct)
