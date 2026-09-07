@@ -6,6 +6,24 @@ import (
 	"gorm.io/gorm"
 )
 
+type StockTakeBatch struct {
+	gorm.Model
+
+	Code        string     `json:"code" gorm:"unique;not null"`
+	OwnerCode   string     `json:"owner_code"`
+	Description string     `json:"description"`
+	Status      string     `json:"status" gorm:"default:'open'"`
+	CreatedBy   int        `json:"created_by"`
+	UpdatedBy   int        `json:"updated_by"`
+	StartedAt   *time.Time `json:"started_at"`
+	ClosedAt    *time.Time `json:"closed_at"`
+	ClosedBy    *int       `json:"closed_by"`
+	CancelAt    *time.Time `json:"cancel_at"`
+	CancelBy    *int       `json:"cancel_by"`
+
+	StockTakes []StockTake `gorm:"foreignKey:BatchID;references:ID;constraint:OnDelete:CASCADE" json:"stock_takes"`
+}
+
 type StockTake struct {
 	gorm.Model
 	Code      string          `json:"code" gorm:"unique"`
@@ -21,6 +39,8 @@ type StockTake struct {
 	CancelAt  time.Time       `json:"cancel_at" gorm:"default:NULL"`
 	CancelBy  int             `json:"cancel_by" gorm:"default:NULL"`
 	Items     []StockTakeItem `gorm:"foreignKey:StockTakeID;references:ID;constraint:OnDelete:CASCADE" json:"items"`
+	BatchID   *uint           `json:"batch_id"`
+	Batch     *StockTakeBatch `gorm:"foreignKey:BatchID;references:ID" json:"batch"`
 }
 
 type StockTakeItem struct {

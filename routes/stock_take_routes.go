@@ -10,7 +10,11 @@ import (
 )
 
 func SetupStockTakeRoutes(app *fiber.App) {
+	// =========================
+	// STOCK TAKE SESSION
+	// =========================
 	stockTakeController := &controllers.StockTakeController{}
+
 	api := app.Group(
 		config.MAIN_ROUTES+"/stock-take",
 		middleware.AuthMiddleware,
@@ -40,4 +44,28 @@ func SetupStockTakeRoutes(app *fiber.App) {
 	api.Get("/progress-pic/:code", stockTakeController.GetProgressByPic)
 	api.Get("/export-division/:code", stockTakeController.ExportProgressByDivision)
 	api.Get("/export-category/:code", stockTakeController.ExportProgressByCategory)
+
+	// =========================
+	// STOCK TAKE BATCH
+	// =========================
+	stockTakeBatchController := &controllers.StockTakeBatchController{}
+
+	batchAPI := app.Group(
+		config.MAIN_ROUTES+"/stock-take-batches",
+		middleware.AuthMiddleware,
+	)
+
+	batchAPI.Use(database.InjectDBMiddleware(stockTakeBatchController))
+
+	batchAPI.Post("/", stockTakeBatchController.CreateStockTakeBatch)
+	batchAPI.Get("/", stockTakeBatchController.GetAllStockTakeBatch)
+
+	batchAPI.Get("/:code", stockTakeBatchController.GetStockTakeBatchDetail)
+	batchAPI.Get("/:code/sessions", stockTakeBatchController.GetStockTakeBatchSessions)
+
+	batchAPI.Get("/:code/locations", stockTakeBatchController.GetStockTakeBatchLocations)
+
+	batchAPI.Post("/:code/complete", stockTakeBatchController.CompleteStockTakeBatch)
+	batchAPI.Post("/:code/cancel", stockTakeBatchController.CancelStockTakeBatch)
+
 }

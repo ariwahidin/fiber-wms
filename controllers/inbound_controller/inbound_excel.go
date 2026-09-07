@@ -1260,3 +1260,16 @@ func (c *InboundController) CreateInboundFromExcelFile(ctx *fiber.Ctx) error {
 // =======================================
 // END IMPORT FROM EXCEL FILE
 // =======================================
+
+// CreateInboundFromExcelIntegration
+// Khusus dipanggil oleh integration / n8n.
+// Tidak menggunakan AuthMiddleware / user login.
+// UserID = 0 untuk menandai proses system integration.
+func (c *InboundController) CreateInboundFromExcelIntegration(ctx *fiber.Ctx) error {
+
+	// System integration user
+	ctx.Locals("userID", float64(0))
+
+	// Gunakan seluruh logic Excel upload yang sudah existing
+	return c.CreateInboundFromExcelFile(ctx)
+}

@@ -209,6 +209,7 @@ func main() {
 	division_controller.SetupDivisionRoutes(app)
 	inventory_controller.SetupInventoryRoutes(app)
 	inbound_controller.SetupInboundRoutes(app)
+	inbound_controller.SetupIntegrationRoutes(app)
 	outbound_controller.SetupOutboundRoutes(app)
 	shopee_config_controller.SetupShopeeConfigRoutes(app)
 
@@ -243,6 +244,7 @@ func main() {
 	shopee_controller.SetupShopeeRoutes(app) // tanpa middleware auth karena Shopee yang akses
 	port := config.APP_PORT
 	fmt.Println("🚀 Server berjalan di port " + port)
+	fmt.Println("N8N token configured:", config.N8NIntegrationToken != "")
 
 	go func() {
 		time.Sleep(3 * time.Second)

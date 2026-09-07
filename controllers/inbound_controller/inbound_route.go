@@ -36,3 +36,17 @@ func SetupInboundRoutes(app *fiber.App) {
 	api.Post("/open", inboundController.HandleOpen)
 	api.Post("/checking", inboundController.HandleChecking)
 }
+
+func SetupIntegrationRoutes(app *fiber.App) {
+
+	api := app.Group(config.MAIN_ROUTES + "/integration")
+
+	inboundController := &InboundController{}
+
+	api.Post(
+		"/inbound/upload-excel",
+		middleware.IntegrationAuth,
+		database.InjectDBMiddlewareFromEnv(inboundController),
+		inboundController.CreateInboundFromExcelIntegration,
+	)
+}

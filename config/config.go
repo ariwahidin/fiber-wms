@@ -12,11 +12,12 @@ import (
 )
 
 var (
-	MAIN_ROUTES   string
-	GUEST_ROUTES  string
-	APP_PORT      string
-	JWTSecret     string
-	JWTExpiration int
+	MAIN_ROUTES         string
+	GUEST_ROUTES        string
+	APP_PORT            string
+	JWTSecret           string
+	N8NIntegrationToken string
+	JWTExpiration       int
 
 	DBDriver   string
 	DBHost     string
@@ -47,6 +48,7 @@ func LoadConfig() {
 	// JWT Configuration
 	JWTSecret = getEnv("JWT_SECRET", "wms_express_laravel_key_secret")
 	JWTExpiration = getEnvAsInt("JWT_EXPIRATION", 86400)
+	N8NIntegrationToken = getEnv("N8N_INTEGRATION_TOKEN", "")
 
 	// Database Configuration
 	DBDriver = getEnv("DB_DRIVER", "mssql")

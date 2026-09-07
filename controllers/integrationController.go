@@ -400,3 +400,10 @@ func writeLog(path, message string) {
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
 	f.WriteString(fmt.Sprintf("[%s] %s\n", timestamp, message))
 }
+
+func (c *IntegrationController) TestN8N(ctx *fiber.Ctx) error {
+	return ctx.JSON(fiber.Map{
+		"success": true,
+		"message": "n8n integration successful",
+	})
+}
