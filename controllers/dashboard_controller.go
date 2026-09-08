@@ -513,3 +513,60 @@ ORDER BY
 		},
 	})
 }
+
+// ── GET /dashboard/top-outbound-items ──────────────────────────
+func (c *DashboardController) GetDashboardTopOutboundItems(ctx *fiber.Ctx) error {
+	dateFrom, dateTo, ownerCode := parseDashboardFilter(ctx)
+
+	obDateCond := buildDateCondition("oh.outbound_date", dateFrom, dateTo)
+	obOwnerCond := buildOwnerCondition("oh.owner_code", ownerCode)
+
+	sql := `
+		SELECT TOP 5
+			od.item_code,
+			COALESCE(p.item_name, od.item_code) AS item_name,
+			SUM(od.quantity) AS quantity
+		FROM outbound_headers oh
+		INNER JOIN outbound_details od
+			ON oh.id = od.outbound_id
+		LEFT JOIN products p
+			ON od.item_id = p.id
+		WHERE oh.deleted_at IS NULL
+		  AND od.deleted_at IS NULL
+		  AND oh.status <> 'cancelled'
+		  ` + obDateCond + `
+		  ` + obOwnerCond + `
+		GROUP BY
+			od.item_code,
+			p.item_name
+		ORDER BY
+			SUM(od.quantity) DESC
+	`
+
+	var items []struct {
+		ItemCode string  `json:"item_code"`
+		ItemName string  `json:"item_name"`
+		Quantity float64 `json:"quantity"`
+	}
+
+	if err := c.DB.Raw(sql).Scan(&items).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"error":   "top outbound items query failed: " + err.Error(),
+		})
+	}
+
+	if items == nil {
+		items = []struct {
+			ItemCode string  `json:"item_code"`
+			ItemName string  `json:"item_name"`
+			Quantity float64 `json:"quantity"`
+		}{}
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": "Top outbound items found",
+		"data":    items,
+	})
+}
