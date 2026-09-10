@@ -610,10 +610,10 @@ func checkDuplicateItems(rows []ExcelInboundRow) []ValidationError {
 		// SerialNumber TIDAK dimasukkan ke key, karena beberapa baris dengan
 		// item+attrs sama tapi serial beda memang valid (akan di-merge jadi
 		// 1 InboundDetail dengan banyak InboundSerial).
-		key := fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s",
+		key := fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s",
 			row.ReceiptID, row.ItemCode, row.RecDate, row.ExpDate,
 			row.LotNumber, row.ProdDate, row.Location,
-			row.UOM, row.QaStatus, row.CartonNumber, row.CaseNumber)
+			row.UOM, row.QaStatus, row.CartonNumber, row.CaseNumber, row.SerialNumber)
 
 		// item non-serial tetap harus unik penuh (termasuk tanpa serial ini pun sudah cukup ketat)
 		if existingRow, exists := itemMap[key]; exists {
@@ -624,8 +624,8 @@ func checkDuplicateItems(rows []ExcelInboundRow) []ValidationError {
 			errs = append(errs, ValidationError{
 				Field: "Duplicate",
 				Message: fmt.Sprintf(
-					"Duplicate item found (same as row %d) within Receipt ID %s: %s / %s / %s / %s / %s / %s / %s / %s / %s / %s",
-					existingRow, row.ReceiptID, row.ItemCode, row.RecDate, row.ExpDate, row.LotNumber, row.ProdDate, row.Location, row.UOM, row.QaStatus, row.CartonNumber, row.CaseNumber,
+					"Duplicate item found (same as row %d) within Receipt ID %s: %s / %s / %s / %s / %s / %s / %s / %s / %s / %s / %s",
+					existingRow, row.ReceiptID, row.ItemCode, row.RecDate, row.ExpDate, row.LotNumber, row.ProdDate, row.Location, row.UOM, row.QaStatus, row.CartonNumber, row.CaseNumber, row.SerialNumber,
 				),
 				Row: row.Row,
 			})
@@ -647,14 +647,22 @@ func checkDuplicateSerialNumbers(rows []ExcelInboundRow) []ValidationError {
 		if row.SerialNumber == "" {
 			continue
 		}
-		if existingRow, exists := seen[row.SerialNumber]; exists {
+
+		key := row.SerialNumber + "|" + row.CaseNumber + "|" + row.CartonNumber
+
+		if existingRow, exists := seen[key]; exists {
 			errs = append(errs, ValidationError{
-				Field:   "SerialNumber",
-				Message: fmt.Sprintf("Duplicate serial number '%s' (same as row %d)", row.SerialNumber, existingRow),
-				Row:     row.Row,
+				Field: "SerialNumber",
+				Message: fmt.Sprintf(
+					"Duplicate serial number '%s' (same as row %d) in case number '%s'",
+					row.SerialNumber,
+					existingRow,
+					row.CaseNumber,
+				),
+				Row: row.Row,
 			})
 		} else {
-			seen[row.SerialNumber] = row.Row
+			seen[key] = row.Row
 		}
 	}
 
@@ -686,41 +694,38 @@ type MergedDetail struct {
 
 // mergeDetailRows melakukan sub-grouping baris detail dalam satu ReceiptID.
 // hasSerialMap: map[ItemCode]bool, hasil lookup product.HasSerial sebelumnya.
-func mergeDetailRows(details []ExcelInboundRow, hasSerialMap map[string]bool) []MergedDetail {
+func mergeDetailRows(details []ExcelInboundRow) []MergedDetail {
 	groupIndex := make(map[string]int)
 	var merged []MergedDetail
 
 	for _, d := range details {
-		isSerial := hasSerialMap[d.ItemCode] && d.SerialNumber != ""
-
-		if !isSerial {
-			merged = append(merged, MergedDetail{
-				Representative: d,
-				Rows:           []ExcelInboundRow{d},
-				Quantity:       d.Quantity, // ambil dari kolom Quantity Excel apa adanya
-			})
-			continue
-		}
-
 		key := detailGroupKey(d)
+
 		idx, exists := groupIndex[key]
+
 		if !exists {
 			merged = append(merged, MergedDetail{
 				Representative: d,
+				Rows:           []ExcelInboundRow{d},
+				Quantity:       d.Quantity,
 			})
+
 			idx = len(merged) - 1
 			groupIndex[key] = idx
+		} else {
+			merged[idx].Quantity += d.Quantity
+			merged[idx].Rows = append(merged[idx].Rows, d)
 		}
-		merged[idx].Rows = append(merged[idx].Rows, d)
 	}
 
+	// Kumpulkan semua serial number
 	for i := range merged {
-		// hanya finalize sebagai "serial group" kalau representative-nya memang
-		// masuk kondisi isSerial (punya SerialNumber terisi)
-		if hasSerialMap[merged[i].Representative.ItemCode] && merged[i].Representative.SerialNumber != "" {
-			merged[i].Quantity = float64(len(merged[i].Rows))
-			for _, r := range merged[i].Rows {
-				merged[i].SerialNumbers = append(merged[i].SerialNumbers, r.SerialNumber)
+		for _, row := range merged[i].Rows {
+			if row.SerialNumber != "" {
+				merged[i].SerialNumbers = append(
+					merged[i].SerialNumbers,
+					row.SerialNumber,
+				)
 			}
 		}
 	}
@@ -885,18 +890,6 @@ func (c *InboundController) CreateInboundFromExcelFile(ctx *fiber.Ctx) error {
 			Success:          false,
 			Message:          fmt.Sprintf("Header consistency validation failed with %d errors", len(consistencyErrors)),
 			ValidationErrors: consistencyErrors,
-			TotalRows:        len(rows) - 1,
-		})
-	}
-
-	// ---------- Validasi duplikat item (dalam masing-masing ReceiptID) ----------
-
-	duplicateErrors := checkDuplicateItems(parsedRows)
-	if len(duplicateErrors) > 0 {
-		return ctx.Status(fiber.StatusBadRequest).JSON(ExcelUploadResponse{
-			Success:          false,
-			Message:          "Duplicate items found in Excel file",
-			ValidationErrors: duplicateErrors,
 			TotalRows:        len(rows) - 1,
 		})
 	}
@@ -1121,7 +1114,7 @@ func (c *InboundController) CreateInboundFromExcelFile(ctx *fiber.Ctx) error {
 			})
 		}
 
-		mergedDetails := mergeDetailRows(group.Details, hasSerialMap)
+		mergedDetails := mergeDetailRows(group.Details)
 
 		for _, md := range mergedDetails {
 			detail := md.Representative
@@ -1205,7 +1198,7 @@ func (c *InboundController) CreateInboundFromExcelFile(ctx *fiber.Ctx) error {
 				})
 			}
 
-			if product.HasSerial == "Y" && len(md.SerialNumbers) > 0 {
+			if len(md.SerialNumbers) > 0 {
 				for _, sn := range md.SerialNumbers {
 					inboundSerial := models.InboundSerial{
 						InboundId:       int(inboundHeader.ID),
@@ -1214,15 +1207,26 @@ func (c *InboundController) CreateInboundFromExcelFile(ctx *fiber.Ctx) error {
 						CreatedBy:       userID,
 						UpdatedBy:       userID,
 					}
+
 					if err := tx.Create(&inboundSerial).Error; err != nil {
 						tx.Rollback()
-						return ctx.Status(fiber.StatusInternalServerError).JSON(ExcelUploadResponse{
-							Success: false,
-							Message: fmt.Sprintf("Failed to create inbound serial (Receipt ID %s, SN: %s)", h.ReceiptID, sn),
-							Errors: []ExcelRowError{
-								{Row: detail.Row, Message: "Database Insert Error", Detail: err.Error()},
+						return ctx.Status(fiber.StatusInternalServerError).JSON(
+							ExcelUploadResponse{
+								Success: false,
+								Message: fmt.Sprintf(
+									"Failed to create inbound serial (Receipt ID %s, SN: %s)",
+									h.ReceiptID,
+									sn,
+								),
+								Errors: []ExcelRowError{
+									{
+										Row:     detail.Row,
+										Message: "Database Insert Error",
+										Detail:  err.Error(),
+									},
+								},
 							},
-						})
+						)
 					}
 				}
 			}

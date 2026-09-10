@@ -81,22 +81,23 @@ type Outbound struct {
 }
 
 type OutboundItem struct {
-	ID           int               `json:"ID"`
-	OutboundID   types.SnowflakeID `json:"outbound_id"`
-	ItemCode     string            `json:"item_code"`
-	Quantity     float64           `json:"quantity"`
-	UOM          string            `json:"uom"`
-	SN           string            `json:"sn"`
-	Location     string            `json:"location"`
-	Remarks      string            `json:"remarks"`
-	Mode         string            `json:"mode"`
-	VasID        int               `json:"vas_id"`
-	ExpDate      string            `json:"exp_date"`
-	LotNumber    string            `json:"lot_number"`
-	CartonNumber string            `json:"carton_number"`
-	CaseNumber   string            `json:"case_number"`
-	SerialNumber string            `json:"serial_number"`
-	DivisionCode string            `json:"division_code"`
+	ID            int               `json:"ID"`
+	OutboundID    types.SnowflakeID `json:"outbound_id"`
+	ItemCode      string            `json:"item_code"`
+	Quantity      float64           `json:"quantity"`
+	UOM           string            `json:"uom"`
+	SN            string            `json:"sn"`
+	Location      string            `json:"location"`
+	Remarks       string            `json:"remarks"`
+	Mode          string            `json:"mode"`
+	VasID         int               `json:"vas_id"`
+	ExpDate       string            `json:"exp_date"`
+	LotNumber     string            `json:"lot_number"`
+	CartonNumber  string            `json:"carton_number"`
+	CaseNumber    string            `json:"case_number"`
+	SerialNumber  string            `json:"serial_number"`
+	SerialNumbers []string          `json:"serial_numbers"`
+	DivisionCode  string            `json:"division_code"`
 }
 
 func (c *OutboundController) CreateOutbound(ctx *fiber.Ctx) error {
@@ -404,6 +405,31 @@ func (c *OutboundController) CreateOutbound(ctx *fiber.Ctx) error {
 			})
 		}
 
+		for _, sn := range item.SerialNumbers {
+			sn = strings.TrimSpace(sn)
+
+			if sn == "" {
+				continue
+			}
+
+			serial := models.OutboundSerial{
+				OutboundId:       int(outboundID),
+				OutboundDetailId: int(OutboundDetail.ID),
+				SerialNumber:     sn,
+				CreatedBy:        userID,
+				UpdatedBy:        userID,
+			}
+
+			if err := tx.Create(&serial).Error; err != nil {
+				tx.Rollback()
+				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+					"success": false,
+					"message": "Failed to insert outbound serial",
+					"error":   err.Error(),
+				})
+			}
+		}
+
 	}
 
 	fmt.Println("End DB Transaction: ", outboundID)
@@ -641,46 +667,6 @@ func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
 			})
 		}
 
-		// if InventoryPolicy.UseLotNo {
-		// 	if item.LotNumber == "" {
-		// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-		// 			"success": false,
-		// 			"message": "Lot number cannot be empty",
-		// 			"error":   "Lot number cannot be empty",
-		// 		})
-		// 	}
-		// }
-
-		// if InventoryPolicy.UseProductionDate {
-		// 	if item.ProdDate == "" {
-		// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-		// 			"success": false,
-		// 			"message": "Production date cannot be empty",
-		// 			"error":   "Production date cannot be empty",
-		// 		})
-		// 	}
-		// }
-
-		// if InventoryPolicy.UseReceiveLocation {
-		// 	if item.Location == "" {
-		// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-		// 			"success": false,
-		// 			"message": "Receive location cannot be empty",
-		// 			"error":   "Receive location cannot be empty",
-		// 		})
-		// 	}
-		// }
-
-		// if InventoryPolicy.UseFEFO {
-		// 	if item.ExpDate == "" {
-		// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-		// 			"success": false,
-		// 			"message": "Expiration date cannot be empty",
-		// 			"error":   "Expiration date cannot be empty",
-		// 		})
-		// 	}
-		// }
-
 		if item.ItemCode == "" {
 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 				"success": false,
@@ -688,16 +674,6 @@ func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
 				"error":   "Item code cannot be empty",
 			})
 		}
-
-		// if itemCodes[item.ItemCode] {
-		// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-		// 		"success": false,
-		// 		"message": "Duplicate item code found: " + item.ItemCode,
-		// 		"error":   "Duplicate item code for item code " + item.ItemCode,
-		// 	})
-		// }
-
-		// itemCodes[item.ItemCode] = true // tandai sebagai sudah ditemukan
 
 		key := fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s", item.ItemCode, item.UOM, item.LotNumber, item.ExpDate, item.CartonNumber, item.CaseNumber, item.SerialNumber)
 
@@ -894,7 +870,25 @@ func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
 				}
 				if err := tx.Create(&newDetail).Error; err != nil {
 					tx.Rollback()
-					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+						"error": err.Error(),
+					})
+				}
+
+				if err := createOutboundSerial(
+					tx,
+					OutboundHeader.ID,
+					newDetail.ID,
+					item.SerialNumbers,
+					userID,
+				); err != nil {
+					tx.Rollback()
+
+					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+						"success": false,
+						"message": "Failed to insert outbound serial",
+						"error":   err.Error(),
+					})
 				}
 
 			}
@@ -935,6 +929,42 @@ func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
 			if err := tx.Save(&outboundDetail).Error; err != nil {
 				tx.Rollback()
 				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+			}
+
+			// Sync serial numbers
+			if OutboundHeader.Status == "open" {
+
+				// Hapus serial lama
+				if err := tx.
+					Where("outbound_detail_id = ?", outboundDetail.ID).
+					Delete(&models.OutboundSerial{}).Error; err != nil {
+
+					tx.Rollback()
+
+					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+						"success": false,
+						"message": "Failed to delete existing outbound serials",
+						"error":   err.Error(),
+					})
+				}
+
+				// Insert serial terbaru
+				if err := createOutboundSerial(
+					tx,
+					OutboundHeader.ID,
+					outboundDetail.ID,
+					item.SerialNumbers,
+					userID,
+				); err != nil {
+
+					tx.Rollback()
+
+					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+						"success": false,
+						"message": "Failed to insert outbound serial",
+						"error":   err.Error(),
+					})
+				}
 			}
 		} else {
 			// ❌ Error lain
@@ -1203,30 +1233,6 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 
 		fmt.Println("Picking Query")
 
-		// queryInventory := tx.Debug().
-		// 	Table("inventories as i").
-		// 	Joins("LEFT JOIN locations as l ON i.whs_code = l.whs_code AND i.location = l.location_code").
-		// 	Where(`
-		// 			i.item_id = ?
-		// 			AND i.whs_code = ?
-		// 			AND i.qty_available > 0
-		// 			AND i.uom = ?
-		// 			AND i.owner_code = ?
-		// 			AND i.qa_status = ?
-		// 			AND i.division_code = ?
-		// 			AND (
-		// 				l.id IS NULL
-		// 				OR (l.is_active = 1 AND l.is_pickable = 1)
-		// 			)
-		// 		`,
-		// 		outboundDetail.ItemID,
-		// 		outboundDetail.WhsCode,
-		// 		uomConversion.ToUom,
-		// 		outboundHeader.OwnerCode,
-		// 		outboundDetail.QaStatus,
-		// 		outboundDetail.DivisionCode,
-		// 	)
-
 		queryInventory := tx.Debug().
 			Table("inventories as i").
 			Joins("LEFT JOIN locations as l ON i.whs_code = l.whs_code AND i.location = l.location_code").
@@ -1274,12 +1280,6 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 			queryInventory = queryInventory.Where("i.lot_number = ?", outboundDetail.LotNumber)
 		}
 
-		// if invetoryPolicy.UseLotNo && !invetoryPolicy.AllowMixedLot {
-		// 	queryInventory = queryInventory.
-		// 		Where("i.qty_available >= ?", qtyReq).
-		// 		Limit(1)
-		// }
-
 		if invetoryPolicy.AllocationLotByOrder {
 			if outboundDetail.LotNumber != "" {
 				queryInventory = queryInventory.
@@ -1314,12 +1314,6 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 					Where("i.serial_number = ? AND i.qty_available > 0", outboundDetail.SerialNumber)
 			}
 		}
-
-		// if invetoryPolicy.UseFEFO {
-		// 	queryInventory = queryInventory.Order("i.exp_date, i.lot_number, i.rec_date, i.qty_available, i.pallet, i.location ASC")
-		// } else {
-		// 	queryInventory = queryInventory.Order("i.rec_date, i.qty_available, i.location ASC")
-		// }
 
 		if invetoryPolicy.UseFEFO {
 			queryInventory = queryInventory.Order("loc_rank.min_exp_date ASC, loc_rank.min_qty ASC, i.location ASC, i.exp_date ASC, i.lot_number ASC, i.rec_date ASC, i.qty_available ASC, i.pallet ASC")
@@ -1367,11 +1361,6 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 				),
 			})
 		}
-
-		// if len(inventories) == 0 && invetoryPolicy.UseLotNo && !invetoryPolicy.AllowMixedLot {
-		// 	tx.Rollback()
-		// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Insufficient stock available for item " + outboundDetail.ItemCode + " and AllowMixedLot is false"})
-		// }
 
 		if len(inventories) == 0 && invetoryPolicy.UseLotNo && outboundDetail.LotNumber != "" {
 			tx.Rollback()
@@ -1491,15 +1480,6 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 	if err := tx.Commit().Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
-
-	// realtime.GlobalHub.Broadcast(realtime.Event{
-	// 	Type: "outbound.packing_confirmed",
-	// 	Payload: fiber.Map{
-	// 		"outbound_no": outboundHeader.OutboundNo,
-	// 		"user_id":     int(ctx.Locals("userID").(float64)),
-	// 		"message":     fmt.Sprintf("Outbound %s is in picking status", outboundHeader.OutboundNo),
-	// 	},
-	// })
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Picking Outbound Success"})
 }
@@ -1742,14 +1722,11 @@ func (c *OutboundController) PickingComplete(ctx *fiber.Ctx) error {
 			QtySuspendChange:   0,
 			QtyShippedChange:   0,
 			FromWhsCode:        pickingSheet.WhsCode,
-			// ToWhsCode:          input.ToWhsCode,
-			FromLocation: pickingSheet.Location,
-			// ToLocation:         input.ToLocation,
-			OldQaStatus: pickingSheet.QaStatus,
-			// NewQaStatus:        newQaStatus,
-			Reason:    outboundHeader.OutboundNo + " COMPLETE",
-			CreatedBy: int(ctx.Locals("userID").(float64)),
-			CreatedAt: time.Now(),
+			FromLocation:       pickingSheet.Location,
+			OldQaStatus:        pickingSheet.QaStatus,
+			Reason:             outboundHeader.OutboundNo + " COMPLETE",
+			CreatedBy:          int(ctx.Locals("userID").(float64)),
+			CreatedAt:          time.Now(),
 		}
 
 		if err := tx.Create(&sourceMovement).Error; err != nil {
@@ -3874,3 +3851,35 @@ func (c *OutboundController) validateOutboundFromPdf(payload OutboundFromPdfPayl
 //======================================================================
 // END PROCESS OUTBOUND FROM PDF
 //======================================================================
+
+func createOutboundSerial(
+	tx *gorm.DB,
+	outboundID uint,
+	detailID uint,
+	serialNumbers []string,
+	userID int,
+) error {
+
+	for _, sn := range serialNumbers {
+
+		sn = strings.TrimSpace(sn)
+
+		if sn == "" {
+			continue
+		}
+
+		serial := models.OutboundSerial{
+			OutboundId:       int(outboundID),
+			OutboundDetailId: int(detailID),
+			SerialNumber:     sn,
+			CreatedBy:        userID,
+			UpdatedBy:        userID,
+		}
+
+		if err := tx.Create(&serial).Error; err != nil {
+			return err
+		}
+	}
+
+	return nil
+}

@@ -27,6 +27,7 @@ func SetupInboundRoutes(app *fiber.App) {
 	api.Get("/inventory/:inbound_no", inboundController.GetInventoryByInbound)
 	api.Put("/:inbound_no", inboundController.UpdateInboundByID)
 	api.Get("/:inbound_no/received/pallet-summary", inboundController.GetPalletSummary)
+	api.Get("/:inbound_no/received/case-summary", inboundController.GetCaseSummary)
 	api.Get("/:inbound_no/received/carton-summary", inboundController.GetCartonSummary)
 	api.Get("/:inbound_no/received", inboundController.GetReceivedByInboundNo)
 	api.Get("/item/:id", inboundController.GetItem)
