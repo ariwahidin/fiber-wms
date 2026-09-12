@@ -5,6 +5,7 @@ import (
 	"fiber-app/controllers/helpers"
 	"fiber-app/models"
 	"fiber-app/repositories"
+	"fiber-app/types"
 	"fmt"
 	"log"
 	"math"
@@ -784,15 +785,47 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 		}
 
 		// Batch fetch InboundBarcode "in stock" (buat serial/carton/case check)
-		inStockMap := make(map[int]models.InboundBarcode)
-		if len(detailIDs) > 0 && (InventoryPolicy.UseSerialNumber || InventoryPolicy.UseCartonNumber || InventoryPolicy.UseCaseNumber) {
-			var inStockBarcodes []models.InboundBarcode
-			if err := tx.Where("inbound_detail_id IN ? AND status = 'in stock'", detailIDs).Find(&inStockBarcodes).Error; err != nil {
+		// inStockMap := make(map[int]models.InboundBarcode)
+		// if len(detailIDs) > 0 && (InventoryPolicy.UseSerialNumber || InventoryPolicy.UseCartonNumber || InventoryPolicy.UseCaseNumber) {
+		// 	var inStockBarcodes []models.InboundBarcode
+		// 	if err := tx.Where("inbound_detail_id IN ? AND status = 'in stock'", detailIDs).Find(&inStockBarcodes).Error; err != nil {
+		// 		tx.Rollback()
+		// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		// 	}
+		// 	for _, b := range inStockBarcodes {
+		// 		inStockMap[int(b.InboundDetailId)] = b
+		// 	}
+		// }
+
+		// Batch fetch InboundBarcode yang sudah in stock
+		var inStockBarcodes []models.InboundBarcode
+
+		if len(detailIDs) > 0 {
+			if err := tx.
+				Where("inbound_detail_id IN ? AND status = ?", detailIDs, "in stock").
+				Find(&inStockBarcodes).Error; err != nil {
+
 				tx.Rollback()
-				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+					"error": err.Error(),
+				})
 			}
-			for _, b := range inStockBarcodes {
-				inStockMap[b.InboundDetailId] = b
+		}
+
+		// Map serial yang sudah putaway per detail
+		inStockSerialMap := make(map[uint]map[string]bool)
+
+		for _, b := range inStockBarcodes {
+			detailID := b.InboundDetailId
+
+			if _, ok := inStockSerialMap[detailID]; !ok {
+				inStockSerialMap[detailID] = make(map[string]bool)
+			}
+
+			serial := strings.TrimSpace(b.SerialNumber)
+
+			if serial != "" {
+				inStockSerialMap[detailID][serial] = true
 			}
 		}
 
@@ -811,55 +844,162 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 
 		// ===== Loop item pakai map lookup, no query =====
 
-		syncInboundSerials := func(detailID uint, itemCode string, serials []string, alreadyInStock bool) error {
+		// syncInboundSerials := func(detailID uint, itemCode string, serials []string, alreadyInStock bool) error {
+		// 	if len(serials) == 0 {
+		// 		return nil
+		// 	}
+
+		// 	trimmed := make([]string, 0, len(serials))
+		// 	seen := make(map[string]bool)
+		// 	for _, sn := range serials {
+		// 		sn = strings.TrimSpace(sn)
+		// 		if sn == "" {
+		// 			return fmt.Errorf("serial number cant be empty: %s", itemCode)
+		// 		}
+		// 		if seen[sn] {
+		// 			return fmt.Errorf("duplicate serial number: %s", sn)
+		// 		}
+		// 		seen[sn] = true
+		// 		trimmed = append(trimmed, sn)
+		// 	}
+
+		// 	if alreadyInStock {
+		// 		existingSet := make(map[string]bool)
+		// 		for _, e := range serialMap[detailID] {
+		// 			existingSet[e.SerialNumber] = true
+		// 		}
+		// 		for _, sn := range trimmed {
+		// 			if !existingSet[sn] {
+		// 				if !existingSet[sn] {
+		// 					return fmt.Errorf("Item already scanned: %s serial number: %s", itemCode, sn)
+		// 				}
+		// 			}
+		// 		}
+		// 		return nil
+		// 	}
+
+		// 	for _, sn := range trimmed {
+		// 		var existing models.InboundSerial
+		// 		errCheck := tx.Debug().Where("serial_number = ? AND inbound_detail_id != ?", sn, detailID).First(&existing).Error
+		// 		if errCheck == nil {
+		// 			return fmt.Errorf("serial number is already in use: %s, for item: %s", sn, itemCode)
+		// 		} else if !errors.Is(errCheck, gorm.ErrRecordNotFound) {
+		// 			return errCheck
+		// 		}
+		// 	}
+
+		// 	if err := tx.Where("inbound_detail_id = ?", detailID).Delete(&models.InboundSerial{}).Error; err != nil {
+		// 		return err
+		// 	}
+
+		// 	for _, sn := range trimmed {
+		// 		newSerial := models.InboundSerial{
+		// 			InboundId:       int(InboundHeader.ID),
+		// 			InboundDetailId: int(detailID),
+		// 			SerialNumber:    sn,
+		// 			CreatedBy:       userID,
+		// 			UpdatedBy:       userID,
+		// 		}
+		// 		if err := tx.Create(&newSerial).Error; err != nil {
+		// 			return err
+		// 		}
+		// 	}
+
+		// 	return nil
+		// }
+
+		syncInboundSerials := func(
+			detailID uint,
+			itemCode string,
+			serials []string,
+		) error {
+
 			if len(serials) == 0 {
 				return nil
 			}
 
+			// 1. Trim + duplicate validation
 			trimmed := make([]string, 0, len(serials))
 			seen := make(map[string]bool)
+
 			for _, sn := range serials {
 				sn = strings.TrimSpace(sn)
+
 				if sn == "" {
-					return fmt.Errorf("serial number cant be empty: %s", itemCode)
+					return fmt.Errorf(
+						"serial number cant be empty: %s",
+						itemCode,
+					)
 				}
+
 				if seen[sn] {
-					return fmt.Errorf("duplicate serial number: %s", sn)
+					return fmt.Errorf(
+						"duplicate serial number: %s",
+						sn,
+					)
 				}
+
 				seen[sn] = true
 				trimmed = append(trimmed, sn)
 			}
 
-			if alreadyInStock {
-				existingSet := make(map[string]bool)
-				for _, e := range serialMap[detailID] {
-					existingSet[e.SerialNumber] = true
-				}
-				for _, sn := range trimmed {
-					if !existingSet[sn] {
-						if !existingSet[sn] {
-							return fmt.Errorf("Item already scanned: %s serial number: %s", itemCode, sn)
-						}
-					}
-				}
-				return nil
+			// 2. Ambil serial lama
+			existingSerials := make(map[string]bool)
+
+			for _, e := range serialMap[detailID] {
+				existingSerials[e.SerialNumber] = true
 			}
 
+			// 3. Ambil serial yang SUDAH putaway
+			putawaySerials := inStockSerialMap[detailID]
+
+			// 4. Serial yang sudah putaway WAJIB tetap ada
+			for sn := range putawaySerials {
+				if !seen[sn] {
+					return fmt.Errorf(
+						"serial number %s already putaway and cannot be removed",
+						sn,
+					)
+				}
+			}
+
+			// 5. Serial baru tidak boleh sudah digunakan
+			//    oleh inbound detail lain
 			for _, sn := range trimmed {
+
 				var existing models.InboundSerial
-				errCheck := tx.Debug().Where("serial_number = ? AND inbound_detail_id != ?", sn, detailID).First(&existing).Error
+
+				errCheck := tx.
+					Where(
+						"serial_number = ? AND inbound_detail_id != ?",
+						sn,
+						detailID,
+					).
+					First(&existing).Error
+
 				if errCheck == nil {
-					return fmt.Errorf("serial number is already in use: %s, for item: %s", sn, itemCode)
-				} else if !errors.Is(errCheck, gorm.ErrRecordNotFound) {
+					return fmt.Errorf(
+						"serial number is already in use: %s, for item: %s",
+						sn,
+						itemCode,
+					)
+				}
+
+				if !errors.Is(errCheck, gorm.ErrRecordNotFound) {
 					return errCheck
 				}
 			}
 
-			if err := tx.Where("inbound_detail_id = ?", detailID).Delete(&models.InboundSerial{}).Error; err != nil {
+			// 6. Replace inbound_serials
+			if err := tx.
+				Where("inbound_detail_id = ?", detailID).
+				Delete(&models.InboundSerial{}).Error; err != nil {
 				return err
 			}
 
+			// 7. Insert serial baru
 			for _, sn := range trimmed {
+
 				newSerial := models.InboundSerial{
 					InboundId:       int(InboundHeader.ID),
 					InboundDetailId: int(detailID),
@@ -867,6 +1007,7 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 					CreatedBy:       userID,
 					UpdatedBy:       userID,
 				}
+
 				if err := tx.Create(&newSerial).Error; err != nil {
 					return err
 				}
@@ -910,7 +1051,9 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 
 			inputQty := item.Quantity
 			if !found {
-				// Create new detail
+				// ============================================================
+				// CREATE NEW INBOUND DETAIL
+				// ============================================================
 				newDetail := models.InboundDetail{
 					InboundId:     int(InboundHeader.ID),
 					InboundNo:     InboundHeader.InboundNo,
@@ -936,27 +1079,58 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 					QaStatus:      item.QaStatus,
 					DivisionCode:  item.DivisionCode,
 					CreatedBy:     userID,
-				}
-				if err := tx.Create(&newDetail).Error; err != nil {
-					tx.Rollback()
-					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+					UpdatedBy:     userID,
 				}
 
+				// CREATE CUKUP SEKALI
 				if err := tx.Create(&newDetail).Error; err != nil {
 					tx.Rollback()
-					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+
+					return ctx.Status(fiber.StatusInternalServerError).JSON(
+						fiber.Map{
+							"success": false,
+							"error":   err.Error(),
+						},
+					)
 				}
 
+				// ============================================================
+				// SYNC SERIAL
+				// ============================================================
 				if len(item.SerialNumbers) > 0 {
+
 					if len(item.SerialNumbers) != int(item.Quantity) {
 						tx.Rollback()
-						return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Item " + item.ItemCode + " has " + strconv.Itoa(len(item.SerialNumbers)) + " serial numbers, but quantity is " + strconv.Itoa(int(item.Quantity)) + ". Cannot update " + item.ItemCode})
+
+						return ctx.Status(fiber.StatusBadRequest).JSON(
+							fiber.Map{
+								"success": false,
+								"error": "Item " + item.ItemCode +
+									" has " +
+									strconv.Itoa(len(item.SerialNumbers)) +
+									" serial numbers, but quantity is " +
+									strconv.Itoa(int(item.Quantity)),
+							},
+						)
 					}
-					if err := syncInboundSerials(newDetail.ID, item.ItemCode, item.SerialNumbers, false); err != nil {
+
+					if err := syncInboundSerials(
+						newDetail.ID,
+						item.ItemCode,
+						item.SerialNumbers,
+					); err != nil {
+
 						tx.Rollback()
-						return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+
+						return ctx.Status(fiber.StatusBadRequest).JSON(
+							fiber.Map{
+								"success": false,
+								"error":   err.Error(),
+							},
+						)
 					}
 				}
+
 				continue
 			}
 
@@ -981,6 +1155,33 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 					if inboundBarcode.TotalScan > int(item.Quantity) {
 						tx.Rollback()
 						return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Quantity update for item " + item.ItemCode + " is less than the total scanned quantity"})
+					}
+				}
+			}
+
+			// ============================================================
+			// Check serial yang sudah putaway
+			// Serial yang sudah ada di inbound_barcodes tidak boleh diubah
+			// Serial yang belum ada di inbound_barcodes masih boleh diubah
+			// ============================================================
+			if InventoryPolicy.UseSerialNumber && len(item.SerialNumbers) > 0 {
+
+				putawaySerials := inStockSerialMap[uint(inboundDetail.ID)]
+
+				if len(putawaySerials) > 0 {
+
+					for _, sn := range item.SerialNumbers {
+						sn = strings.TrimSpace(sn)
+
+						if sn == "" {
+							continue
+						}
+
+						if putawaySerials[sn] {
+							// Serial ini sudah putaway.
+							// Tidak masalah jika serialnya tetap sama.
+							continue
+						}
 					}
 				}
 			}
@@ -1015,20 +1216,20 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 				}
 			}
 
-			if inStock, ok := inStockMap[int(inboundDetail.ID)]; ok {
-				if InventoryPolicy.UseSerialNumber && inStock.SerialNumber != item.SerialNumber {
-					tx.Rollback()
-					return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Item " + item.ItemCode + " already scanned, cannot update Serial Number"})
-				}
-				if InventoryPolicy.UseCartonNumber && inStock.CartonNumber != item.CartonNumber {
-					tx.Rollback()
-					return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Item " + item.ItemCode + " already scanned, cannot update Carton Number"})
-				}
-				if InventoryPolicy.UseCaseNumber && inStock.CaseNumber != item.CaseNumber {
-					tx.Rollback()
-					return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Item " + item.ItemCode + " already scanned, cannot update Case Number"})
-				}
-			}
+			// if inStock, ok := inStockMap[int(inboundDetail.ID)]; ok {
+			// 	if InventoryPolicy.UseSerialNumber && inStock.SerialNumber != item.SerialNumber {
+			// 		tx.Rollback()
+			// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Item " + item.ItemCode + " already scanned, cannot update Serial Number"})
+			// 	}
+			// 	if InventoryPolicy.UseCartonNumber && inStock.CartonNumber != item.CartonNumber {
+			// 		tx.Rollback()
+			// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Item " + item.ItemCode + " already scanned, cannot update Carton Number"})
+			// 	}
+			// 	if InventoryPolicy.UseCaseNumber && inStock.CaseNumber != item.CaseNumber {
+			// 		tx.Rollback()
+			// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Item " + item.ItemCode + " already scanned, cannot update Case Number"})
+			// 	}
+			// }
 
 			fmt.Println("Updating item ID:", inboundDetail.ID, "ItemCode:", item.ItemCode)
 
@@ -1072,9 +1273,13 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 					return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Jumlah serial number tidak sesuai quantity untuk item " + item.ItemCode})
 				}
 
-				_, alreadyInStock := inStockMap[int(inboundDetail.ID)]
+				// _, alreadyInStock := inStockMap[int(inboundDetail.ID)]
 
-				if err := syncInboundSerials(inboundDetail.ID, item.ItemCode, item.SerialNumbers, alreadyInStock); err != nil {
+				if err := syncInboundSerials(
+					inboundDetail.ID,
+					item.ItemCode,
+					item.SerialNumbers,
+				); err != nil {
 					tx.Rollback()
 					return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 				}
@@ -1624,6 +1829,98 @@ DELETE:
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Item deleted successfully"})
 }
 
+func (c *InboundController) DeleteSelectedBarcodes(ctx *fiber.Ctx) error {
+	var req struct {
+		IDs []types.SnowflakeID `json:"ids"`
+	}
+
+	if err := ctx.BodyParser(&req); err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "Invalid request body",
+		})
+	}
+
+	if len(req.IDs) == 0 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "No items selected",
+		})
+	}
+
+	err := c.DB.Transaction(func(tx *gorm.DB) error {
+
+		var barcodes []models.InboundBarcode
+
+		// Ambil barcode yang dipilih
+		if err := tx.
+			Where("id IN ?", req.IDs).
+			Find(&barcodes).Error; err != nil {
+			return err
+		}
+
+		// Pastikan semua ID ditemukan
+		if len(barcodes) != len(req.IDs) {
+			return fiber.NewError(
+				fiber.StatusNotFound,
+				"Some selected items were not found",
+			)
+		}
+
+		// Pastikan semuanya masih pending
+		for _, barcode := range barcodes {
+			if barcode.Status != "pending" {
+				return fiber.NewError(
+					fiber.StatusBadRequest,
+					"Only pending items can be deleted",
+				)
+			}
+		}
+
+		// Ambil InboundDetailId dari barcode
+		inboundDetailIDs := make([]uint, 0, len(barcodes))
+
+		for _, barcode := range barcodes {
+			if barcode.InboundDetailId != 0 {
+				inboundDetailIDs = append(
+					inboundDetailIDs,
+					barcode.InboundDetailId,
+				)
+			}
+		}
+
+		// Hapus serial yang terkait
+		if len(inboundDetailIDs) > 0 {
+			if err := tx.
+				Where("inbound_detail_id IN ?", inboundDetailIDs).
+				Delete(&models.InboundSerial{}).Error; err != nil {
+				return err
+			}
+		}
+
+		// Hapus barcode
+		if err := tx.Unscoped().
+			Where("id IN ?", req.IDs).
+			Delete(&models.InboundBarcode{}).Error; err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": err.Error(),
+		})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": "Selected items deleted successfully",
+	})
+}
+
 func (c *InboundController) GetPutawaySheet(ctx *fiber.Ctx) error {
 	id, err := ctx.ParamsInt("id")
 	if err != nil {
@@ -1782,7 +2079,7 @@ func (c *InboundController) PutawayByInboundNo(ctx *fiber.Ctx) error {
 			if newQtyScanned > 0 {
 				newInboundBarcode := models.InboundBarcode{
 					InboundId:       int(inboundHeader.ID),
-					InboundDetailId: int(detail.ID),
+					InboundDetailId: detail.ID,
 					ItemCode:        detail.ItemCode,
 					ItemID:          detail.ItemId,
 					ScanData:        detail.Barcode,
@@ -2065,7 +2362,7 @@ func (r *InboundController) HandleChecked(ctx *fiber.Ctx) error {
 
 		inboundBarcode := models.InboundBarcode{
 			InboundId:       int(InboundHeader.ID),
-			InboundDetailId: int(detail.ID),
+			InboundDetailId: detail.ID,
 			ItemID:          product.ID,
 			ItemCode:        detail.ItemCode,
 			ScanType:        "BARCODE",

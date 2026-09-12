@@ -55,7 +55,8 @@ type InboundHeader struct {
 	// Relations
 	InboundReferences []InboundReference `gorm:"foreignKey:InboundId;references:ID;constraint:OnDelete:CASCADE" json:"references"`
 	Details           []InboundDetail    `gorm:"foreignKey:InboundId;references:ID;constraint:OnDelete:CASCADE" json:"details"`
-	Received          []InboundBarcode   `gorm:"foreignKey:InboundId;references:ID;constraint:OnDelete:CASCADE" json:"received"`
+	// Received          []InboundBarcode   `gorm:"foreignKey:InboundId;references:ID;constraint:OnDelete:CASCADE" json:"received"`
+	Serials []InboundSerial `gorm:"foreignKey:InboundId;references:ID;constraint:OnDelete:CASCADE" json:"serials"`
 }
 
 type InboundReference struct {
@@ -99,6 +100,9 @@ type InboundDetail struct {
 	CreatedBy     int
 	UpdatedBy     int
 	DeletedBy     int
+
+	// Relations
+	Received []InboundBarcode `gorm:"foreignKey:InboundDetailId;references:ID;constraint:OnDelete:CASCADE" json:"received"`
 }
 
 type InboundSerial struct {
@@ -134,7 +138,7 @@ type InboundBarcode struct {
 	UpdatedAt       time.Time
 	DeletedAt       gorm.DeletedAt `gorm:"index"`
 	InboundId       int            `json:"inbound_id" gorm:"default:null"`
-	InboundDetailId int            `gorm:"foreignKey:InboundDetailId" json:"inbound_detail_id"`
+	InboundDetailId uint           `json:"inbound_detail_id" gorm:"default:null"`
 	ItemID          uint           `json:"item_id" required:"required"`
 	Product         Product        `gorm:"foreignKey:ItemID;references:ID" json:"product"`
 	ItemCode        string         `json:"item_code"`
@@ -171,7 +175,7 @@ type FormItemInbound struct {
 	InboundDetailID int    `json:"inbound_detail_id"`
 	InboundID       int    `json:"inbound_id"`
 	InboundNo       string `json:"inbound_no"`
-	ItemID          int    `json:"item_id" validate:"required"`
+	ItemID          uint   `json:"item_id" validate:"required"`
 	ItemName        string `json:"item_name"`
 	Barcode         string `json:"barcode"`
 	SerialNumber    string `json:"serial_number"`
@@ -194,7 +198,7 @@ type InboundDetailView struct {
 	DivisionCode  string `json:"division_code" required:"required"`
 	InboundId     int    `json:"inbound_id" gorm:"default:null"`
 	InboundNo     string `json:"inbound_no"`
-	ItemId        int    `json:"item_id" required:"required"`
+	ItemId        uint   `json:"item_id" required:"required"`
 	ProductNumber int    `json:"product_number"`
 	ItemCode      string `json:"item_code" required:"required"`
 	Barcode       string `json:"barcode"`

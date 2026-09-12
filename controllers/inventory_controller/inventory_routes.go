@@ -22,6 +22,10 @@ func SetupInventoryRoutes(app *fiber.App) {
 	api.Get("/available/summary", inventoryController.GetAvailableSummaryCards)
 	api.Get("/available/grouped", inventoryController.GetAvailableGrouped)
 	api.Get("/available/detail", inventoryController.GetAvailableInventoryDetail)
+	api.Get(
+		"/available/detail/:inventory_number/serials",
+		inventoryController.GetInventorySerialDetail,
+	)
 	api.Get("/available/filter-options", inventoryController.GetFilterOptions)
 	api.Get("/grouped-by-item", inventoryController.GetInventoryGroupedByItem)
 	api.Get("/cartons", inventoryController.GetCartonInventory)
@@ -35,6 +39,24 @@ func SetupInventoryRoutes(app *fiber.App) {
 	api.Post("/rf/move", inventoryController.MoveItem)
 	api.Post("/change", inventoryController.ChangeStatusInventory)
 	api.Post("/transfer", inventoryController.TransferInventory)
+
+	api.Get(
+		"/internal-transfer/inventories",
+		inventoryController.GetInternalTransferInventories,
+	)
+
+	api.Get(
+		"/internal-transfer/serials",
+		inventoryController.GetInternalTransferSerials,
+	)
+
+	api.Post(
+		"/internal-transfer",
+		inventoryController.TransferInventoryInternal,
+	)
+
+	// api.Get("/inventory/serials", inventoryController.GetInventorySerials)
+	// api.Post("/inventory/transfer-v2", inventoryController.TransferInventoryV2)
 
 	api.Post("/policies", inventoryController.CreateInvetoryPolicy)
 	api.Get("/policies", inventoryController.GetAllInventoryPolicy)

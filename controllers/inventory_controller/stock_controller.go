@@ -292,6 +292,36 @@ var detailColumns = map[string]string{
 	"qty_shipped":      "inventories.qty_shipped",
 }
 
+// DTO untuk baris detail (level record asli, bukan agregat)
+type InventoryDetailRow struct {
+	InventoryNumber int     `json:"inventory_number"`
+	Location        string  `json:"location"`
+	WhsCode         string  `json:"whs_code"`
+	DivisionCode    string  `json:"division_code"`
+	OwnerCode       string  `json:"owner_code"`
+	ItemCode        string  `json:"item_code"`
+	ItemName        string  `json:"item_name"`
+	Barcode         string  `json:"barcode"`
+	Category        string  `json:"category"`
+	Group           string  `json:"group"`
+	QaStatus        string  `json:"qa_status"`
+	Uom             string  `json:"uom"`
+	RecDate         string  `json:"rec_date"`
+	ProdDate        string  `json:"prod_date"`
+	ExpDate         string  `json:"exp_date"`
+	LotNumber       string  `json:"lot_number"`
+	Pallet          string  `json:"pallet"`
+	CartonNumber    string  `json:"carton_number"`
+	CaseNumber      string  `json:"case_number"`
+	SerialNumber    string  `json:"serial_number"`
+	QtyOrigin       float64 `json:"qty_origin"`
+	QtyOnhand       float64 `json:"qty_onhand"`
+	QtyAvailable    float64 `json:"qty_available"`
+	QtyAllocated    float64 `json:"qty_allocated"`
+	QtySuspend      float64 `json:"qty_suspend"`
+	QtyShipped      float64 `json:"qty_shipped"`
+}
+
 func (c *InventoryController) GetAvailableInventoryDetail(ctx *fiber.Ctx) error {
 	f := parseBaseFilters(ctx)
 	colFilters := parseColumnFilters(ctx)
@@ -435,5 +465,84 @@ func (c *InventoryController) GetFilterOptions(ctx *fiber.Ctx) error {
 			"group":     groups,
 			"qa_status": qaStatuses,
 		},
+	})
+}
+
+type InventorySerialDetailRow struct {
+	ItemCode     string  `json:"item_code"`
+	ItemName     string  `json:"item_name"`
+	QtyAvailable float64 `json:"qty_available"`
+	SerialNumber string  `json:"serial_number"`
+}
+
+func (c *InventoryController) GetInventorySerialDetail(ctx *fiber.Ctx) error {
+
+	inventoryNumberParam := ctx.Params("inventory_number")
+
+	inventoryNumber, err := strconv.Atoi(inventoryNumberParam)
+	if err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "Invalid inventory number",
+		})
+	}
+
+	type serialRow struct {
+		ItemCode     string  `gorm:"column:item_code"`
+		ItemName     string  `gorm:"column:item_name"`
+		QtyAvailable float64 `gorm:"column:qty_available"`
+		SerialNumber string  `gorm:"column:serial_number"`
+	}
+
+	var rows []serialRow
+
+	err = c.DB.
+		Debug().
+		Table("inventory_serials AS ins").
+		Select(`
+			i.item_code,
+			p.item_name,
+			ins.qty_available,
+			ins.serial_number
+		`).
+		Joins(`
+			INNER JOIN inventories AS i
+				ON i.id = ins.inventory_id
+		`).
+		Joins(`
+			INNER JOIN products AS p
+				ON p.id = i.item_id
+		`).
+		Where(`
+			i.inventory_number = ?
+			AND ins.deleted_at IS NULL
+			AND i.deleted_at IS NULL
+			AND p.deleted_at IS NULL
+		`, inventoryNumber).
+		Order("ins.serial_number ASC").
+		Scan(&rows).Error
+
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to fetch inventory serials",
+			"error":   err.Error(),
+		})
+	}
+
+	result := make([]InventorySerialDetailRow, 0, len(rows))
+
+	for _, row := range rows {
+		result = append(result, InventorySerialDetailRow{
+			ItemCode:     row.ItemCode,
+			ItemName:     row.ItemName,
+			QtyAvailable: row.QtyAvailable,
+			SerialNumber: row.SerialNumber,
+		})
+	}
+
+	return ctx.JSON(fiber.Map{
+		"success": true,
+		"data":    result,
 	})
 }

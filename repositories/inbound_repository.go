@@ -642,9 +642,9 @@ func (r *InboundRepository) ProcessPutawayItem(ctx *fiber.Ctx, inboundBarcodeID 
 	)
 
 	// tambahan kondisional
-	if inventoryPolicy.UseSerialNumber {
-		invQuery = invQuery.Where("serial_number = ?", barcode.SerialNumber)
-	}
+	// if inventoryPolicy.UseSerialNumber {
+	// 	invQuery = invQuery.Where("serial_number = ?", barcode.SerialNumber)
+	// }
 
 	fmt.Println("Inventory Existing Executed ")
 	err := invQuery.Debug().First(&existingInv).Error
@@ -653,6 +653,8 @@ func (r *InboundRepository) ProcessPutawayItem(ctx *fiber.Ctx, inboundBarcodeID 
 	if inventoryPolicy.UseSerialNumber && barcode.SerialNumber != "" {
 		serialNumber = barcode.SerialNumber
 	}
+
+	var inventoryID uint
 
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		// Tidak ada data → Insert baru
@@ -687,6 +689,8 @@ func (r *InboundRepository) ProcessPutawayItem(ctx *fiber.Ctx, inboundBarcodeID 
 			return false, err
 		}
 
+		inventoryID = newInv.ID
+
 		// ledger
 		helpers.InsertInventoryMovement(r.db, helpers.InventoryMovementPayload{
 			InventoryID:        newInv.ID,
@@ -706,6 +710,8 @@ func (r *InboundRepository) ProcessPutawayItem(ctx *fiber.Ctx, inboundBarcodeID 
 		})
 
 	} else if err == nil {
+
+		inventoryID = existingInv.ID
 		// Sudah ada → Update qty
 		if err := r.db.Model(&existingInv).Updates(map[string]interface{}{
 			"qty_origin":    existingInv.QtyOrigin + qtyConverted,
@@ -736,6 +742,34 @@ func (r *InboundRepository) ProcessPutawayItem(ctx *fiber.Ctx, inboundBarcodeID 
 		})
 	} else {
 		return false, err
+	}
+
+	if inventoryPolicy.UseSerialNumber {
+		if barcode.SerialNumber != "" {
+			var existingSerial models.InventorySerial
+
+			err := r.db.
+				Where("inventory_id = ? AND serial_number = ?", inventoryID, barcode.SerialNumber).
+				First(&existingSerial).Error
+
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				inventorySerial := models.InventorySerial{
+					InventoryId:  inventoryID,
+					SerialNumber: barcode.SerialNumber,
+					QtyOnhand:    qtyConverted,
+					QtyAvailable: qtyConverted,
+					QtyAllocated: 0,
+					QtyShipped:   0,
+					CreatedBy:    int(userID),
+				}
+
+				if err := r.db.Create(&inventorySerial).Error; err != nil {
+					return false, err
+				}
+			} else if err != nil {
+				return false, err
+			}
+		}
 	}
 
 	// Update status barcode ke "in stock"
@@ -832,7 +866,7 @@ func (r *InboundRepository) ProcessPutawayItemsBatch(ctx *fiber.Ctx, barcodeIDs 
 	barcodeIDsUint := make([]uint, 0, len(barcodes))
 	for _, b := range barcodes {
 		inboundIDSet[b.InboundId] = true
-		detailIDSet[b.InboundDetailId] = true
+		detailIDSet[int(b.InboundDetailId)] = true
 		itemCodeSet[b.ItemCode] = true
 		barcodeIDsUint = append(barcodeIDsUint, uint(b.ID))
 	}
@@ -920,7 +954,7 @@ func (r *InboundRepository) ProcessPutawayItemsBatch(ctx *fiber.Ctx, barcodeIDs 
 	for _, barcode := range barcodes {
 		header := headerMap[barcode.InboundId]
 		policy := policyMap[header.OwnerCode]
-		detail := detailMap[barcode.InboundDetailId]
+		detail := detailMap[int(barcode.InboundDetailId)]
 		product := productMap[barcode.ItemCode]
 
 		location := barcode.Location
@@ -941,7 +975,7 @@ func (r *InboundRepository) ProcessPutawayItemsBatch(ctx *fiber.Ctx, barcodeIDs 
 			cartonSerial = barcode.CartonNumber
 		}
 
-		key := buildMatchKey(policy.UseSerialNumber, barcode.InboundId, barcode.InboundDetailId, barcode.ItemCode, location, product.Barcode, barcode.WhsCode, barcode.QaStatus, barcode.RecDate, barcode.ProdDate, barcode.ExpDate, barcode.LotNumber, cartonSerial, barcode.SerialNumber)
+		key := buildMatchKey(policy.UseSerialNumber, barcode.InboundId, int(barcode.InboundDetailId), barcode.ItemCode, location, product.Barcode, barcode.WhsCode, barcode.QaStatus, barcode.RecDate, barcode.ProdDate, barcode.ExpDate, barcode.LotNumber, cartonSerial, barcode.SerialNumber)
 
 		calcs = append(calcs, putawayCalc{
 			barcode: barcode, product: product, detail: detail,

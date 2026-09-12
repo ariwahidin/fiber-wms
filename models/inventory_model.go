@@ -40,7 +40,22 @@ type Inventory struct {
 	CreatedBy       int
 	UpdatedBy       int
 	DeletedBy       int
-	Product         Product `json:"product" gorm:"foreignKey:ItemId;references:ID"`
+	Product         Product           `json:"product" gorm:"foreignKey:ItemId;references:ID"`
+	InventorySerial []InventorySerial `json:"inventory_serial" gorm:"foreignKey:InventoryId;references:ID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`
+}
+
+type InventorySerial struct {
+	gorm.Model
+	InventoryId      uint    `json:"inventory_id" gorm:"not null"`
+	SerialNumber     string  `json:"serial_number" gorm:"not null"`
+	QtyOnhand        float64 `json:"qty_onhand" gorm:"not null"`
+	QtyAllocated     float64 `json:"qty_allocated" gorm:"not null"`
+	QtyAvailable     float64 `json:"qty_available" gorm:"not null"`
+	QtyShipped       float64 `json:"qty_shipped" gorm:"not null"`
+	OutboundDetailId int     `json:"outbound_detail_id" gorm:"default:null"`
+	CreatedBy        int
+	UpdatedBy        int
+	DeletedBy        int
 }
 
 func (p *Inventory) BeforeCreate(tx *gorm.DB) (err error) {
@@ -97,55 +112,6 @@ type InventoryPolicy struct {
 	UpdatedBy                              int
 	DeletedBy                              int
 }
-
-// type InventoryMovement struct {
-// 	ID         uint `gorm:"primaryKey"`
-// 	MovementID string
-
-// 	InventoryID uint `gorm:"index;not null"`
-
-// 	// Referensi barang
-// 	ItemID   uint
-// 	ItemCode string
-
-// 	// Referensi proses
-// 	RefType string `gorm:"size:50;index"` // inbound, outbound, allocate, release, transfer, adjust, qc
-// 	RefID   uint   `gorm:"index"`
-
-// 	// Perubahan kuantitas (DELTA)
-// 	QtyOnhandChange    float64 `gorm:"default:0"`
-// 	QtyAvailableChange float64 `gorm:"default:0"`
-// 	QtyAllocatedChange float64 `gorm:"default:0"`
-// 	QtySuspendChange   float64 `gorm:"default:0"`
-// 	QtyShippedChange   float64 `gorm:"default:0"`
-
-// 	// Snapshot before/after — BARU, nullable
-// 	// Data lama akan NULL, data baru akan terisi
-// 	QtyOnhandBefore    *float64 `gorm:"default:null" json:"qty_onhand_before"`
-// 	QtyOnhandAfter     *float64 `gorm:"default:null" json:"qty_onhand_after"`
-// 	QtyAvailableBefore *float64 `gorm:"default:null" json:"qty_available_before"`
-// 	QtyAvailableAfter  *float64 `gorm:"default:null" json:"qty_available_after"`
-
-// 	// Konteks whs_code, lokasi & status
-// 	FromWhsCode   string `gorm:"size:20"`
-// 	ToWhsCode     string `gorm:"size:20"`
-// 	FromLocation  string `gorm:"size:100"`
-// 	ToLocation    string `gorm:"size:100"`
-// 	OldQaStatus   string `gorm:"size:50"`
-// 	NewQaStatus   string `gorm:"size:50"`
-// 	FromDivision  string `gorm:"size:50"`
-// 	ToDivision    string `gorm:"size:50"`
-// 	FromPallet    string `gorm:"size:100"`
-// 	ToPallet      string `gorm:"size:100"`
-// 	FromLotNumber string `gorm:"size:100"`
-// 	ToLotNumber   string `gorm:"size:100"`
-
-// 	// Metadata
-// 	Reason    string `gorm:"size:255"`
-// 	CreatedBy int
-// 	CreatedAt time.Time
-// }
-
 type InventoryMovement struct {
 	ID         uint `gorm:"primaryKey"`
 	MovementID string

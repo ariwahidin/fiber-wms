@@ -514,7 +514,7 @@ func buildInboundBarcode(
 ) models.InboundBarcode {
 	return models.InboundBarcode{
 		InboundId:       int(header.ID),
-		InboundDetailId: int(detail.ID),
+		InboundDetailId: detail.ID,
 		Location:        location,
 		Pallet:          location,
 		ItemID:          product.ID,
@@ -618,7 +618,7 @@ func (c *MobileInboundController) GetInboundDetail(ctx *fiber.Ctx) error {
 	}
 	scanQtyMap := make(map[int]float64, len(inboundDetails))
 	for _, b := range inboundBarcodes {
-		scanQtyMap[b.InboundDetailId] += b.Quantity
+		scanQtyMap[int(b.InboundDetailId)] += b.Quantity
 	}
 
 	// 7. Build result

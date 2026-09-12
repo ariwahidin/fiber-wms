@@ -686,7 +686,7 @@ func (c *InboundController) CheckPutawayByInboundNo(ctx *fiber.Ctx) error {
 
 						newInboundBarcode := models.InboundBarcode{
 							InboundId:       int(inboundHeader.ID),
-							InboundDetailId: int(detail.ID),
+							InboundDetailId: detail.ID,
 							ItemCode:        detail.ItemCode,
 							ItemID:          detail.ItemId,
 							ScanData:        detail.Barcode,
@@ -738,7 +738,7 @@ func (c *InboundController) CheckPutawayByInboundNo(ctx *fiber.Ctx) error {
 				if newQtyScanned > 0 {
 					newInboundBarcode := models.InboundBarcode{
 						InboundId:       int(inboundHeader.ID),
-						InboundDetailId: int(detail.ID),
+						InboundDetailId: detail.ID,
 						ItemCode:        detail.ItemCode,
 						ItemID:          detail.ItemId,
 						ScanData:        detail.Barcode,

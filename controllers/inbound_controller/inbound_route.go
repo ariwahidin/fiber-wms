@@ -20,6 +20,7 @@ func SetupInboundRoutes(app *fiber.App) {
 	api.Post("/putaway-bulk", inboundController.PutawayBulk)
 
 	api.Post("/upload-excel", inboundController.CreateInboundFromExcelFile)
+	api.Post("/upload-furuno-excel", inboundController.CreateInboundFromFurunoExcelFile)
 	api.Post("/", inboundController.CreateInbound)
 	api.Get("/", inboundController.GetAllListInbound)
 	api.Get("/filter", inboundController.GetInboundListFilter)
@@ -32,6 +33,7 @@ func SetupInboundRoutes(app *fiber.App) {
 	api.Get("/:inbound_no/received", inboundController.GetReceivedByInboundNo)
 	api.Get("/item/:id", inboundController.GetItem)
 	api.Delete("/item/:id", inboundController.DeleteItem)
+	api.Delete("/barcodes", inboundController.DeleteSelectedBarcodes)
 	api.Get("/putaway/sheet/:id", inboundController.GetPutawaySheet)
 	api.Post("/complete/:inbound_no", inboundController.HandleComplete)
 	api.Post("/open", inboundController.HandleOpen)

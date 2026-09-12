@@ -1062,15 +1062,18 @@ func (c *MobileInventoryController) GetInventoryByItem(ctx *fiber.Ctx) error {
 
 type RegisterProductRequest struct {
 	OwnerCode   string `json:"owner_code"`
+	Location    string `json:"location"`
 	SKU         string `json:"sku"`
 	Description string `json:"description"`
 	UnitModel   string `json:"unit_model"`
 	Ean         string `json:"ean"`
 	Uom         string `json:"uom"`
+	Quantity    int    `json:"quantity"`
 }
 
 func (c *MobileInventoryController) CreateRegisterProduct(ctx *fiber.Ctx) error {
 	var req RegisterProductRequest
+
 	if err := ctx.BodyParser(&req); err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"success": false,
@@ -1078,25 +1081,41 @@ func (c *MobileInventoryController) CreateRegisterProduct(ctx *fiber.Ctx) error 
 		})
 	}
 
-	// Validasi input
-	if req.OwnerCode == "" || req.SKU == "" || req.UnitModel == "" || req.Ean == "" || req.Uom == "" {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"success": false,
-			"message": "All fields are required",
-		})
-	}
-
 	// Normalize input
 	req.OwnerCode = strings.ToUpper(strings.TrimSpace(req.OwnerCode))
+	req.Location = strings.ToUpper(strings.TrimSpace(req.Location))
 	req.SKU = strings.ToUpper(strings.TrimSpace(req.SKU))
 	req.UnitModel = strings.ToUpper(strings.TrimSpace(req.UnitModel))
 	req.Description = strings.TrimSpace(req.Description)
 	req.Ean = strings.ToUpper(strings.TrimSpace(req.Ean))
 	req.Uom = strings.ToUpper(strings.TrimSpace(req.Uom))
 
+	// Default quantity = 1
+	if req.Quantity <= 0 {
+		req.Quantity = 1
+	}
+
+	// Validasi input
+	if req.OwnerCode == "" ||
+		req.Location == "" ||
+		req.SKU == "" ||
+		req.UnitModel == "" ||
+		req.Ean == "" ||
+		req.Uom == "" {
+
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "Owner, Location, Item, Model, EAN, and UOM are required",
+		})
+	}
+
 	// Validasi owner exists
 	var ownerExists models.Owner
-	if err := c.DB.Where("code = ?", req.OwnerCode).First(&ownerExists).Error; err != nil {
+
+	if err := c.DB.
+		Where("code = ?", req.OwnerCode).
+		First(&ownerExists).Error; err != nil {
+
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"success": false,
 			"message": "Owner code not found",
@@ -1105,7 +1124,11 @@ func (c *MobileInventoryController) CreateRegisterProduct(ctx *fiber.Ctx) error 
 
 	// Validasi UOM exists
 	var uomExists models.Uom
-	if err := c.DB.Where("code = ?", req.Uom).First(&uomExists).Error; err != nil {
+
+	if err := c.DB.
+		Where("code = ?", req.Uom).
+		First(&uomExists).Error; err != nil {
+
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"success": false,
 			"message": "UOM not found",
@@ -1114,8 +1137,23 @@ func (c *MobileInventoryController) CreateRegisterProduct(ctx *fiber.Ctx) error 
 
 	// Cek apakah kombinasi sudah ada
 	var existingProduct models.ProductRegister
-	err := c.DB.Where("owner_code = ? AND sku = ? AND unit_model = ? AND ean = ? AND uom = ?",
-		req.OwnerCode, req.SKU, req.UnitModel, req.Ean, req.Uom).
+
+	err := c.DB.
+		Where(`
+			owner_code = ?
+			AND location = ?
+			AND sku = ?
+			AND unit_model = ?
+			AND ean = ?
+			AND uom = ?
+		`,
+			req.OwnerCode,
+			req.Location,
+			req.SKU,
+			req.UnitModel,
+			req.Ean,
+			req.Uom,
+		).
 		First(&existingProduct).Error
 
 	if err == nil {
@@ -1125,17 +1163,19 @@ func (c *MobileInventoryController) CreateRegisterProduct(ctx *fiber.Ctx) error 
 		})
 	}
 
-	// Get user ID from context (sesuaikan dengan auth middleware Anda)
+	// Get user ID from context
 	userID := int(ctx.Locals("userID").(float64))
 
 	// Create new product
 	newProduct := models.ProductRegister{
 		OwnerCode:   req.OwnerCode,
+		Location:    req.Location,
 		SKU:         req.SKU,
 		UnitModel:   req.UnitModel,
 		Description: req.Description,
 		Ean:         req.Ean,
 		Uom:         req.Uom,
+		Quantity:    req.Quantity,
 		CreatedBy:   userID,
 		CreatedAt:   time.Now(),
 	}
@@ -1154,7 +1194,6 @@ func (c *MobileInventoryController) CreateRegisterProduct(ctx *fiber.Ctx) error 
 	})
 }
 
-// GetAllProducts - Endpoint untuk mendapatkan semua produk
 func (c *MobileInventoryController) GetAllProducts(ctx *fiber.Ctx) error {
 	var products []models.ProductRegister
 
@@ -1169,7 +1208,7 @@ func (c *MobileInventoryController) GetAllProducts(ctx *fiber.Ctx) error {
 		Find(&products).Error
 
 	if err != nil {
-		return ctx.Status(500).JSON(fiber.Map{
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"success": false,
 			"message": "Failed to fetch products",
 		})
