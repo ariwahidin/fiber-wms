@@ -1100,12 +1100,12 @@ func (c *MobileInventoryController) CreateRegisterProduct(ctx *fiber.Ctx) error 
 		req.Location == "" ||
 		req.SKU == "" ||
 		req.UnitModel == "" ||
-		req.Ean == "" ||
+		// req.Ean == "" ||
 		req.Uom == "" {
 
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"success": false,
-			"message": "Owner, Location, Item, Model, EAN, and UOM are required",
+			"message": "Owner, Location, Item, Model, and UOM are required",
 		})
 	}
 
