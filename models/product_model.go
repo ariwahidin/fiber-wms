@@ -89,19 +89,21 @@ type ItemPackaging struct {
 type ProductRegister struct {
 	gorm.Model
 
-	OwnerCode   string `json:"owner_code"`
-	Location    string `json:"location"`
-	SKU         string `json:"sku"`
-	Description string `json:"description"`
-	UnitModel   string `json:"unit_model"`
-	Ean         string `json:"ean"`
-	Uom         string `json:"uom"`
-	Quantity    int    `json:"quantity"`
+	OwnerCode   string    `json:"owner_code"`
+	Location    string    `json:"location"`
+	SKU         string    `json:"sku"`
+	UnitModel   string    `json:"unit_model"`
+	Description string    `json:"description"`
+	Ean         string    `json:"ean"`
+	Uom         string    `json:"uom"`
+	Quantity    int       `json:"quantity"`
+	CreatedBy   int       `json:"created_by"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedBy   int       `json:"updated_by"`
+	UpdatedAt   time.Time `json:"updated_at"`
 
-	CreatedBy     int
-	CreatedByName string `json:"created_by_name" gorm:"column:created_by_name;->"`
-	CreatedAt     time.Time
-
-	UpdatedBy int
-	UpdatedAt time.Time
+	// Carton information
+	CaseNumber string `json:"case_number" gorm:"size:100"`
+	CtnNo      *int   `json:"ctn_no"`
+	TotalCtn   *int   `json:"total_ctn"`
 }

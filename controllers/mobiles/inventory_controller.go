@@ -1064,11 +1064,16 @@ type RegisterProductRequest struct {
 	OwnerCode   string `json:"owner_code"`
 	Location    string `json:"location"`
 	SKU         string `json:"sku"`
-	Description string `json:"description"`
 	UnitModel   string `json:"unit_model"`
+	Description string `json:"description"`
 	Ean         string `json:"ean"`
 	Uom         string `json:"uom"`
 	Quantity    int    `json:"quantity"`
+
+	// Optional carton information
+	CaseNumber string `json:"case_number"`
+	CtnNo      *int   `json:"ctn_no"`
+	TotalCtn   *int   `json:"total_ctn"`
 }
 
 func (c *MobileInventoryController) CreateRegisterProduct(ctx *fiber.Ctx) error {
@@ -1089,6 +1094,7 @@ func (c *MobileInventoryController) CreateRegisterProduct(ctx *fiber.Ctx) error 
 	req.Description = strings.TrimSpace(req.Description)
 	req.Ean = strings.ToUpper(strings.TrimSpace(req.Ean))
 	req.Uom = strings.ToUpper(strings.TrimSpace(req.Uom))
+	req.CaseNumber = strings.ToUpper(strings.TrimSpace(req.CaseNumber))
 
 	// Default quantity = 1
 	if req.Quantity <= 0 {
@@ -1100,7 +1106,6 @@ func (c *MobileInventoryController) CreateRegisterProduct(ctx *fiber.Ctx) error 
 		req.Location == "" ||
 		req.SKU == "" ||
 		req.UnitModel == "" ||
-		// req.Ean == "" ||
 		req.Uom == "" {
 
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
@@ -1136,32 +1141,32 @@ func (c *MobileInventoryController) CreateRegisterProduct(ctx *fiber.Ctx) error 
 	}
 
 	// Cek apakah kombinasi sudah ada
-	var existingProduct models.ProductRegister
+	// var existingProduct models.ProductRegister
 
-	err := c.DB.
-		Where(`
-			owner_code = ?
-			AND location = ?
-			AND sku = ?
-			AND unit_model = ?
-			AND ean = ?
-			AND uom = ?
-		`,
-			req.OwnerCode,
-			req.Location,
-			req.SKU,
-			req.UnitModel,
-			req.Ean,
-			req.Uom,
-		).
-		First(&existingProduct).Error
+	// err := c.DB.
+	// 	Where(`
+	// 		owner_code = ?
+	// 		AND location = ?
+	// 		AND sku = ?
+	// 		AND unit_model = ?
+	// 		AND ean = ?
+	// 		AND uom = ?
+	// 	`,
+	// 		req.OwnerCode,
+	// 		req.Location,
+	// 		req.SKU,
+	// 		req.UnitModel,
+	// 		req.Ean,
+	// 		req.Uom,
+	// 	).
+	// 	First(&existingProduct).Error
 
-	if err == nil {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"success": false,
-			"message": "Product with this combination already exists",
-		})
-	}
+	// if err == nil {
+	// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+	// 		"success": false,
+	// 		"message": "Product with this combination already exists",
+	// 	})
+	// }
 
 	// Get user ID from context
 	userID := int(ctx.Locals("userID").(float64))
@@ -1178,6 +1183,11 @@ func (c *MobileInventoryController) CreateRegisterProduct(ctx *fiber.Ctx) error 
 		Quantity:    req.Quantity,
 		CreatedBy:   userID,
 		CreatedAt:   time.Now(),
+
+		// Optional carton information
+		CaseNumber: req.CaseNumber,
+		CtnNo:      req.CtnNo,
+		TotalCtn:   req.TotalCtn,
 	}
 
 	if err := c.DB.Create(&newProduct).Error; err != nil {
@@ -1273,6 +1283,14 @@ func (c *MobileInventoryController) UpdateProduct(ctx *fiber.Ctx) error {
 	req.Description = strings.ToUpper(strings.TrimSpace(req.Description))
 	req.Ean = strings.ToUpper(strings.TrimSpace(req.Ean))
 	req.Uom = strings.ToUpper(strings.TrimSpace(req.Uom))
+
+	// Validasi quantity
+	if req.Quantity < 0 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "Quantity cannot be negative",
+		})
+	}
 
 	// Cek apakah produk ada
 	var product models.ProductRegister
