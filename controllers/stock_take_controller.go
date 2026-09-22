@@ -52,7 +52,324 @@ func generateStockTakeCodeTx(tx *gorm.DB) (string, error) {
 	return fmt.Sprintf("%s%04d", datePrefix, lastSeqInt+1), nil
 }
 
+// func (c *StockTakeController) GenerateDataStockTake(ctx *fiber.Ctx) error {
+// 	type Filters struct {
+// 		BatchCode    string `json:"batchCode"`
+// 		Area         string `json:"area"`
+// 		FromRow      string `json:"fromRow"`
+// 		ToRow        string `json:"toRow"`
+// 		FromBay      string `json:"fromBay"`
+// 		ToBay        string `json:"toBay"`
+// 		FromLevel    string `json:"fromLevel"`
+// 		ToLevel      string `json:"toLevel"`
+// 		FromBin      string `json:"fromBin"`
+// 		ToBin        string `json:"toBin"`
+// 		DivisionCode string `json:"divisionCode"`
+// 		OwnerCode    string `json:"ownerCode"`
+// 	}
+// 	var req struct {
+// 		Filters Filters `json:"filters"`
+// 	}
+// 	if err := ctx.BodyParser(&req); err != nil {
+// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+// 			"success": false,
+// 			"message": "Invalid request body",
+// 			"error":   err.Error(),
+// 		})
+// 	}
+
+// 	userID := int(ctx.Locals("userID").(float64))
+
+// 	var batch models.StockTakeBatch
+
+// 	var resultStockTake models.StockTake
+// 	var resultItems []models.StockTakeItem
+
+// 	txErr := c.DB.Transaction(func(tx *gorm.DB) error {
+
+// 		// Validasi: customer/owner wajib dipilih sebelum generate stock take
+// 		if req.Filters.OwnerCode == "" {
+// 			return fiber.NewError(fiber.StatusBadRequest, "Please select a customer before generating a stock take")
+// 		}
+
+// 		if req.Filters.BatchCode == "" {
+// 			return fiber.NewError(
+// 				fiber.StatusBadRequest,
+// 				"Stock take batch code is required",
+// 			)
+// 		}
+
+// 		if err := tx.
+// 			Where("code = ?", req.Filters.BatchCode).
+// 			First(&batch).Error; err != nil {
+
+// 			if errors.Is(err, gorm.ErrRecordNotFound) {
+// 				return fiber.NewError(
+// 					fiber.StatusNotFound,
+// 					"Stock take batch not found",
+// 				)
+// 			}
+
+// 			return fmt.Errorf(
+// 				"failed to get stock take batch: %w",
+// 				err,
+// 			)
+// 		}
+
+// 		if batch.Status == "completed" {
+// 			return fiber.NewError(
+// 				fiber.StatusBadRequest,
+// 				"Cannot create a session for a completed stock take batch",
+// 			)
+// 		}
+
+// 		if batch.Status == "cancelled" {
+// 			return fiber.NewError(
+// 				fiber.StatusBadRequest,
+// 				"Cannot create a session for a cancelled stock take batch",
+// 			)
+// 		}
+
+// 		if req.Filters.OwnerCode != "" &&
+// 			req.Filters.OwnerCode != batch.OwnerCode {
+
+// 			return fiber.NewError(
+// 				fiber.StatusBadRequest,
+// 				"Owner code does not match the stock take batch",
+// 			)
+// 		}
+
+// 		// Pastikan owner-nya valid/exist
+// 		var owner models.Owner
+// 		if err := tx.Where("code = ?", req.Filters.OwnerCode).First(&owner).Error; err != nil {
+// 			if errors.Is(err, gorm.ErrRecordNotFound) {
+// 				return fiber.NewError(fiber.StatusBadRequest, "Selected customer was not found")
+// 			}
+// 			return fmt.Errorf("failed to validate owner: %w", err)
+// 		}
+
+// 		// 1. Ambil lokasi yang cocok — conditional where, skip filter kosong
+// 		locationQuery := tx.Where("is_active = ?", true)
+
+// 		if req.Filters.Area != "" {
+// 			locationQuery = locationQuery.Where("area = ?", req.Filters.Area)
+// 		}
+// 		if req.Filters.FromRow != "" && req.Filters.ToRow != "" {
+// 			locationQuery = locationQuery.Where("row >= ? AND row <= ?", req.Filters.FromRow, req.Filters.ToRow)
+// 		}
+// 		if req.Filters.FromBay != "" && req.Filters.ToBay != "" {
+// 			locationQuery = locationQuery.Where("bay >= ? AND bay <= ?", req.Filters.FromBay, req.Filters.ToBay)
+// 		}
+// 		if req.Filters.FromLevel != "" && req.Filters.ToLevel != "" {
+// 			locationQuery = locationQuery.Where("level >= ? AND level <= ?", req.Filters.FromLevel, req.Filters.ToLevel)
+// 		}
+// 		if req.Filters.FromBin != "" && req.Filters.ToBin != "" {
+// 			locationQuery = locationQuery.Where("bin >= ? AND bin <= ?", req.Filters.FromBin, req.Filters.ToBin)
+// 		}
+
+// 		var locations []models.Location
+// 		if err := locationQuery.Find(&locations).Error; err != nil {
+// 			return fmt.Errorf("failed to get locations: %w", err)
+// 		}
+// 		if len(locations) == 0 {
+// 			return fiber.NewError(fiber.StatusNotFound, "No locations found matching the given filters")
+// 		}
+
+// 		var locationCodes []string
+// 		for _, loc := range locations {
+// 			locationCodes = append(locationCodes, loc.LocationCode)
+// 		}
+
+// 		// 2. Cek overlap: lokasi ini masih ada di session yang belum closed
+// 		var overlapCount int64
+// 		if err := tx.Model(&models.StockTakeItem{}).
+// 			Joins("JOIN stock_takes ON stock_takes.id = stock_take_items.stock_take_id").
+// 			Where("stock_take_items.location IN ?", locationCodes).
+// 			Where("stock_takes.status IN ?", []string{"open", "in_progress"}).
+// 			Where("stock_takes.deleted_at IS NULL").
+// 			Count(&overlapCount).Error; err != nil {
+// 			return fmt.Errorf("failed to check overlapping sessions: %w", err)
+// 		}
+// 		if overlapCount > 0 {
+// 			return fiber.NewError(fiber.StatusBadRequest,
+// 				"Some of the selected locations already have an open or in-progress stock take session. Please close it first before generating a new one.")
+// 		}
+
+// 		// 3. Ambil data dari inventory berdasarkan lokasi yang difilter
+// 		inventoryQuery := tx.
+// 			Where("location IN ?", locationCodes).
+// 			Where("owner_code = ?", req.Filters.OwnerCode). // wajib, bukan lagi conditional
+// 			Where("qty_available > ?", 0)
+
+// 		if req.Filters.DivisionCode != "" {
+// 			inventoryQuery = inventoryQuery.Where("division_code = ?", req.Filters.DivisionCode)
+// 		}
+// 		if req.Filters.OwnerCode != "" {
+// 			inventoryQuery = inventoryQuery.Where("owner_code = ?", req.Filters.OwnerCode)
+// 		}
+
+// 		var inventories []models.Inventory
+// 		if err := inventoryQuery.Find(&inventories).Error; err != nil {
+// 			return fmt.Errorf("failed to fetch inventory data: %w", err)
+// 		}
+// 		// if len(inventories) == 0 {
+// 		// 	return fiber.NewError(fiber.StatusNotFound, "No inventory data found for the selected locations")
+// 		// }
+
+// 		// 4. Generate code (locked read, aman dari race condition)
+// 		stoNo, err := generateStockTakeCodeTx(tx)
+// 		if err != nil {
+// 			return fmt.Errorf("failed to generate stock take code: %w", err)
+// 		}
+
+// 		// 5. Buat stock_take baru
+// 		// stockTake := models.StockTake{
+// 		// 	Code:      stoNo,
+// 		// 	Status:    "open",
+// 		// 	CreatedBy: userID,
+// 		// }
+
+// 		stockTake := models.StockTake{
+// 			BatchID:   &batch.ID,
+// 			Code:      stoNo,
+// 			Status:    "open",
+// 			CreatedBy: userID,
+// 		}
+// 		if err := tx.Create(&stockTake).Error; err != nil {
+// 			return fmt.Errorf("failed to create stock take: %w", err)
+// 		}
+
+// 		if batch.Status == "open" {
+// 			now := time.Now()
+
+// 			if err := tx.Model(&batch).Updates(map[string]interface{}{
+// 				"status":     "in_progress",
+// 				"started_at": now,
+// 				"updated_at": now,
+// 				"updated_by": userID,
+// 			}).Error; err != nil {
+// 				return fmt.Errorf(
+// 					"failed to start stock take batch: %w",
+// 					err,
+// 				)
+// 			}
+
+// 			batch.Status = "in_progress"
+// 			batch.StartedAt = &now
+// 		}
+
+// 		// 6. Konversi ke stock_take_items
+// 		// var items []models.StockTakeItem
+// 		// for _, inv := range inventories {
+// 		// 	items = append(items, models.StockTakeItem{
+// 		// 		StockTakeID:  stockTake.ID,
+// 		// 		ItemID:       int64(inv.ItemId),
+// 		// 		InventoryID:  int64(inv.ID),
+// 		// 		Location:     inv.Location,
+// 		// 		Pallet:       inv.Pallet,
+// 		// 		Barcode:      inv.Barcode,
+// 		// 		CartonNumber: inv.CartonNumber,
+// 		// 		LotNumber:    inv.LotNumber,
+// 		// 		DivisionCode: inv.DivisionCode,
+// 		// 		OwnerCode:    inv.OwnerCode,
+// 		// 		SystemQty:    int(inv.QtyAvailable),
+// 		// 		CountedQty:   0,
+// 		// 		Difference:   0,
+// 		// 		CreatedBy:    userID,
+// 		// 	})
+// 		// }
+
+// 		// 6. Konversi ke stock_take_items — sekarang berbasis LOCATIONS, bukan cuma inventories
+// 		invByLocation := make(map[string][]models.Inventory)
+// 		for _, inv := range inventories {
+// 			invByLocation[inv.Location] = append(invByLocation[inv.Location], inv)
+// 		}
+
+// 		var items []models.StockTakeItem
+// 		for _, loc := range locations {
+// 			invList, hasInventory := invByLocation[loc.LocationCode]
+
+// 			if hasInventory {
+// 				for _, inv := range invList {
+// 					items = append(items, models.StockTakeItem{
+// 						StockTakeID:  stockTake.ID,
+// 						ItemID:       int64(inv.ItemId),
+// 						InventoryID:  int64(inv.ID),
+// 						Location:     inv.Location,
+// 						Pallet:       inv.Pallet,
+// 						Barcode:      inv.Barcode,
+// 						CartonNumber: inv.CartonNumber,
+// 						LotNumber:    inv.LotNumber,
+// 						DivisionCode: inv.DivisionCode,
+// 						OwnerCode:    inv.OwnerCode,
+// 						SystemQty:    int(inv.QtyAvailable),
+// 						CountedQty:   0,
+// 						Difference:   0,
+// 						CreatedBy:    userID,
+// 					})
+// 				}
+// 				continue
+// 			}
+
+// 			// Lokasi tanpa inventory -> placeholder item (blind count / cek lokasi kosong)
+// 			items = append(items, models.StockTakeItem{
+// 				StockTakeID:  stockTake.ID,
+// 				ItemID:       0,
+// 				InventoryID:  0,
+// 				Location:     loc.LocationCode,
+// 				Pallet:       "",
+// 				Barcode:      "",
+// 				CartonNumber: "",
+// 				LotNumber:    "",
+// 				DivisionCode: req.Filters.DivisionCode,
+// 				OwnerCode:    req.Filters.OwnerCode,
+// 				SystemQty:    0,
+// 				CountedQty:   0,
+// 				Difference:   0,
+// 				CreatedBy:    userID,
+// 			})
+// 		}
+
+// 		if len(items) > 0 {
+// 			// Batch size dihitung supaya aman di bawah limit 2100 parameter SQL Server.
+// 			// StockTakeItem punya ~17 kolom, jadi 100 rows/batch = ~1700 parameter, masih aman.
+// 			const batchSize = 100
+// 			if err := tx.CreateInBatches(&items, batchSize).Error; err != nil {
+// 				return fmt.Errorf("failed to insert stock take items: %w", err)
+// 			}
+// 		}
+
+// 		resultStockTake = stockTake
+// 		resultItems = items
+// 		return nil
+// 	})
+
+// 	if txErr != nil {
+// 		if fe, ok := txErr.(*fiber.Error); ok {
+// 			return ctx.Status(fe.Code).JSON(fiber.Map{
+// 				"success": false,
+// 				"message": fe.Message,
+// 			})
+// 		}
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+// 			"success": false,
+// 			"message": "Failed to generate stock take",
+// 			"error":   txErr.Error(),
+// 		})
+// 	}
+
+// 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+// 		"success": true,
+// 		"message": "Data stock take generated successfully",
+// 		"data": fiber.Map{
+// 			"stock_take": resultStockTake,
+// 			"items":      resultItems,
+// 		},
+// 	})
+// }
+
 func (c *StockTakeController) GenerateDataStockTake(ctx *fiber.Ctx) error {
+
 	type Filters struct {
 		BatchCode    string `json:"batchCode"`
 		Area         string `json:"area"`
@@ -67,9 +384,11 @@ func (c *StockTakeController) GenerateDataStockTake(ctx *fiber.Ctx) error {
 		DivisionCode string `json:"divisionCode"`
 		OwnerCode    string `json:"ownerCode"`
 	}
+
 	var req struct {
 		Filters Filters `json:"filters"`
 	}
+
 	if err := ctx.BodyParser(&req); err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"success": false,
@@ -81,23 +400,83 @@ func (c *StockTakeController) GenerateDataStockTake(ctx *fiber.Ctx) error {
 	userID := int(ctx.Locals("userID").(float64))
 
 	var batch models.StockTakeBatch
-
 	var resultStockTake models.StockTake
 	var resultItems []models.StockTakeItem
 
+	// Parse division code
+	//
+	// Contoh input:
+	// ""
+	// "ALL"
+	// "DIV01"
+	// "DIV01,DIV02"
+	//
+	// divisionCodes := make([]string, [])
+	var divisionCodes []string
+	allDivisions := false
+
+	if strings.TrimSpace(req.Filters.DivisionCode) != "" {
+
+		rawDivisionCodes := strings.Split(
+			req.Filters.DivisionCode,
+			",",
+		)
+
+		for _, rawCode := range rawDivisionCodes {
+
+			code := strings.TrimSpace(rawCode)
+
+			if code == "" {
+				continue
+			}
+
+			if strings.EqualFold(code, "ALL") {
+				allDivisions = true
+				divisionCodes = []string{}
+				break
+			}
+
+			// Hindari duplicate division code
+			isDuplicate := false
+
+			for _, existingCode := range divisionCodes {
+				if strings.EqualFold(existingCode, code) {
+					isDuplicate = true
+					break
+				}
+			}
+
+			if !isDuplicate {
+				divisionCodes = append(divisionCodes, code)
+			}
+		}
+	}
+
 	txErr := c.DB.Transaction(func(tx *gorm.DB) error {
 
-		// Validasi: customer/owner wajib dipilih sebelum generate stock take
+		// =====================================================
+		// 1. VALIDATION
+		// =====================================================
+
+		// Customer / owner wajib dipilih
 		if req.Filters.OwnerCode == "" {
-			return fiber.NewError(fiber.StatusBadRequest, "Please select a customer before generating a stock take")
+			return fiber.NewError(
+				fiber.StatusBadRequest,
+				"Please select a customer before generating a stock take",
+			)
 		}
 
+		// Batch code wajib diisi
 		if req.Filters.BatchCode == "" {
 			return fiber.NewError(
 				fiber.StatusBadRequest,
 				"Stock take batch code is required",
 			)
 		}
+
+		// =====================================================
+		// 2. GET STOCK TAKE BATCH
+		// =====================================================
 
 		if err := tx.
 			Where("code = ?", req.Filters.BatchCode).
@@ -116,6 +495,7 @@ func (c *StockTakeController) GenerateDataStockTake(ctx *fiber.Ctx) error {
 			)
 		}
 
+		// Batch sudah completed
 		if batch.Status == "completed" {
 			return fiber.NewError(
 				fiber.StatusBadRequest,
@@ -123,6 +503,7 @@ func (c *StockTakeController) GenerateDataStockTake(ctx *fiber.Ctx) error {
 			)
 		}
 
+		// Batch sudah cancelled
 		if batch.Status == "cancelled" {
 			return fiber.NewError(
 				fiber.StatusBadRequest,
@@ -130,6 +511,7 @@ func (c *StockTakeController) GenerateDataStockTake(ctx *fiber.Ctx) error {
 			)
 		}
 
+		// Validasi owner dengan batch
 		if req.Filters.OwnerCode != "" &&
 			req.Filters.OwnerCode != batch.OwnerCode {
 
@@ -139,95 +521,207 @@ func (c *StockTakeController) GenerateDataStockTake(ctx *fiber.Ctx) error {
 			)
 		}
 
-		// Pastikan owner-nya valid/exist
+		// =====================================================
+		// 3. VALIDATE OWNER
+		// =====================================================
+
 		var owner models.Owner
-		if err := tx.Where("code = ?", req.Filters.OwnerCode).First(&owner).Error; err != nil {
+
+		if err := tx.
+			Where("code = ?", req.Filters.OwnerCode).
+			First(&owner).Error; err != nil {
+
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return fiber.NewError(fiber.StatusBadRequest, "Selected customer was not found")
+				return fiber.NewError(
+					fiber.StatusBadRequest,
+					"Selected customer was not found",
+				)
 			}
-			return fmt.Errorf("failed to validate owner: %w", err)
+
+			return fmt.Errorf(
+				"failed to validate owner: %w",
+				err,
+			)
 		}
 
-		// 1. Ambil lokasi yang cocok — conditional where, skip filter kosong
-		locationQuery := tx.Where("is_active = ?", true)
+		// =====================================================
+		// 4. GET LOCATIONS
+		// =====================================================
+
+		locationQuery := tx.
+			Where("is_active = ?", true)
 
 		if req.Filters.Area != "" {
-			locationQuery = locationQuery.Where("area = ?", req.Filters.Area)
+			locationQuery = locationQuery.Where(
+				"area = ?",
+				req.Filters.Area,
+			)
 		}
-		if req.Filters.FromRow != "" && req.Filters.ToRow != "" {
-			locationQuery = locationQuery.Where("row >= ? AND row <= ?", req.Filters.FromRow, req.Filters.ToRow)
+
+		if req.Filters.FromRow != "" &&
+			req.Filters.ToRow != "" {
+
+			locationQuery = locationQuery.Where(
+				"row >= ? AND row <= ?",
+				req.Filters.FromRow,
+				req.Filters.ToRow,
+			)
 		}
-		if req.Filters.FromBay != "" && req.Filters.ToBay != "" {
-			locationQuery = locationQuery.Where("bay >= ? AND bay <= ?", req.Filters.FromBay, req.Filters.ToBay)
+
+		if req.Filters.FromBay != "" &&
+			req.Filters.ToBay != "" {
+
+			locationQuery = locationQuery.Where(
+				"bay >= ? AND bay <= ?",
+				req.Filters.FromBay,
+				req.Filters.ToBay,
+			)
 		}
-		if req.Filters.FromLevel != "" && req.Filters.ToLevel != "" {
-			locationQuery = locationQuery.Where("level >= ? AND level <= ?", req.Filters.FromLevel, req.Filters.ToLevel)
+
+		if req.Filters.FromLevel != "" &&
+			req.Filters.ToLevel != "" {
+
+			locationQuery = locationQuery.Where(
+				"level >= ? AND level <= ?",
+				req.Filters.FromLevel,
+				req.Filters.ToLevel,
+			)
 		}
-		if req.Filters.FromBin != "" && req.Filters.ToBin != "" {
-			locationQuery = locationQuery.Where("bin >= ? AND bin <= ?", req.Filters.FromBin, req.Filters.ToBin)
+
+		if req.Filters.FromBin != "" &&
+			req.Filters.ToBin != "" {
+
+			locationQuery = locationQuery.Where(
+				"bin >= ? AND bin <= ?",
+				req.Filters.FromBin,
+				req.Filters.ToBin,
+			)
 		}
 
 		var locations []models.Location
+
 		if err := locationQuery.Find(&locations).Error; err != nil {
-			return fmt.Errorf("failed to get locations: %w", err)
+			return fmt.Errorf(
+				"failed to get locations: %w",
+				err,
+			)
 		}
+
 		if len(locations) == 0 {
-			return fiber.NewError(fiber.StatusNotFound, "No locations found matching the given filters")
+			return fiber.NewError(
+				fiber.StatusNotFound,
+				"No locations found matching the given filters",
+			)
 		}
 
 		var locationCodes []string
+
 		for _, loc := range locations {
-			locationCodes = append(locationCodes, loc.LocationCode)
+			locationCodes = append(
+				locationCodes,
+				loc.LocationCode,
+			)
 		}
 
-		// 2. Cek overlap: lokasi ini masih ada di session yang belum closed
+		// =====================================================
+		// 5. CHECK OVERLAPPING STOCK TAKE SESSION
+		// =====================================================
+
 		var overlapCount int64
-		if err := tx.Model(&models.StockTakeItem{}).
-			Joins("JOIN stock_takes ON stock_takes.id = stock_take_items.stock_take_id").
-			Where("stock_take_items.location IN ?", locationCodes).
-			Where("stock_takes.status IN ?", []string{"open", "in_progress"}).
-			Where("stock_takes.deleted_at IS NULL").
+
+		if err := tx.
+			Model(&models.StockTakeItem{}).
+			Joins(
+				"JOIN stock_takes ON stock_takes.id = stock_take_items.stock_take_id",
+			).
+			Where(
+				"stock_take_items.location IN ?",
+				locationCodes,
+			).
+			Where(
+				"stock_takes.status IN ?",
+				[]string{
+					"open",
+					"in_progress",
+				},
+			).
+			Where(
+				"stock_takes.deleted_at IS NULL",
+			).
 			Count(&overlapCount).Error; err != nil {
-			return fmt.Errorf("failed to check overlapping sessions: %w", err)
+
+			return fmt.Errorf(
+				"failed to check overlapping sessions: %w",
+				err,
+			)
 		}
+
 		if overlapCount > 0 {
-			return fiber.NewError(fiber.StatusBadRequest,
-				"Some of the selected locations already have an open or in-progress stock take session. Please close it first before generating a new one.")
+			return fiber.NewError(
+				fiber.StatusBadRequest,
+				"Some of the selected locations already have an open or in-progress stock take session. Please close it first before generating a new one.",
+			)
 		}
 
-		// 3. Ambil data dari inventory berdasarkan lokasi yang difilter
+		// =====================================================
+		// 6. GET INVENTORY
+		// =====================================================
+
 		inventoryQuery := tx.
-			Where("location IN ?", locationCodes).
-			Where("owner_code = ?", req.Filters.OwnerCode). // wajib, bukan lagi conditional
-			Where("qty_available > ?", 0)
+			Where(
+				"location IN ?",
+				locationCodes,
+			).
+			Where(
+				"owner_code = ?",
+				req.Filters.OwnerCode,
+			).
+			Where(
+				"qty_available > ?",
+				0,
+			)
 
-		if req.Filters.DivisionCode != "" {
-			inventoryQuery = inventoryQuery.Where("division_code = ?", req.Filters.DivisionCode)
-		}
-		if req.Filters.OwnerCode != "" {
-			inventoryQuery = inventoryQuery.Where("owner_code = ?", req.Filters.OwnerCode)
+		// Filter multiple division
+		//
+		// Jika ALL:
+		// Tidak menggunakan filter division_code
+		//
+		// Jika DIV01,DIV02:
+		// WHERE division_code IN ('DIV01', 'DIV02')
+		//
+		if !allDivisions && len(divisionCodes) > 0 {
+
+			inventoryQuery = inventoryQuery.Where(
+				"division_code IN ?",
+				divisionCodes,
+			)
 		}
 
 		var inventories []models.Inventory
+
 		if err := inventoryQuery.Find(&inventories).Error; err != nil {
-			return fmt.Errorf("failed to fetch inventory data: %w", err)
+			return fmt.Errorf(
+				"failed to fetch inventory data: %w",
+				err,
+			)
 		}
-		// if len(inventories) == 0 {
-		// 	return fiber.NewError(fiber.StatusNotFound, "No inventory data found for the selected locations")
-		// }
 
-		// 4. Generate code (locked read, aman dari race condition)
+		// =====================================================
+		// 7. GENERATE STOCK TAKE CODE
+		// =====================================================
+
 		stoNo, err := generateStockTakeCodeTx(tx)
+
 		if err != nil {
-			return fmt.Errorf("failed to generate stock take code: %w", err)
+			return fmt.Errorf(
+				"failed to generate stock take code: %w",
+				err,
+			)
 		}
 
-		// 5. Buat stock_take baru
-		// stockTake := models.StockTake{
-		// 	Code:      stoNo,
-		// 	Status:    "open",
-		// 	CreatedBy: userID,
-		// }
+		// =====================================================
+		// 8. CREATE STOCK TAKE
+		// =====================================================
 
 		stockTake := models.StockTake{
 			BatchID:   &batch.ID,
@@ -235,19 +729,31 @@ func (c *StockTakeController) GenerateDataStockTake(ctx *fiber.Ctx) error {
 			Status:    "open",
 			CreatedBy: userID,
 		}
+
 		if err := tx.Create(&stockTake).Error; err != nil {
-			return fmt.Errorf("failed to create stock take: %w", err)
+			return fmt.Errorf(
+				"failed to create stock take: %w",
+				err,
+			)
 		}
 
+		// =====================================================
+		// 9. UPDATE BATCH STATUS
+		// =====================================================
+
 		if batch.Status == "open" {
+
 			now := time.Now()
 
-			if err := tx.Model(&batch).Updates(map[string]interface{}{
-				"status":     "in_progress",
-				"started_at": now,
-				"updated_at": now,
-				"updated_by": userID,
-			}).Error; err != nil {
+			if err := tx.
+				Model(&batch).
+				Updates(map[string]interface{}{
+					"status":     "in_progress",
+					"started_at": now,
+					"updated_at": now,
+					"updated_by": userID,
+				}).Error; err != nil {
+
 				return fmt.Errorf(
 					"failed to start stock take batch: %w",
 					err,
@@ -258,114 +764,208 @@ func (c *StockTakeController) GenerateDataStockTake(ctx *fiber.Ctx) error {
 			batch.StartedAt = &now
 		}
 
-		// 6. Konversi ke stock_take_items
-		// var items []models.StockTakeItem
-		// for _, inv := range inventories {
-		// 	items = append(items, models.StockTakeItem{
-		// 		StockTakeID:  stockTake.ID,
-		// 		ItemID:       int64(inv.ItemId),
-		// 		InventoryID:  int64(inv.ID),
-		// 		Location:     inv.Location,
-		// 		Pallet:       inv.Pallet,
-		// 		Barcode:      inv.Barcode,
-		// 		CartonNumber: inv.CartonNumber,
-		// 		LotNumber:    inv.LotNumber,
-		// 		DivisionCode: inv.DivisionCode,
-		// 		OwnerCode:    inv.OwnerCode,
-		// 		SystemQty:    int(inv.QtyAvailable),
-		// 		CountedQty:   0,
-		// 		Difference:   0,
-		// 		CreatedBy:    userID,
-		// 	})
-		// }
+		// =====================================================
+		// 10. GROUP INVENTORY BY LOCATION
+		// =====================================================
 
-		// 6. Konversi ke stock_take_items — sekarang berbasis LOCATIONS, bukan cuma inventories
-		invByLocation := make(map[string][]models.Inventory)
+		invByLocation := make(
+			map[string][]models.Inventory,
+		)
+
 		for _, inv := range inventories {
-			invByLocation[inv.Location] = append(invByLocation[inv.Location], inv)
+
+			invByLocation[inv.Location] = append(
+				invByLocation[inv.Location],
+				inv,
+			)
 		}
 
+		// =====================================================
+		// 11. PREPARE STOCK TAKE ITEMS
+		// =====================================================
+
 		var items []models.StockTakeItem
+
+		// Nilai division code untuk placeholder
+		//
+		// ALL                  -> "ALL"
+		// DIV01,DIV02          -> "DIV01,DIV02"
+		// Tidak ada filter     -> ""
+		//
+		// placeholderDivisionCode := ""
+
+		// if allDivisions {
+		// 	placeholderDivisionCode = "ALL"
+		// } else if len(divisionCodes) > 0 {
+		// 	placeholderDivisionCode = strings.Join(
+		// 		divisionCodes,
+		// 		",",
+		// 	)
+		// }
+
 		for _, loc := range locations {
+
 			invList, hasInventory := invByLocation[loc.LocationCode]
 
+			// =================================================
+			// 11A. LOCATION MEMILIKI INVENTORY
+			// =================================================
+
 			if hasInventory {
+
 				for _, inv := range invList {
-					items = append(items, models.StockTakeItem{
-						StockTakeID:  stockTake.ID,
-						ItemID:       int64(inv.ItemId),
-						InventoryID:  int64(inv.ID),
-						Location:     inv.Location,
-						Pallet:       inv.Pallet,
-						Barcode:      inv.Barcode,
-						CartonNumber: inv.CartonNumber,
-						LotNumber:    inv.LotNumber,
-						DivisionCode: inv.DivisionCode,
-						OwnerCode:    inv.OwnerCode,
-						SystemQty:    int(inv.QtyAvailable),
-						CountedQty:   0,
-						Difference:   0,
-						CreatedBy:    userID,
-					})
+
+					items = append(
+						items,
+						models.StockTakeItem{
+							StockTakeID: stockTake.ID,
+
+							ItemID: int64(
+								inv.ItemId,
+							),
+
+							InventoryID: int64(
+								inv.ID,
+							),
+
+							Location: inv.Location,
+
+							Pallet: inv.Pallet,
+
+							Barcode: inv.Barcode,
+
+							CartonNumber: inv.CartonNumber,
+
+							LotNumber: inv.LotNumber,
+
+							DivisionCode: inv.DivisionCode,
+
+							OwnerCode: inv.OwnerCode,
+
+							SystemQty: int(
+								inv.QtyAvailable,
+							),
+
+							CountedQty: 0,
+
+							Difference: 0,
+
+							CreatedBy: userID,
+						},
+					)
 				}
+
 				continue
 			}
 
-			// Lokasi tanpa inventory -> placeholder item (blind count / cek lokasi kosong)
-			items = append(items, models.StockTakeItem{
-				StockTakeID:  stockTake.ID,
-				ItemID:       0,
-				InventoryID:  0,
-				Location:     loc.LocationCode,
-				Pallet:       "",
-				Barcode:      "",
-				CartonNumber: "",
-				LotNumber:    "",
-				DivisionCode: req.Filters.DivisionCode,
-				OwnerCode:    req.Filters.OwnerCode,
-				SystemQty:    0,
-				CountedQty:   0,
-				Difference:   0,
-				CreatedBy:    userID,
-			})
+			// =================================================
+			// 11B. LOCATION TANPA INVENTORY
+			// =================================================
+
+			// Placeholder untuk blind count
+			// atau pengecekan lokasi kosong
+
+			items = append(
+				items,
+				models.StockTakeItem{
+					StockTakeID:  stockTake.ID,
+					ItemID:       0,
+					InventoryID:  0,
+					Location:     loc.LocationCode,
+					Pallet:       "",
+					Barcode:      "",
+					CartonNumber: "",
+					LotNumber:    "",
+					// DivisionCode: placeholderDivisionCode,
+					DivisionCode: "",
+					OwnerCode:    req.Filters.OwnerCode,
+					SystemQty:    0,
+					CountedQty:   0,
+					Difference:   0,
+					CreatedBy:    userID,
+				},
+			)
 		}
 
+		// =====================================================
+		// 12. INSERT STOCK TAKE ITEMS
+		// =====================================================
+
 		if len(items) > 0 {
-			// Batch size dihitung supaya aman di bawah limit 2100 parameter SQL Server.
-			// StockTakeItem punya ~17 kolom, jadi 100 rows/batch = ~1700 parameter, masih aman.
+
+			// SQL Server memiliki batas sekitar 2100 parameter.
+			// StockTakeItem kurang lebih memiliki 17 kolom.
+			// 100 rows per batch masih relatif aman.
+
 			const batchSize = 100
-			if err := tx.CreateInBatches(&items, batchSize).Error; err != nil {
-				return fmt.Errorf("failed to insert stock take items: %w", err)
+
+			if err := tx.
+				CreateInBatches(
+					&items,
+					batchSize,
+				).Error; err != nil {
+
+				return fmt.Errorf(
+					"failed to insert stock take items: %w",
+					err,
+				)
 			}
 		}
 
+		// =====================================================
+		// 13. SET RESULT
+		// =====================================================
+
 		resultStockTake = stockTake
 		resultItems = items
+
 		return nil
 	})
 
+	// =========================================================
+	// 14. HANDLE TRANSACTION ERROR
+	// =========================================================
+
 	if txErr != nil {
+
 		if fe, ok := txErr.(*fiber.Error); ok {
-			return ctx.Status(fe.Code).JSON(fiber.Map{
-				"success": false,
-				"message": fe.Message,
-			})
+
+			return ctx.Status(fe.Code).JSON(
+				fiber.Map{
+					"success": false,
+					"message": fe.Message,
+				},
+			)
 		}
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"success": false,
-			"message": "Failed to generate stock take",
-			"error":   txErr.Error(),
-		})
+
+		return ctx.Status(
+			fiber.StatusInternalServerError,
+		).JSON(
+			fiber.Map{
+				"success": false,
+				"message": "Failed to generate stock take",
+				"error":   txErr.Error(),
+			},
+		)
 	}
 
-	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
-		"success": true,
-		"message": "Data stock take generated successfully",
-		"data": fiber.Map{
-			"stock_take": resultStockTake,
-			"items":      resultItems,
+	// =========================================================
+	// 15. SUCCESS RESPONSE
+	// =========================================================
+
+	return ctx.Status(
+		fiber.StatusOK,
+	).JSON(
+		fiber.Map{
+			"success": true,
+			"message": "Data stock take generated successfully",
+			"data": fiber.Map{
+				"stock_take": resultStockTake,
+
+				"items": resultItems,
+			},
 		},
-	})
+	)
 }
 
 type StockTakeListItem struct {

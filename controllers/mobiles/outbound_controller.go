@@ -102,6 +102,7 @@ func (c *MobileOutboundController) GetListOutboundDetail(ctx *fiber.Ctx) error {
 		QtyScan          float64 `json:"scan_qty"`
 		UOM              string  `json:"uom"`
 		OwnerCode        string  `json:"owner_code"`
+		LotNumber        string  `json:"lot_number"`
 	}
 
 	var results []OutboundResult
@@ -115,10 +116,10 @@ func (c *MobileOutboundController) GetListOutboundDetail(ctx *fiber.Ctx) error {
 			GROUP BY a.item_code, a.barcode, a.item_id, a.outbound_id, a.outbound_detail_id
 		),
 		op AS (
-			SELECT a.outbound_detail_id, a.item_code, sum(a.quantity) as qty, a.uom 
+			SELECT a.outbound_detail_id, a.item_code, sum(a.quantity) as qty, a.uom, lot_number
 			FROM outbound_pickings a
 			WHERE a.outbound_id = ?
-			GROUP BY a.outbound_detail_id, a.item_code, a.uom 
+			GROUP BY a.outbound_detail_id, a.item_code, a.uom, lot_number
 		),
 		opb AS (
 			SELECT a.id as outbound_detail_id, a.whs_code, a.item_code, a.barcode,
@@ -127,7 +128,8 @@ func (c *MobileOutboundController) GetListOutboundDetail(ctx *fiber.Ctx) error {
 				b.item_name, 
 				COALESCE(ob.qty_scan, 0) as qty_scan, 
 				b.has_serial, 
-				a.owner_code
+				a.owner_code,
+				a.lot_number
 			FROM outbound_details a
 			INNER JOIN products b ON a.item_id = b.id
 			LEFT JOIN op ON a.id = op.outbound_detail_id
@@ -142,10 +144,12 @@ func (c *MobileOutboundController) GetListOutboundDetail(ctx *fiber.Ctx) error {
 		opb.quantity,
 		opb.uom,
 		opb.item_name,
+		opb.lot_number,
 		ROUND(opb.qty_scan / oc.conversion_rate, 3) AS qty_scan,
 		opb.owner_code
 		from opb
-		left join uom_conversions oc ON oc.item_code = opb.item_code and oc.ean = opb.barcode and opb.uom = oc.from_uom`
+		left join uom_conversions oc ON oc.item_code = opb.item_code and oc.ean = opb.barcode and opb.uom = oc.from_uom
+		order by opb.outbound_detail_id asc;`
 
 	err := c.DB.Debug().Raw(query, outboundHeader.ID, outboundHeader.ID, outboundHeader.ID).Scan(&results).Error
 	if err != nil {
@@ -306,18 +310,66 @@ func (c *MobileOutboundController) ScanPicking(ctx *fiber.Ctx) error {
 	}
 
 	// ── FIND OUTBOUND DETAIL: support multiple detail per item ──────────────
+
 	var outboundDetails []models.OutboundDetail
+
 	if scanOutbound.Sku != "" {
-		if err := c.DB.Where("outbound_id = ? AND item_code = ?", outboundHeader.ID, scanOutbound.Sku).
-			Find(&outboundDetails).Error; err != nil {
-			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+
+		// 1. Jika LotNo terisi, cari berdasarkan SKU + Lot Number
+		if scanOutbound.LotNo != "" {
+
+			if err := c.DB.Debug().Where(
+				"outbound_id = ? AND item_code = ? AND lot_number = ?",
+				outboundHeader.ID,
+				scanOutbound.Sku,
+				scanOutbound.LotNo,
+			).Find(&outboundDetails).Error; err != nil {
+				return ctx.Status(fiber.StatusInternalServerError).
+					JSON(fiber.Map{"error": err.Error()})
+			}
+
 		}
+
+		// 2. Jika LotNo kosong ATAU tidak ditemukan, cari berdasarkan SKU saja
+		if len(outboundDetails) == 0 {
+
+			if err := c.DB.Debug().Where(
+				"outbound_id = ? AND item_code = ?",
+				outboundHeader.ID,
+				scanOutbound.Sku,
+			).Find(&outboundDetails).Error; err != nil {
+				return ctx.Status(fiber.StatusInternalServerError).
+					JSON(fiber.Map{"error": err.Error()})
+			}
+
+		}
+
 	} else {
-		if err := c.DB.Where("outbound_id = ? AND barcode = ?", outboundHeader.ID, scanOutbound.Barcode).
-			Find(&outboundDetails).Error; err != nil {
-			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+
+		// Cari berdasarkan Barcode
+		if err := c.DB.Where(
+			"outbound_id = ? AND barcode = ?",
+			outboundHeader.ID,
+			scanOutbound.Barcode,
+		).Find(&outboundDetails).Error; err != nil {
+			return ctx.Status(fiber.StatusInternalServerError).
+				JSON(fiber.Map{"error": err.Error()})
 		}
+
 	}
+
+	// var outboundDetails []models.OutboundDetail
+	// if scanOutbound.Sku != "" {
+	// 	if err := c.DB.Where("outbound_id = ? AND item_code = ?", outboundHeader.ID, scanOutbound.Sku).
+	// 		Find(&outboundDetails).Error; err != nil {
+	// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	// 	}
+	// } else {
+	// 	if err := c.DB.Where("outbound_id = ? AND barcode = ?", outboundHeader.ID, scanOutbound.Barcode).
+	// 		Find(&outboundDetails).Error; err != nil {
+	// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	// 	}
+	// }
 
 	if len(outboundDetails) == 0 {
 		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
@@ -417,6 +469,18 @@ func (c *MobileOutboundController) ScanPicking(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	type PickingSumDetailD struct {
+		QtyPickingList int
+	}
+	var resultDetailD PickingSumDetailD
+	errDetailD := c.DB.Table("outbound_pickings").
+		Select("COALESCE(SUM(quantity), 0) as qty_picking_list").
+		Where("outbound_id = ? AND barcode = ? AND item_code = ? AND outbound_detail_id = ?", outboundHeader.ID, product.Barcode, product.ItemCode, outboundDetail.ID).
+		Scan(&resultDetailD).Error
+	if errDetailD != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": errDetailD.Error()})
+	}
+
 	type Result struct {
 		QtyBarcode int
 	}
@@ -431,6 +495,22 @@ func (c *MobileOutboundController) ScanPicking(ctx *fiber.Ctx) error {
 
 	if res.QtyBarcode+int(uom.QtyConverted) > result.QtyPickingList {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Quantity exceeds the limit"})
+	}
+
+	type ResultOutboundDetailID struct {
+		QtyOutboundDetailID int
+	}
+	var resOutboundDetailID ResultOutboundDetailID
+	errQtyOutboundDetailID := c.DB.Table("outbound_barcodes").
+		Select("COALESCE(SUM(quantity), 0) AS qty_outbound_detail_id").
+		Where("outbound_id = ? AND outbound_detail_id = ? AND item_code = ?", outboundHeader.ID, outboundDetail.ID, product.ItemCode).
+		Scan(&resOutboundDetailID).Error
+	if errQtyOutboundDetailID != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": errQtyOutboundDetailID.Error()})
+	}
+
+	if resOutboundDetailID.QtyOutboundDetailID+int(uom.QtyConverted) > resultDetailD.QtyPickingList {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Maximum quantity for " + product.ItemCode + " is " + strconv.Itoa(resultDetailD.QtyPickingList)})
 	}
 
 	var carton models.MasterCarton
