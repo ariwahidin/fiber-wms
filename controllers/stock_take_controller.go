@@ -1462,12 +1462,95 @@ func (c *StockTakeController) GetStockTakeDetail(ctx *fiber.Ctx) error {
 	}})
 }
 
+// // StockTakePrintRow adalah hasil untuk halaman print, di-filter by Row terpilih.
+// type StockTakePrintRow struct {
+// 	Location   string `json:"location"`
+// 	ItemCode   string `json:"item_code"`
+// 	ItemName   string `json:"item_name"`
+// 	Division   string `json:"division"`
+// 	SystemQty  int    `json:"system_qty"`
+// 	CountedQty int    `json:"counted_qty"`
+// 	Difference int    `json:"difference"`
+// }
+
+// func (c *StockTakeController) GetStockTakePrintDetail(ctx *fiber.Ctx) error {
+// 	code := ctx.Params("code")
+// 	rowsParam := ctx.Query("rows")
+
+// 	var stockTake models.StockTake
+// 	if err := c.DB.Select("id, code, created_at, updated_at").First(&stockTake, "code = ?", code).Error; err != nil {
+// 		return ctx.Status(404).JSON(fiber.Map{"success": false, "message": "Not found"})
+// 	}
+
+// 	var selectedRows []string
+// 	if rowsParam != "" {
+// 		for _, r := range strings.Split(rowsParam, ",") {
+// 			r = strings.TrimSpace(r)
+// 			if r != "" {
+// 				selectedRows = append(selectedRows, r)
+// 			}
+// 		}
+// 	}
+
+// 	args := []interface{}{stockTake.ID}
+
+// 	query := `
+// 		SELECT
+// 			sti.location,
+// 			ISNULL(p.item_code, '') AS item_code,
+// 			ISNULL(p.item_name, '') AS item_name,
+// 			ISNULL(sti.division_code, '') AS [division],
+// 			SUM(sti.system_qty)     AS system_qty,
+// 			SUM(sti.counted_qty)    AS counted_qty,
+// 			SUM(sti.difference)     AS difference
+// 		FROM stock_take_items sti
+// 		LEFT JOIN products p ON p.id = sti.item_id
+// 		LEFT JOIN locations l ON l.location_code = sti.location
+// 		WHERE sti.stock_take_id = ?
+// 		  AND sti.deleted_at IS NULL
+// 	`
+
+// 	// Kalau user pilih Row tertentu, filter di sini. Kalau kosong (misal
+// 	// dipanggil tanpa modal), tampilkan semua row.
+// 	if len(selectedRows) > 0 {
+// 		placeholders := make([]string, len(selectedRows))
+// 		for i, r := range selectedRows {
+// 			placeholders[i] = "?"
+// 			args = append(args, r)
+// 		}
+// 		query += " AND l.row IN (" + strings.Join(placeholders, ",") + ")"
+// 	}
+
+// 	query += `
+// 		GROUP BY sti.location, p.item_code, p.item_name, sti.division_code
+// 		ORDER BY sti.location ASC
+// 	`
+
+// 	var rows []StockTakePrintRow
+// 	if err := c.DB.Debug().Raw(query, args...).Scan(&rows).Error; err != nil {
+// 		return ctx.Status(500).JSON(fiber.Map{
+// 			"success": false,
+// 			"message": "Failed to fetch print data",
+// 			"error":   err.Error(),
+// 		})
+// 	}
+
+// 	return ctx.JSON(fiber.Map{
+// 		"success":    true,
+// 		"stock_take": stockTake,
+// 		"data":       rows,
+// 		"rows":       selectedRows, // dikirim balik biar FE gampang render header "Row: A, B, C"
+// 	})
+// }
+
 // StockTakePrintRow adalah hasil untuk halaman print, di-filter by Row terpilih.
+// Division & LotNumber bersifat optional tergantung kolom yang dipilih user.
 type StockTakePrintRow struct {
 	Location   string `json:"location"`
 	ItemCode   string `json:"item_code"`
 	ItemName   string `json:"item_name"`
-	Division   string `json:"division"`
+	Division   string `json:"division,omitempty"`
+	LotNumber  string `json:"lot_number,omitempty"`
 	SystemQty  int    `json:"system_qty"`
 	CountedQty int    `json:"counted_qty"`
 	Difference int    `json:"difference"`
@@ -1476,6 +1559,7 @@ type StockTakePrintRow struct {
 func (c *StockTakeController) GetStockTakePrintDetail(ctx *fiber.Ctx) error {
 	code := ctx.Params("code")
 	rowsParam := ctx.Query("rows")
+	columnsParam := ctx.Query("columns") // contoh: "division,lot_number"
 
 	var stockTake models.StockTake
 	if err := c.DB.Select("id, code, created_at, updated_at").First(&stockTake, "code = ?", code).Error; err != nil {
@@ -1492,17 +1576,53 @@ func (c *StockTakeController) GetStockTakePrintDetail(ctx *fiber.Ctx) error {
 		}
 	}
 
+	// Kolom optional yang bisa di-toggle dari FE. Kalau gak dipilih, kolomnya
+	// gak di-SELECT dan gak masuk GROUP BY -> otomatis ke-grouping/collapse
+	// berdasarkan kolom yang ditampilkan saja.
+	includeDivision := false
+	includeLot := false
+	if columnsParam != "" {
+		for _, col := range strings.Split(columnsParam, ",") {
+			switch strings.TrimSpace(col) {
+			case "division":
+				includeDivision = true
+			case "lot_number":
+				includeLot = true
+			}
+		}
+	} else {
+		// Kalau parameter columns gak dikirim sama sekali (backward compat),
+		// default tampilkan semua kolom.
+		includeDivision = true
+		includeLot = true
+	}
+
 	args := []interface{}{stockTake.ID}
 
+	selectFields := []string{
+		"sti.location",
+		"ISNULL(p.item_code, '') AS item_code",
+		"ISNULL(p.item_name, '') AS item_name",
+	}
+	groupFields := []string{"sti.location", "p.item_code", "p.item_name"}
+
+	if includeDivision {
+		selectFields = append(selectFields, "ISNULL(sti.division_code, '') AS [division]")
+		groupFields = append(groupFields, "sti.division_code")
+	}
+	if includeLot {
+		selectFields = append(selectFields, "ISNULL(sti.lot_number, '') AS lot_number")
+		groupFields = append(groupFields, "sti.lot_number")
+	}
+
+	selectFields = append(selectFields,
+		"SUM(sti.system_qty) AS system_qty",
+		"SUM(sti.counted_qty) AS counted_qty",
+		"SUM(sti.difference) AS difference",
+	)
+
 	query := `
-		SELECT
-			sti.location,
-			ISNULL(p.item_code, '') AS item_code,
-			ISNULL(p.item_name, '') AS item_name,
-			ISNULL(sti.division_code, '') AS [division],
-			SUM(sti.system_qty)     AS system_qty,
-			SUM(sti.counted_qty)    AS counted_qty,
-			SUM(sti.difference)     AS difference
+		SELECT ` + strings.Join(selectFields, ",\n\t\t\t") + `
 		FROM stock_take_items sti
 		LEFT JOIN products p ON p.id = sti.item_id
 		LEFT JOIN locations l ON l.location_code = sti.location
@@ -1522,7 +1642,7 @@ func (c *StockTakeController) GetStockTakePrintDetail(ctx *fiber.Ctx) error {
 	}
 
 	query += `
-		GROUP BY sti.location, p.item_code, p.item_name, sti.division_code
+		GROUP BY ` + strings.Join(groupFields, ", ") + `
 		ORDER BY sti.location ASC
 	`
 
@@ -1540,9 +1660,12 @@ func (c *StockTakeController) GetStockTakePrintDetail(ctx *fiber.Ctx) error {
 		"stock_take": stockTake,
 		"data":       rows,
 		"rows":       selectedRows, // dikirim balik biar FE gampang render header "Row: A, B, C"
+		"columns": fiber.Map{
+			"division":   includeDivision,
+			"lot_number": includeLot,
+		},
 	})
 }
-
 func (c *StockTakeController) ScanStockTake(ctx *fiber.Ctx) error {
 	type scanInput struct {
 		StockTakeCode string `json:"stock_take_code"`
