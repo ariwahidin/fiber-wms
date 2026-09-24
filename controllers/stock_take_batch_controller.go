@@ -120,23 +120,6 @@ func (c *StockTakeBatchController) CreateStockTakeBatch(ctx *fiber.Ctx) error {
 	})
 }
 
-type StockTakeBatchListItem struct {
-	models.StockTakeBatch
-
-	TotalSessions      int64 `json:"total_sessions"`
-	CompletedSessions  int64 `json:"completed_sessions"`
-	InProgressSessions int64 `json:"in_progress_sessions"`
-	OpenSessions       int64 `json:"open_sessions"`
-	CancelledSessions  int64 `json:"cancelled_sessions"`
-
-	TotalLocations   int64 `json:"total_locations"`
-	CountedLocations int64 `json:"counted_locations"`
-
-	TotalSystemQty  int64 `json:"total_system_qty"`
-	TotalCountedQty int64 `json:"total_counted_qty"`
-	TotalDifference int64 `json:"total_difference"`
-}
-
 func (c *StockTakeBatchController) GetAllStockTakeBatch(ctx *fiber.Ctx) error {
 	page, err := strconv.Atoi(ctx.Query("page", "1"))
 	if err != nil || page < 1 {
@@ -148,8 +131,8 @@ func (c *StockTakeBatchController) GetAllStockTakeBatch(ctx *fiber.Ctx) error {
 		pageSize = 20
 	}
 
-	startDate := ctx.Query("start_date")
-	endDate := ctx.Query("end_date")
+	startDate := strings.TrimSpace(ctx.Query("start_date"))
+	endDate := strings.TrimSpace(ctx.Query("end_date"))
 	search := strings.TrimSpace(ctx.Query("search"))
 	statuses := strings.TrimSpace(ctx.Query("statuses"))
 
@@ -158,7 +141,11 @@ func (c *StockTakeBatchController) GetAllStockTakeBatch(ctx *fiber.Ctx) error {
 	// =========================================================
 	// BASE QUERY
 	// =========================================================
-	baseQuery := c.DB.
+	// List endpoint hanya mengembalikan data header StockTakeBatch.
+	// Tidak ada JOIN / subquery ke stock_takes, stock_take_items,
+	// atau stock_take_barcodes karena informasi tersebut tidak
+	// ditampilkan di halaman list.
+	query := c.DB.
 		Model(&models.StockTakeBatch{}).
 		Where("stock_take_batches.deleted_at IS NULL")
 
@@ -174,7 +161,7 @@ func (c *StockTakeBatchController) GetAllStockTakeBatch(ctx *fiber.Ctx) error {
 			})
 		}
 
-		baseQuery = baseQuery.Where(
+		query = query.Where(
 			"stock_take_batches.created_at >= ?",
 			startParsed,
 		)
@@ -189,10 +176,11 @@ func (c *StockTakeBatchController) GetAllStockTakeBatch(ctx *fiber.Ctx) error {
 			})
 		}
 
-		// Exclusive upper bound
+		// Exclusive upper bound supaya seluruh tanggal end_date
+		// tetap ikut, termasuk record yang dibuat sepanjang hari.
 		endExclusive := endParsed.AddDate(0, 0, 1)
 
-		baseQuery = baseQuery.Where(
+		query = query.Where(
 			"stock_take_batches.created_at < ?",
 			endExclusive,
 		)
@@ -204,7 +192,7 @@ func (c *StockTakeBatchController) GetAllStockTakeBatch(ctx *fiber.Ctx) error {
 	if search != "" {
 		keyword := "%" + search + "%"
 
-		baseQuery = baseQuery.Where(`
+		query = query.Where(`
 			(
 				stock_take_batches.code LIKE ?
 				OR stock_take_batches.owner_code LIKE ?
@@ -218,19 +206,17 @@ func (c *StockTakeBatchController) GetAllStockTakeBatch(ctx *fiber.Ctx) error {
 	// =========================================================
 	if statuses != "" {
 		statusList := strings.Split(statuses, ",")
-
-		var cleanedStatuses []string
+		cleanedStatuses := make([]string, 0, len(statusList))
 
 		for _, status := range statusList {
 			status = strings.TrimSpace(status)
-
 			if status != "" {
 				cleanedStatuses = append(cleanedStatuses, status)
 			}
 		}
 
 		if len(cleanedStatuses) > 0 {
-			baseQuery = baseQuery.Where(
+			query = query.Where(
 				"stock_take_batches.status IN ?",
 				cleanedStatuses,
 			)
@@ -242,7 +228,8 @@ func (c *StockTakeBatchController) GetAllStockTakeBatch(ctx *fiber.Ctx) error {
 	// =========================================================
 	var total int64
 
-	if err := baseQuery.Count(&total).Error; err != nil {
+	countQuery := query.Session(&gorm.Session{})
+	if err := countQuery.Count(&total).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"success": false,
 			"message": "Failed to count stock take batches",
@@ -251,46 +238,12 @@ func (c *StockTakeBatchController) GetAllStockTakeBatch(ctx *fiber.Ctx) error {
 	}
 
 	// =========================================================
-	// RESULT STRUCT
+	// HEADER RESULT
 	// =========================================================
-	type StockTakeBatchListItem struct {
-		ID          uint       `json:"id"`
-		Code        string     `json:"code"`
-		OwnerCode   string     `json:"owner_code"`
-		Description string     `json:"description"`
-		Status      string     `json:"status"`
-		CreatedBy   int        `json:"created_by"`
-		UpdatedBy   int        `json:"updated_by"`
-		CreatedAt   time.Time  `json:"created_at"`
-		UpdatedAt   time.Time  `json:"updated_at"`
-		StartedAt   *time.Time `json:"started_at"`
-		ClosedAt    *time.Time `json:"closed_at"`
-		ClosedBy    *int       `json:"closed_by"`
-		CancelAt    *time.Time `json:"cancel_at"`
-		CancelBy    *int       `json:"cancel_by"`
+	// Hanya mengambil kolom yang memang dimiliki StockTakeBatch.
+	var result []models.StockTakeBatch
 
-		TotalSessions      int64 `json:"total_sessions"`
-		CompletedSessions  int64 `json:"completed_sessions"`
-		InProgressSessions int64 `json:"in_progress_sessions"`
-		OpenSessions       int64 `json:"open_sessions"`
-		CancelledSessions  int64 `json:"cancelled_sessions"`
-
-		TotalLocations   int64 `json:"total_locations"`
-		CountedLocations int64 `json:"counted_locations"`
-
-		TotalSystemQty  int64 `json:"total_system_qty"`
-		TotalCountedQty int64 `json:"total_counted_qty"`
-		TotalDifference int64 `json:"total_difference"`
-	}
-
-	var result []StockTakeBatchListItem
-
-	// =========================================================
-	// MAIN QUERY
-	//
-	// Tidak menggunakan GROUP BY pada batch header.
-	// =========================================================
-	query := baseQuery.
+	if err := query.
 		Select(`
 			stock_take_batches.id,
 			stock_take_batches.code,
@@ -299,207 +252,18 @@ func (c *StockTakeBatchController) GetAllStockTakeBatch(ctx *fiber.Ctx) error {
 			stock_take_batches.status,
 			stock_take_batches.created_by,
 			stock_take_batches.updated_by,
-			stock_take_batches.created_at,
-			stock_take_batches.updated_at,
 			stock_take_batches.started_at,
 			stock_take_batches.closed_at,
 			stock_take_batches.closed_by,
 			stock_take_batches.cancel_at,
 			stock_take_batches.cancel_by,
-
-			-- =================================================
-			-- SESSION SUMMARY
-			-- =================================================
-
-			(
-				SELECT COUNT(*)
-				FROM stock_takes st
-				WHERE st.batch_id = stock_take_batches.id
-				  AND st.deleted_at IS NULL
-			) AS total_sessions,
-
-			(
-				SELECT COUNT(*)
-				FROM stock_takes st
-				WHERE st.batch_id = stock_take_batches.id
-				  AND st.status = 'closed'
-				  AND st.deleted_at IS NULL
-			) AS completed_sessions,
-
-			(
-				SELECT COUNT(*)
-				FROM stock_takes st
-				WHERE st.batch_id = stock_take_batches.id
-				  AND st.status = 'in_progress'
-				  AND st.deleted_at IS NULL
-			) AS in_progress_sessions,
-
-			(
-				SELECT COUNT(*)
-				FROM stock_takes st
-				WHERE st.batch_id = stock_take_batches.id
-				  AND st.status = 'open'
-				  AND st.deleted_at IS NULL
-			) AS open_sessions,
-
-			(
-				SELECT COUNT(*)
-				FROM stock_takes st
-				WHERE st.batch_id = stock_take_batches.id
-				  AND st.status = 'cancelled'
-				  AND st.deleted_at IS NULL
-			) AS cancelled_sessions,
-
-
-			-- =================================================
-			-- TOTAL PLANNED LOCATIONS
-			--
-			-- Source:
-			-- stock_take_items
-			-- =================================================
-
-			(
-				SELECT COUNT(DISTINCT sti.location)
-				FROM stock_take_items sti
-				INNER JOIN stock_takes st
-					ON st.id = sti.stock_take_id
-				WHERE st.batch_id = stock_take_batches.id
-				  AND st.deleted_at IS NULL
-				  AND sti.deleted_at IS NULL
-				  AND NULLIF(LTRIM(RTRIM(sti.location)), '') IS NOT NULL
-			) AS total_locations,
-
-
-			-- =================================================
-			-- COUNTED LOCATIONS
-			--
-			-- Source:
-			-- stock_take_barcodes
-			--
-			-- Sebuah lokasi dianggap sudah counted apabila
-			-- sudah memiliki minimal 1 scan.
-			-- =================================================
-
-			(
-				SELECT COUNT(DISTINCT stb.location)
-				FROM stock_take_barcodes stb
-				INNER JOIN stock_takes st
-					ON st.id = stb.stock_take_id
-				WHERE st.batch_id = stock_take_batches.id
-				  AND st.deleted_at IS NULL
-				  AND stb.deleted_at IS NULL
-				  AND NULLIF(LTRIM(RTRIM(stb.location)), '') IS NOT NULL
-			) AS counted_locations,
-
-
-			-- =================================================
-			-- TOTAL SYSTEM QTY
-			--
-			-- Source:
-			-- stock_take_items
-			-- =================================================
-
-			(
-				SELECT COALESCE(SUM(sti.system_qty), 0)
-				FROM stock_take_items sti
-				INNER JOIN stock_takes st
-					ON st.id = sti.stock_take_id
-				WHERE st.batch_id = stock_take_batches.id
-				  AND st.deleted_at IS NULL
-				  AND sti.deleted_at IS NULL
-			) AS total_system_qty,
-
-
-			-- =================================================
-			-- TOTAL COUNTED QTY
-			--
-			-- Source:
-			-- stock_take_barcodes
-			-- =================================================
-
-			(
-				SELECT COALESCE(SUM(stb.counted_qty), 0)
-				FROM stock_take_barcodes stb
-				INNER JOIN stock_takes st
-					ON st.id = stb.stock_take_id
-				WHERE st.batch_id = stock_take_batches.id
-				  AND st.deleted_at IS NULL
-				  AND stb.deleted_at IS NULL
-			) AS total_counted_qty,
-
-
-			-- =================================================
-			-- TOTAL DIFFERENCE
-			--
-			-- IMPORTANT:
-			--
-			-- Difference hanya dihitung untuk LOCATION
-			-- yang sudah dilakukan counting.
-			--
-			-- Jadi lokasi yang belum dihitung TIDAK dianggap
-			-- sebagai shortage.
-			--
-			-- Formula:
-			--
-			-- counted_qty - system_qty
-			-- =================================================
-
-			(
-				SELECT COALESCE(SUM(
-					x.counted_qty - x.system_qty
-				), 0)
-				FROM (
-					SELECT
-						sti.location,
-
-						COALESCE(SUM(sti.system_qty), 0)
-							AS system_qty,
-
-						COALESCE((
-							SELECT SUM(stb.counted_qty)
-							FROM stock_take_barcodes stb
-							WHERE stb.stock_take_id = sti.stock_take_id
-							  AND stb.location = sti.location
-							  AND stb.deleted_at IS NULL
-						), 0) AS counted_qty
-
-					FROM stock_take_items sti
-
-					INNER JOIN stock_takes st
-						ON st.id = sti.stock_take_id
-
-					WHERE st.batch_id = stock_take_batches.id
-					  AND st.deleted_at IS NULL
-					  AND sti.deleted_at IS NULL
-
-					GROUP BY
-						sti.stock_take_id,
-						sti.location
-
-				) x
-
-				WHERE EXISTS (
-					SELECT 1
-					FROM stock_take_barcodes stb2
-					INNER JOIN stock_takes st2
-						ON st2.id = stb2.stock_take_id
-					WHERE st2.batch_id = stock_take_batches.id
-					  AND stb2.stock_take_id = (
-							SELECT TOP 1 sti2.stock_take_id
-							FROM stock_take_items sti2
-							WHERE sti2.location = x.location
-							  AND sti2.deleted_at IS NULL
-						)
-					  AND stb2.location = x.location
-					  AND stb2.deleted_at IS NULL
-				)
-			) AS total_difference
+			stock_take_batches.created_at,
+			stock_take_batches.updated_at
 		`).
 		Order("stock_take_batches.id DESC").
 		Offset(offset).
-		Limit(pageSize)
-
-	if err := query.Scan(&result).Error; err != nil {
+		Limit(pageSize).
+		Find(&result).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"success": false,
 			"message": "Failed to get stock take batches",
@@ -507,12 +271,7 @@ func (c *StockTakeBatchController) GetAllStockTakeBatch(ctx *fiber.Ctx) error {
 		})
 	}
 
-	// =========================================================
-	// PAGINATION
-	// =========================================================
-
 	totalPages := int64(0)
-
 	if total > 0 {
 		totalPages = (total + int64(pageSize) - 1) / int64(pageSize)
 	}

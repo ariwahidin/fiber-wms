@@ -43,6 +43,20 @@ type Inventory struct {
 	Product         Product `json:"product" gorm:"foreignKey:ItemId;references:ID"`
 }
 
+type InventorySerial struct {
+	gorm.Model
+	InventoryId      uint    `json:"inventory_id" gorm:"not null"`
+	SerialNumber     string  `json:"serial_number" gorm:"not null"`
+	QtyOnhand        float64 `json:"qty_onhand" gorm:"not null"`
+	QtyAllocated     float64 `json:"qty_allocated" gorm:"not null"`
+	QtyAvailable     float64 `json:"qty_available" gorm:"not null"`
+	QtyShipped       float64 `json:"qty_shipped" gorm:"not null"`
+	OutboundDetailId int     `json:"outbound_detail_id" gorm:"default:null"`
+	CreatedBy        int
+	UpdatedBy        int
+	DeletedBy        int
+}
+
 func (p *Inventory) BeforeCreate(tx *gorm.DB) (err error) {
 	var lastInventory Inventory
 

@@ -34,6 +34,7 @@ func MigrateBusinessUnit(db *gorm.DB) error {
 		&models.Truck{},
 		&models.Origin{},
 		&models.Inventory{},
+		&models.InventorySerial{},
 		&models.InventoryMovement{},
 		&models.Warehouse{},
 		&models.QaStatus{},
