@@ -65,72 +65,72 @@ func (c *InventoryController) GetChangeItemInventories(ctx *fiber.Ctx) error {
 	pallet := strings.TrimSpace(ctx.Query("pallet"))
 	search := strings.TrimSpace(ctx.Query("search"))
 
+	// Inventory is intentionally NOT loaded on page initialization.
+	// The endpoint is only called after the user submits at least one filter.
+	// This guard also prevents an accidental full-table inventory scan.
+	if itemCode == "" &&
+		ownerCode == "" &&
+		whsCode == "" &&
+		location == "" &&
+		divisionCode == "" &&
+		qaStatus == "" &&
+		pallet == "" &&
+		search == "" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"error":   "Please provide at least one inventory filter before searching",
+		})
+	}
+
+	page := ctx.QueryInt("page", 1)
+	if page < 1 {
+		page = 1
+	}
+
+	pageSize := ctx.QueryInt("page_size", 100)
+	if pageSize < 1 {
+		pageSize = 100
+	}
+	if pageSize > 200 {
+		pageSize = 200
+	}
+
 	query := c.DB.
 		Model(&models.Inventory{}).
 		Preload("Product").
 		Where("inventories.deleted_at IS NULL").
 		Where("inventories.qty_available > ?", 0)
 
-	// =========================
-	// FILTER
-	// =========================
-
 	if itemCode != "" {
-		query = query.Where(
-			"inventories.item_code = ?",
-			itemCode,
-		)
+		query = query.Where("inventories.item_code = ?", itemCode)
 	}
 
 	if ownerCode != "" {
-		query = query.Where(
-			"inventories.owner_code = ?",
-			ownerCode,
-		)
+		query = query.Where("inventories.owner_code = ?", ownerCode)
 	}
 
 	if whsCode != "" {
-		query = query.Where(
-			"inventories.whs_code = ?",
-			whsCode,
-		)
+		query = query.Where("inventories.whs_code = ?", whsCode)
 	}
 
 	if location != "" {
-		query = query.Where(
-			"inventories.location = ?",
-			location,
-		)
+		query = query.Where("inventories.location = ?", location)
 	}
 
 	if divisionCode != "" {
-		query = query.Where(
-			"inventories.division_code = ?",
-			divisionCode,
-		)
+		query = query.Where("inventories.division_code = ?", divisionCode)
 	}
 
 	if qaStatus != "" {
-		query = query.Where(
-			"inventories.qa_status = ?",
-			qaStatus,
-		)
+		query = query.Where("inventories.qa_status = ?", qaStatus)
 	}
 
 	if pallet != "" {
-		query = query.Where(
-			"inventories.pallet = ?",
-			pallet,
-		)
+		query = query.Where("inventories.pallet = ?", pallet)
 	}
-
-	// =========================
-	// SEARCH
-	// =========================
 
 	if search != "" {
 		like := "%" + search + "%"
-
 		query = query.Where(`
 			(
 				inventories.item_code LIKE ? OR
@@ -147,21 +147,33 @@ func (c *InventoryController) GetChangeItemInventories(ctx *fiber.Ctx) error {
 					  AND products.deleted_at IS NULL
 				)
 			)
-		`,
-			like,
-			like,
-			like,
-			like,
-			like,
-			like,
-			like,
-		)
+		`, like, like, like, like, like, like, like)
 	}
 
-	// =========================
-	// FETCH INVENTORY
-	// =========================
+	// Count is kept separate from the paged fetch so the UI can show
+	// the total matching records without loading the entire result set.
+	var total int64
+	if err := query.Session(&gorm.Session{}).Count(&total).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"error":   "Failed to count change item inventories: " + err.Error(),
+		})
+	}
 
+	if total == 0 {
+		return ctx.JSON(fiber.Map{
+			"success": true,
+			"data": fiber.Map{
+				"inventories": []ChangeItemInventory{},
+				"total":       0,
+				"page":        page,
+				"page_size":   pageSize,
+				"total_pages": 0,
+			},
+		})
+	}
+
+	offset := (page - 1) * pageSize
 	var inventories []models.Inventory
 
 	if err := query.
@@ -171,43 +183,32 @@ func (c *InventoryController) GetChangeItemInventories(ctx *fiber.Ctx) error {
 			inventories.location ASC,
 			inventories.id ASC
 		`).
+		Offset(offset).
+		Limit(pageSize).
 		Find(&inventories).Error; err != nil {
-
-		return ctx.Status(
-			fiber.StatusInternalServerError,
-		).JSON(fiber.Map{
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"success": false,
 			"error":   "Failed to fetch change item inventories: " + err.Error(),
 		})
 	}
-
-	// =========================
-	// EMPTY RESULT
-	// =========================
 
 	if len(inventories) == 0 {
 		return ctx.JSON(fiber.Map{
 			"success": true,
 			"data": fiber.Map{
 				"inventories": []ChangeItemInventory{},
-				"total":       0,
+				"total":       total,
+				"page":        page,
+				"page_size":   pageSize,
+				"total_pages": int((total + int64(pageSize) - 1) / int64(pageSize)),
 			},
 		})
 	}
 
-	// =========================
-	// GET INVENTORY IDS
-	// =========================
-
 	ids := make([]uint, 0, len(inventories))
-
 	for _, inventory := range inventories {
 		ids = append(ids, inventory.ID)
 	}
-
-	// =========================
-	// DETERMINE INVENTORY MODE
-	// =========================
 
 	type serialStat struct {
 		InventoryID uint `gorm:"column:inventory_id"`
@@ -215,344 +216,55 @@ func (c *InventoryController) GetChangeItemInventories(ctx *fiber.Ctx) error {
 		AllRows     int  `gorm:"column:all_rows"`
 	}
 
-	// SQL Server max 2100 parameter per query, jadi di-chunk
-	const chunkSize = 1000
-
-	statMap := make(map[uint]serialStat, len(ids))
-
-	for start := 0; start < len(ids); start += chunkSize {
-		end := start + chunkSize
-		if end > len(ids) {
-			end = len(ids)
-		}
-
-		var stats []serialStat
-
-		if err := c.DB.
-			Model(&models.InventorySerial{}).
-			Select(`
-				inventory_id,
-				SUM(
-					CASE
-						WHEN qty_available > 0 THEN 1
-						ELSE 0
-					END
-				) AS total,
-				COUNT(*) AS all_rows
-			`).
-			Where("inventory_id IN ?", ids[start:end]).
-			Where("deleted_at IS NULL").
-			Group("inventory_id").
-			Scan(&stats).Error; err != nil {
-
-			return ctx.Status(
-				fiber.StatusInternalServerError,
-			).JSON(fiber.Map{
-				"success": false,
-				"error": "Failed to determine inventory mode: " +
-					err.Error(),
-			})
-		}
-
-		// =========================
-		// BUILD SERIAL STAT MAP
-		// =========================
-
-		for _, stat := range stats {
-			statMap[stat.InventoryID] = stat
-		}
+	var stats []serialStat
+	if err := c.DB.
+		Model(&models.InventorySerial{}).
+		Select(`
+			inventory_id,
+			SUM(CASE WHEN qty_available > 0 THEN 1 ELSE 0 END) AS total,
+			COUNT(*) AS all_rows
+		`).
+		Where("inventory_id IN ?", ids).
+		Where("deleted_at IS NULL").
+		Group("inventory_id").
+		Scan(&stats).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"error":   "Failed to determine inventory mode: " + err.Error(),
+		})
 	}
 
-	// =========================
-	// BUILD RESULT
-	// =========================
+	statMap := make(map[uint]serialStat, len(stats))
+	for _, stat := range stats {
+		statMap[stat.InventoryID] = stat
+	}
 
-	result := make(
-		[]ChangeItemInventory,
-		0,
-		len(inventories),
-	)
-
+	result := make([]ChangeItemInventory, 0, len(inventories))
 	for _, inventory := range inventories {
-
 		stat := statMap[inventory.ID]
-
 		mode := "quantity"
-
-		// Jika inventory mempunyai
-		// inventory_serial record,
-		// maka mode = serial.
 		if stat.AllRows > 0 {
 			mode = "serial"
 		}
 
-		result = append(
-			result,
-			ChangeItemInventory{
-				Inventory:        inventory,
-				AvailableSerials: stat.Total,
-				ChangeMode:       mode,
-			},
-		)
+		result = append(result, ChangeItemInventory{
+			Inventory:        inventory,
+			AvailableSerials: stat.Total,
+			ChangeMode:       mode,
+		})
 	}
-
-	// =========================
-	// RESPONSE
-	// =========================
 
 	return ctx.JSON(fiber.Map{
 		"success": true,
 		"data": fiber.Map{
 			"inventories": result,
-			"total":       len(result),
+			"total":       total,
+			"page":        page,
+			"page_size":   pageSize,
+			"total_pages": int((total + int64(pageSize) - 1) / int64(pageSize)),
 		},
 	})
 }
-
-// GET /inventory/change-item/inventories
-// func (c *InventoryController) GetChangeItemInventories(ctx *fiber.Ctx) error {
-// 	itemCode := strings.TrimSpace(ctx.Query("item_code"))
-// 	ownerCode := strings.TrimSpace(ctx.Query("owner_code"))
-// 	whsCode := strings.TrimSpace(ctx.Query("whs_code"))
-// 	location := strings.TrimSpace(ctx.Query("location"))
-// 	divisionCode := strings.TrimSpace(ctx.Query("division_code"))
-// 	qaStatus := strings.TrimSpace(ctx.Query("qa_status"))
-// 	pallet := strings.TrimSpace(ctx.Query("pallet"))
-// 	search := strings.TrimSpace(ctx.Query("search"))
-
-// 	query := c.DB.
-// 		Model(&models.Inventory{}).
-// 		Preload("Product").
-// 		Where("inventories.deleted_at IS NULL").
-// 		Where("inventories.qty_available > ?", 0)
-
-// 	// =========================
-// 	// FILTER
-// 	// =========================
-
-// 	if itemCode != "" {
-// 		query = query.Where(
-// 			"inventories.item_code = ?",
-// 			itemCode,
-// 		)
-// 	}
-
-// 	if ownerCode != "" {
-// 		query = query.Where(
-// 			"inventories.owner_code = ?",
-// 			ownerCode,
-// 		)
-// 	}
-
-// 	if whsCode != "" {
-// 		query = query.Where(
-// 			"inventories.whs_code = ?",
-// 			whsCode,
-// 		)
-// 	}
-
-// 	if location != "" {
-// 		query = query.Where(
-// 			"inventories.location = ?",
-// 			location,
-// 		)
-// 	}
-
-// 	if divisionCode != "" {
-// 		query = query.Where(
-// 			"inventories.division_code = ?",
-// 			divisionCode,
-// 		)
-// 	}
-
-// 	if qaStatus != "" {
-// 		query = query.Where(
-// 			"inventories.qa_status = ?",
-// 			qaStatus,
-// 		)
-// 	}
-
-// 	if pallet != "" {
-// 		query = query.Where(
-// 			"inventories.pallet = ?",
-// 			pallet,
-// 		)
-// 	}
-
-// 	// =========================
-// 	// SEARCH
-// 	// =========================
-
-// 	if search != "" {
-// 		like := "%" + search + "%"
-
-// 		query = query.Where(`
-// 			(
-// 				inventories.item_code LIKE ? OR
-// 				inventories.barcode LIKE ? OR
-// 				inventories.pallet LIKE ? OR
-// 				inventories.location LIKE ? OR
-// 				inventories.carton_number LIKE ? OR
-// 				inventories.case_number LIKE ? OR
-// 				EXISTS (
-// 					SELECT 1
-// 					FROM products
-// 					WHERE products.item_code = inventories.item_code
-// 					  AND products.unit_model LIKE ?
-// 					  AND products.deleted_at IS NULL
-// 				)
-// 			)
-// 		`,
-// 			like,
-// 			like,
-// 			like,
-// 			like,
-// 			like,
-// 			like,
-// 			like,
-// 		)
-// 	}
-
-// 	// =========================
-// 	// FETCH INVENTORY
-// 	// =========================
-
-// 	var inventories []models.Inventory
-
-// 	if err := query.
-// 		Order(`
-// 			inventories.item_code ASC,
-// 			inventories.whs_code ASC,
-// 			inventories.location ASC,
-// 			inventories.id ASC
-// 		`).
-// 		Find(&inventories).Error; err != nil {
-
-// 		return ctx.Status(
-// 			fiber.StatusInternalServerError,
-// 		).JSON(fiber.Map{
-// 			"success": false,
-// 			"error":   "Failed to fetch change item inventories: " + err.Error(),
-// 		})
-// 	}
-
-// 	// =========================
-// 	// EMPTY RESULT
-// 	// =========================
-
-// 	if len(inventories) == 0 {
-// 		return ctx.JSON(fiber.Map{
-// 			"success": true,
-// 			"data": fiber.Map{
-// 				"inventories": []ChangeItemInventory{},
-// 				"total":       0,
-// 			},
-// 		})
-// 	}
-
-// 	// =========================
-// 	// GET INVENTORY IDS
-// 	// =========================
-
-// 	ids := make([]uint, 0, len(inventories))
-
-// 	for _, inventory := range inventories {
-// 		ids = append(ids, inventory.ID)
-// 	}
-
-// 	// =========================
-// 	// DETERMINE INVENTORY MODE
-// 	// =========================
-
-// 	type serialStat struct {
-// 		InventoryID uint `gorm:"column:inventory_id"`
-// 		Total       int  `gorm:"column:total"`
-// 		AllRows     int  `gorm:"column:all_rows"`
-// 	}
-
-// 	var stats []serialStat
-
-// 	if err := c.DB.
-// 		Model(&models.InventorySerial{}).
-// 		Select(`
-// 			inventory_id,
-// 			SUM(
-// 				CASE
-// 					WHEN qty_available > 0 THEN 1
-// 					ELSE 0
-// 				END
-// 			) AS total,
-// 			COUNT(*) AS all_rows
-// 		`).
-// 		Where("inventory_id IN ?", ids).
-// 		Where("deleted_at IS NULL").
-// 		Group("inventory_id").
-// 		Scan(&stats).Error; err != nil {
-
-// 		return ctx.Status(
-// 			fiber.StatusInternalServerError,
-// 		).JSON(fiber.Map{
-// 			"success": false,
-// 			"error": "Failed to determine inventory mode: " +
-// 				err.Error(),
-// 		})
-// 	}
-
-// 	// =========================
-// 	// BUILD SERIAL STAT MAP
-// 	// =========================
-
-// 	statMap := make(map[uint]serialStat, len(stats))
-
-// 	for _, stat := range stats {
-// 		statMap[stat.InventoryID] = stat
-// 	}
-
-// 	// =========================
-// 	// BUILD RESULT
-// 	// =========================
-
-// 	result := make(
-// 		[]ChangeItemInventory,
-// 		0,
-// 		len(inventories),
-// 	)
-
-// 	for _, inventory := range inventories {
-
-// 		stat := statMap[inventory.ID]
-
-// 		mode := "quantity"
-
-// 		// Jika inventory mempunyai
-// 		// inventory_serial record,
-// 		// maka mode = serial.
-// 		if stat.AllRows > 0 {
-// 			mode = "serial"
-// 		}
-
-// 		result = append(
-// 			result,
-// 			ChangeItemInventory{
-// 				Inventory:        inventory,
-// 				AvailableSerials: stat.Total,
-// 				ChangeMode:       mode,
-// 			},
-// 		)
-// 	}
-
-// 	// =========================
-// 	// RESPONSE
-// 	// =========================
-
-// 	return ctx.JSON(fiber.Map{
-// 		"success": true,
-// 		"data": fiber.Map{
-// 			"inventories": result,
-// 			"total":       len(result),
-// 		},
-// 	})
-// }
 
 // ============================================================================
 // GET SERIALS
