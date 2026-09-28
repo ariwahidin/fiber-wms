@@ -942,11 +942,6 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 				}
 
-				if err := tx.Create(&newDetail).Error; err != nil {
-					tx.Rollback()
-					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-				}
-
 				if len(item.SerialNumbers) > 0 {
 					if len(item.SerialNumbers) != int(item.Quantity) {
 						tx.Rollback()
