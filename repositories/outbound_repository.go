@@ -407,148 +407,359 @@ func (r *OutboundRepository) GetOutboundPicking() ([]OutboundList, error) {
 }
 
 type PaperPickingSheet struct {
-	OrderType       string  `json:"order_type"`
-	OutboundNo      string  `json:"outbound_no"`
-	InventoryID     int     `json:"inventory_id,omitempty"` // gak ada di select, bisa dihapus kalau gak dipakai
-	ItemID          int     `json:"item_id"`
-	ItemCode        string  `json:"item_code"`
-	Quantity        int     `json:"quantity"`
-	Uom             string  `json:"uom"`
-	Barcode         string  `json:"barcode"`
-	ItemName        string  `json:"item_name"`
-	UnitModel       string  `json:"unit_model"`
-	Pallet          string  `json:"pallet"`
-	Location        string  `json:"location"`
-	Cbm             float64 `json:"cbm"`
-	WhsCode         string  `json:"whs_code"`
-	RecDate         string  `json:"rec_date"`
-	OutboundDate    string  `json:"outbound_date"`
-	ShipmentID      string  `json:"shipment_id"`
-	CustomerCode    string  `json:"customer_code"`
-	CustomerName    string  `json:"customer_name"`
-	DelivTo         string  `json:"deliv_to"`
-	DelivToName     string  `json:"deliv_to_name"`
-	CustAddress     string  `json:"cust_address"`
-	CustCity        string  `json:"cust_city"`
-	DelivAddress    string  `json:"deliv_address"`
-	DelivCity       string  `json:"deliv_city"`
-	QtyKoli         int     `json:"qty_koli"`
-	QtyKoliSeal     int     `json:"qty_koli_seal"`
-	Remarks         string  `json:"remarks"`
-	PickerName      string  `json:"picker_name"`
-	PlanPickupDate  string  `json:"plan_pickup_date"`
-	PlanPickupTime  string  `json:"plan_pickup_time"`
-	TransporterCode string  `json:"transporter_code"`
-	ProdDate        string  `json:"prod_date"`
-	ExpDate         string  `json:"exp_date"`
-	CaseNumber      string  `json:"case_number"`
-	LotNumber       string  `json:"lot_number"`
-	CartonNumber    string  `json:"carton_number"`
-	SerialNumber    string  `json:"serial_number"`
-	OwnerCode       string  `json:"owner_code"`
-	UseCartonNumber bool    `json:"use_carton_number"`
-	UseFifo         bool    `json:"use_fifo"`
-	UseSerialNumber bool    `json:"use_serial_number"`
+	OrderType         string  `json:"order_type"`
+	OutboundNo        string  `json:"outbound_no"`
+	InventoryID       int     `json:"inventory_id,omitempty"`
+	ItemID            int     `json:"item_id"`
+	ItemCode          string  `json:"item_code"`
+	BundleProductCode string  `json:"product_bundling_code"`
+	Quantity          int     `json:"quantity"`
+	Uom               string  `json:"uom"`
+	Barcode           string  `json:"barcode"`
+	ItemName          string  `json:"item_name"`
+	UnitModel         string  `json:"unit_model"`
+	Pallet            string  `json:"pallet"`
+	Location          string  `json:"location"`
+	Cbm               float64 `json:"cbm"`
+	WhsCode           string  `json:"whs_code"`
+	RecDate           string  `json:"rec_date"`
+	OutboundDate      string  `json:"outbound_date"`
+	ShipmentID        string  `json:"shipment_id"`
+	CustomerCode      string  `json:"customer_code"`
+	CustomerName      string  `json:"customer_name"`
+	DelivTo           string  `json:"deliv_to"`
+	DelivToName       string  `json:"deliv_to_name"`
+	CustAddress       string  `json:"cust_address"`
+	CustCity          string  `json:"cust_city"`
+	DelivAddress      string  `json:"deliv_address"`
+	DelivCity         string  `json:"deliv_city"`
+	QtyKoli           int     `json:"qty_koli"`
+	QtyKoliSeal       int     `json:"qty_koli_seal"`
+	Remarks           string  `json:"remarks"`
+	PickerName        string  `json:"picker_name"`
+	PlanPickupDate    string  `json:"plan_pickup_date"`
+	PlanPickupTime    string  `json:"plan_pickup_time"`
+	TransporterCode   string  `json:"transporter_code"`
+	ProdDate          string  `json:"prod_date"`
+	ExpDate           string  `json:"exp_date"`
+	CaseNumber        string  `json:"case_number"`
+	LotNumber         string  `json:"lot_number"`
+	CartonNumber      string  `json:"carton_number"`
+	SerialNumber      string  `json:"serial_number"`
+	OwnerCode         string  `json:"owner_code"`
+	UseCartonNumber   bool    `json:"use_carton_number"`
+	UseFifo           bool    `json:"use_fifo"`
+	UseSerialNumber   bool    `json:"use_serial_number"`
 }
 
 func (r *OutboundRepository) GetPickingSheet(outbound_id int) ([]PaperPickingSheet, error) {
 	var outboundList []PaperPickingSheet
 
-	sql := `select
-        e.order_type,
-        e.cust_address,
-        e.cust_city,
-        e.deliv_to,
-        e.deliv_address,
-        e.deliv_city,
-        e.qty_koli,
-        e.qty_koli_seal,
-        e.remarks,
-        e.picker_name,
-        e.plan_pickup_date,
-        e.plan_pickup_time,
-        a.item_id, 
-        a.item_code, 
-        sum(a.quantity) as sum_quantity,
-        uc.conversion_rate as rate,
-        sum(a.quantity) / uc.conversion_rate as quantity,
-        od.uom,
-        a.pallet, a.location,
-        b.barcode, b.item_name, b.cbm, 
-        c.rec_date, 
-        c.prod_date,
-        c.exp_date,
-		c.case_number,
-        c.lot_number,
-		c.carton_number,
-		c.serial_number,
-        c.owner_code,
-        c.whs_code,
-        ROUND(b.cbm * sum(a.quantity), 4) as cbm,
-        b.item_name,
-		b.unit_model,
-        e.outbound_no, 
-        e.customer_code, 
-        e.outbound_date, 
-        e.shipment_id,
-        f.customer_name,
-        g.customer_name as deliv_to_name,
-        h.transporter_code,
-		ips.use_carton_number,
-		ips.use_fifo,
-		ips.use_serial_number
-        from outbound_pickings a
-        inner join products b on a.item_id = b.id
-        inner join outbound_details od on od.id = a.outbound_detail_id
-        inner join uom_conversions uc on uc.item_code = b.item_code and uc.from_uom = od.uom AND uc.to_uom = b.uom
-        inner join inventories c on a.inventory_id = c.id
-        inner join outbound_headers e on a.outbound_id = e.id
-        inner join customers f on e.customer_code = f.customer_code
-        inner join customers g on e.deliv_to = g.customer_code
-        left join transporters h on e.transporter_code = h.transporter_code
-		left join inventory_policies ips on ips.owner_code = e.owner_code
-        where a.outbound_id = ?
-        group by 
-        e.order_type, a.location, a.pallet, a.item_id, a.item_code,
-        b.barcode, b.item_name, b.cbm, b.unit_model,
-        c.owner_code,
-        c.rec_date, 
-        c.prod_date,
-        c.exp_date,
-		c.case_number,
-        c.lot_number,
-		c.carton_number,
-		c.serial_number,
-        c.whs_code,
-        e.outbound_no, e.customer_code, f.customer_name, e.outbound_date, e.shipment_id,
-        e.cust_address,
-        e.cust_city,
-        e.deliv_to,
-        e.deliv_address,
-        e.deliv_city,
-        e.qty_koli,
-        e.qty_koli_seal,
-        e.remarks,
-        e.picker_name,
-        e.plan_pickup_date,
-        e.plan_pickup_time,
-        g.customer_name,
-        h.transporter_code,
-        a.outbound_detail_id,
-        uc.conversion_rate,
-        od.uom,
-		ips.use_carton_number,
-		ips.use_fifo,
-		ips.use_serial_number
-        Order By a.outbound_detail_id ASC`
+	sql := `
+		SELECT
+			e.order_type,
+
+			-- Customer / Delivery
+			e.cust_address,
+			e.cust_city,
+			e.deliv_to,
+			e.deliv_address,
+			e.deliv_city,
+
+			-- Outbound Header
+			e.qty_koli,
+			e.qty_koli_seal,
+			e.remarks,
+			e.picker_name,
+			e.plan_pickup_date,
+			e.plan_pickup_time,
+			e.outbound_no,
+			e.customer_code,
+			e.outbound_date,
+			e.shipment_id,
+
+			-- Outbound Detail / Picking
+			a.item_id,
+			a.item_code,
+
+			-- Product Bundling Code
+			od.bundle_product_code,
+
+			SUM(a.quantity) AS sum_quantity,
+
+			-- UOM Conversion
+			uc.conversion_rate AS rate,
+			SUM(a.quantity) / uc.conversion_rate AS quantity,
+
+			od.uom,
+
+			-- Picking Location
+			a.pallet,
+			a.location,
+
+			-- Product Master
+			b.barcode,
+			b.item_name,
+			b.cbm,
+			b.unit_model,
+
+			-- Inventory
+			c.rec_date,
+			c.prod_date,
+			c.exp_date,
+			c.case_number,
+			c.lot_number,
+			c.carton_number,
+
+			-- Serial Number dari OUTBOUND_PICKINGS
+			ISNULL(
+				STRING_AGG(
+					NULLIF(
+						LTRIM(RTRIM(a.serial_number)),
+						''
+					),
+					', '
+				),
+				''
+			) AS serial_number,
+
+			c.owner_code,
+			c.whs_code,
+
+			-- Total CBM
+			ROUND(
+				b.cbm * SUM(a.quantity),
+				4
+			) AS cbm,
+
+			-- Customer
+			f.customer_name,
+
+			-- Delivery To
+			g.customer_name AS deliv_to_name,
+
+			-- Transporter
+			h.transporter_code,
+
+			-- Inventory Policy
+			ips.use_carton_number,
+			ips.use_fifo,
+			ips.use_serial_number
+
+		FROM outbound_pickings a
+
+		-- Product
+		INNER JOIN products b
+			ON a.item_id = b.id
+
+		-- Outbound Detail
+		INNER JOIN outbound_details od
+			ON od.id = a.outbound_detail_id
+
+		-- UOM Conversion
+		INNER JOIN uom_conversions uc
+			ON uc.item_code = b.item_code
+			AND uc.from_uom = od.uom
+			AND uc.to_uom = b.uom
+
+		-- Inventory
+		INNER JOIN inventories c
+			ON a.inventory_id = c.id
+
+		-- Outbound Header
+		INNER JOIN outbound_headers e
+			ON a.outbound_id = e.id
+
+		-- Customer
+		INNER JOIN customers f
+			ON e.customer_code = f.customer_code
+
+		-- Delivery To
+		INNER JOIN customers g
+			ON e.deliv_to = g.customer_code
+
+		-- Transporter
+		LEFT JOIN transporters h
+			ON e.transporter_code = h.transporter_code
+
+		-- Inventory Policy
+		LEFT JOIN inventory_policies ips
+			ON ips.owner_code = e.owner_code
+
+		WHERE a.outbound_id = ?
+
+		GROUP BY
+			-- Header
+			e.order_type,
+			e.cust_address,
+			e.cust_city,
+			e.deliv_to,
+			e.deliv_address,
+			e.deliv_city,
+			e.qty_koli,
+			e.qty_koli_seal,
+			e.remarks,
+			e.picker_name,
+			e.plan_pickup_date,
+			e.plan_pickup_time,
+			e.outbound_no,
+			e.customer_code,
+			e.outbound_date,
+			e.shipment_id,
+
+			-- Picking
+			a.item_id,
+			a.item_code,
+			a.pallet,
+			a.location,
+
+			-- Product
+			od.bundle_product_code,
+			b.barcode,
+			b.item_name,
+			b.cbm,
+			b.unit_model,
+
+			-- Inventory
+			c.owner_code,
+			c.rec_date,
+			c.prod_date,
+			c.exp_date,
+			c.case_number,
+			c.lot_number,
+			c.carton_number,
+			c.whs_code,
+
+			-- Detail
+			a.outbound_detail_id,
+			uc.conversion_rate,
+			od.uom,
+
+			-- Customer
+			f.customer_name,
+			g.customer_name,
+
+			-- Transporter
+			h.transporter_code,
+
+			-- Policy
+			ips.use_carton_number,
+			ips.use_fifo,
+			ips.use_serial_number
+
+		ORDER BY
+			a.outbound_detail_id ASC
+	`
 
 	fmt.Println("Picking Sheet Query Executed")
-	if err := r.db.Debug().Raw(sql, outbound_id).Scan(&outboundList).Error; err != nil {
+
+	if err := r.db.Debug().
+		Raw(sql, outbound_id).
+		Scan(&outboundList).Error; err != nil {
 		return nil, err
 	}
 
 	return outboundList, nil
 }
+
+// func (r *OutboundRepository) GetPickingSheet(outbound_id int) ([]PaperPickingSheet, error) {
+// 	var outboundList []PaperPickingSheet
+
+// 	sql := `select
+//         e.order_type,
+//         e.cust_address,
+//         e.cust_city,
+//         e.deliv_to,
+//         e.deliv_address,
+//         e.deliv_city,
+//         e.qty_koli,
+//         e.qty_koli_seal,
+//         e.remarks,
+//         e.picker_name,
+//         e.plan_pickup_date,
+//         e.plan_pickup_time,
+//         a.item_id,
+//         a.item_code,
+//         sum(a.quantity) as sum_quantity,
+//         uc.conversion_rate as rate,
+//         sum(a.quantity) / uc.conversion_rate as quantity,
+//         od.uom,
+//         a.pallet, a.location,
+//         b.barcode, b.item_name, b.cbm,
+//         c.rec_date,
+//         c.prod_date,
+//         c.exp_date,
+// 		c.case_number,
+//         c.lot_number,
+// 		c.carton_number,
+// 		c.serial_number,
+//         c.owner_code,
+//         c.whs_code,
+//         ROUND(b.cbm * sum(a.quantity), 4) as cbm,
+//         b.item_name,
+// 		b.unit_model,
+//         e.outbound_no,
+//         e.customer_code,
+//         e.outbound_date,
+//         e.shipment_id,
+//         f.customer_name,
+//         g.customer_name as deliv_to_name,
+//         h.transporter_code,
+// 		ips.use_carton_number,
+// 		ips.use_fifo,
+// 		ips.use_serial_number
+//         from outbound_pickings a
+//         inner join products b on a.item_id = b.id
+//         inner join outbound_details od on od.id = a.outbound_detail_id
+//         inner join uom_conversions uc on uc.item_code = b.item_code and uc.from_uom = od.uom AND uc.to_uom = b.uom
+//         inner join inventories c on a.inventory_id = c.id
+//         inner join outbound_headers e on a.outbound_id = e.id
+//         inner join customers f on e.customer_code = f.customer_code
+//         inner join customers g on e.deliv_to = g.customer_code
+//         left join transporters h on e.transporter_code = h.transporter_code
+// 		left join inventory_policies ips on ips.owner_code = e.owner_code
+//         where a.outbound_id = ?
+//         group by
+//         e.order_type, a.location, a.pallet, a.item_id, a.item_code,
+//         b.barcode, b.item_name, b.cbm, b.unit_model,
+//         c.owner_code,
+//         c.rec_date,
+//         c.prod_date,
+//         c.exp_date,
+// 		c.case_number,
+//         c.lot_number,
+// 		c.carton_number,
+// 		c.serial_number,
+//         c.whs_code,
+//         e.outbound_no, e.customer_code, f.customer_name, e.outbound_date, e.shipment_id,
+//         e.cust_address,
+//         e.cust_city,
+//         e.deliv_to,
+//         e.deliv_address,
+//         e.deliv_city,
+//         e.qty_koli,
+//         e.qty_koli_seal,
+//         e.remarks,
+//         e.picker_name,
+//         e.plan_pickup_date,
+//         e.plan_pickup_time,
+//         g.customer_name,
+//         h.transporter_code,
+//         a.outbound_detail_id,
+//         uc.conversion_rate,
+//         od.uom,
+// 		ips.use_carton_number,
+// 		ips.use_fifo,
+// 		ips.use_serial_number
+//         Order By a.outbound_detail_id ASC`
+
+// 	fmt.Println("Picking Sheet Query Executed")
+// 	if err := r.db.Debug().Raw(sql, outbound_id).Scan(&outboundList).Error; err != nil {
+// 		return nil, err
+// 	}
+
+// 	return outboundList, nil
+// }
 
 func (r *OutboundRepository) GetOutboundDetailList(outbound_id int) ([]OutboundDetailList, error) {
 
