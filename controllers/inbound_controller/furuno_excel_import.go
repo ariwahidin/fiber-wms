@@ -1,1441 +1,2806 @@
 package inbound_controller
 
 import (
-	"fiber-app/controllers/helpers"
-	"fiber-app/models"
-	"fiber-app/repositories"
+	"errors"
 	"fmt"
 	"log"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"fiber-app/controllers/helpers"
+	"fiber-app/models"
+	"fiber-app/repositories"
+	"fiber-app/services"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/xuri/excelize/v2"
+	"gorm.io/gorm"
 )
 
-// ============================================================================
-// FURUNO INBOUND EXCEL IMPORT
-// ============================================================================
-// Dedicated Furuno controller functions/types intentionally use the Furuno
-// prefix so this file can live beside the existing/default inbound importer
-// without redeclaration conflicts.
-//
-// Expected Furuno columns:
-//   0  DO Number (informational only; not used as ReceiptID)
-//   1  DO Date
-//   2  Packing List # -> ReceiptID
-//   3  Vessel Related Remarks
-//   4  Customer Name
-//   5  Cust. Ref No.
-//   6  Model/Part No
-//   7  Item code
-//   8  Model Name
-//   9  DO Quantity
-//   10 Vendor Serial Number
-//   11 FSG Serial Number
-//   12 FSG Serial Number Quantity
-//   13 Remarks For DO
-//
-// The Excel file does NOT contain several fields required by the WMS inbound
-// model. Those fields are supplied through multipart form fields.
-// ============================================================================
-
-// ============================================================================
-// RESPONSE / VALIDATION TYPES
-// ============================================================================
-
-type FurunoExcelUploadResponse struct {
-	Success          bool                    `json:"success"`
-	Message          string                  `json:"message"`
-	TotalRows        int                     `json:"total_rows"`
-	ProcessedRows    int                     `json:"processed_rows"`
-	SkippedRows      int                     `json:"skipped_rows"`
-	SuccessCount     int                     `json:"success_count"`
-	FailedCount      int                     `json:"failed_count"`
-	InboundNumbers   []string                `json:"inbound_numbers,omitempty"`
-	Errors           []FurunoExcelRowError   `json:"errors,omitempty"`
-	ValidationErrors []FurunoValidationError `json:"validation_errors,omitempty"`
+func (c *InboundController) expandInboundItems(tx *gorm.DB, items []InboundItem) ([]InboundItem, error) {
+	bundleService := services.NewProductBundleService(tx)
+	var expanded []InboundItem
+	for _, item := range items {
+		var product models.Product
+		if err := tx.First(&product, "item_code = ?", strings.TrimSpace(item.ItemCode)).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, fmt.Errorf("product not found: %s", item.ItemCode)
+			}
+			return nil, err
+		}
+		if product.IsBundle != "Y" {
+			item.ItemCode = product.ItemCode
+			if item.BundleProductID == 0 {
+				item.BundleProductCode = ""
+				item.BundleQuantity = 0
+			}
+			expanded = append(expanded, item)
+			continue
+		}
+		components, err := bundleService.ExpandBundle(tx, product.ID, item.Quantity)
+		if err != nil {
+			return nil, fmt.Errorf("failed to expand bundle %s: %w", product.ItemCode, err)
+		}
+		if len(components) == 0 {
+			return nil, fmt.Errorf("bundle %s has no components", product.ItemCode)
+		}
+		for _, component := range components {
+			child := item
+			child.ID = 0
+			child.ItemCode = component.ItemCode
+			child.Quantity = component.Qty
+			child.UOM = component.UOM
+			child.BundleProductID = int(product.ID)
+			child.BundleProductCode = product.ItemCode
+			child.BundleQuantity = item.Quantity
+			// Parent-level serial is not copied to every component unless the caller already supplied component serials.
+			expanded = append(expanded, child)
+		}
+	}
+	return expanded, nil
 }
 
-type FurunoExcelRowError struct {
+func (c *InboundController) CreateInbound(ctx *fiber.Ctx) error {
+	var payload Inbound
+	if err := ctx.BodyParser(&payload); err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Invalid payload", "error": err.Error()})
+	}
+	if payload.ReceiptID == "" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Receipt ID cannot be empty", "error": "Receipt ID cannot be empty"})
+	}
+
+	var policy models.InventoryPolicy
+	if err := c.DB.Where("owner_code = ?", payload.OwnerCode).First(&policy).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false, "message": "Failed to get inventory policy", "error": err.Error()})
+	}
+	for _, item := range payload.Items {
+		if item.Quantity == 0 {
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Quantity cannot be zero", "error": "Quantity cannot be zero"})
+		}
+		if item.UOM == "" {
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "UOM cannot be empty", "error": "UOM cannot be empty"})
+		}
+		if item.ItemCode == "" {
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Item code cannot be empty", "error": "Item code cannot be empty"})
+		}
+		if policy.UseReceiveLocation && item.Location == "" {
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Receive location cannot be empty", "error": "Receive location cannot be empty"})
+		}
+		if policy.UseCartonNumber && item.CartonNumber == "" {
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Carton number cannot be empty", "error": "Carton number cannot be empty"})
+		}
+		if policy.UseCaseNumber && item.CaseNumber == "" {
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Case number cannot be empty", "error": "Case number cannot be empty"})
+		}
+	}
+
+	// Expand bundle before duplicate validation / insert. The parent bundle is
+	// never lost: every component carries the parent reference.
+	tx := c.DB.Begin()
+	if tx.Error != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": tx.Error.Error()})
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	if err := tx.Where("receipt_id = ?", payload.ReceiptID).First(&models.InboundHeader{}).Error; err == nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Receipt ID already exists", "error": "Receipt ID already exists: " + payload.ReceiptID})
+	}
+
+	repo := repositories.NewInboundRepository(tx)
+	inboundNo, err := repo.GenerateInboundNo()
+	if err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false, "message": "Failed to generate inbound no", "error": err.Error()})
+	}
+	userID := int(ctx.Locals("userID").(float64))
+
+	var supplier models.Supplier
+	if err := tx.First(&supplier, "supplier_code = ?", payload.Supplier).Error; err != nil {
+		tx.Rollback()
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"success": false, "message": "Supplier not found", "error": "Supplier not found : " + payload.Supplier})
+		}
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	inboundHeader := models.InboundHeader{
+		InboundNo: inboundNo, InboundDate: payload.InboundDate, ReceiptID: payload.ReceiptID,
+		Supplier: payload.Supplier, SupplierId: int(supplier.ID), Status: "open", RawStatus: "DRAFT",
+		DraftTime: time.Now(), Transporter: payload.Transporter, NoTruck: payload.NoTruck, Driver: payload.Driver,
+		Container: payload.Container, Remarks: payload.Remarks, Type: payload.Type, WhsCode: payload.WhsCode,
+		OwnerCode: payload.OwnerCode, Origin: payload.Origin, PoDate: payload.PoDate, ArrivalTime: payload.ArrivalTime,
+		StartUnloading: payload.StartUnloading, EndUnloading: payload.EndUnloading, TruckSize: payload.TruckSize,
+		BLNo: payload.BLNo, Koli: payload.Koli, CreatedBy: userID, UpdatedBy: userID,
+	}
+	if err := tx.Create(&inboundHeader).Error; err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false, "message": "Failed to insert inbound header", "error": err.Error()})
+	}
+
+	for _, ref := range payload.References {
+		if ref.RefNo == "" {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invoice no cannot be empty"})
+		}
+		if err := tx.Create(&models.InboundReference{InboundId: inboundHeader.ID, RefNo: ref.RefNo}).Error; err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+	}
+
+	expandedItems, err := c.expandInboundItems(tx, payload.Items)
+	if err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Failed to expand inbound items", "error": err.Error()})
+	}
+	if len(expandedItems) == 0 {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "No items after bundle expansion", "error": "No items after bundle expansion"})
+	}
+
+	// Prevent duplicate component lines after expansion.
+	seen := make(map[string]bool)
+	for _, item := range expandedItems {
+		key := fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%d|%s", item.ItemCode, item.RecDate, item.ExpDate, item.LotNumber, item.ProdDate, item.Location, item.UOM, item.DivisionCode, item.BundleProductID, item.SerialNumber)
+		if seen[key] {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Duplicate item found: " + item.ItemCode, "error": "Duplicate item found: " + item.ItemCode})
+		}
+		seen[key] = true
+	}
+
+	for _, item := range expandedItems {
+		var product models.Product
+		if err := tx.First(&product, "item_code = ?", item.ItemCode).Error; err != nil {
+			tx.Rollback()
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Product not found: " + item.ItemCode})
+			}
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+		var uom models.UomConversion
+		if err := tx.First(&uom, "item_code = ? AND from_uom = ?", product.ItemCode, item.UOM).Error; err != nil {
+			tx.Rollback()
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "UOM conversion not found: " + item.ItemCode + " / " + item.UOM})
+			}
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+
+		if !policy.UseLotNo {
+			item.LotNumber = inboundHeader.InboundNo
+		}
+		inputQty := item.Quantity
+		if len(item.SerialNumbers) > 0 {
+			inputQty = float64(len(item.SerialNumbers))
+		}
+		refNo, refID := item.RefNo, item.RefId
+		if len(payload.References) == 1 {
+			var ref models.InboundReference
+			if err := tx.First(&ref, "ref_no = ?", payload.References[0].RefNo).Error; err == nil {
+				refNo = ref.RefNo
+				refID = int(ref.ID)
+			}
+		}
+		if refID == 0 && refNo != "" {
+			var ref models.InboundReference
+			if err := tx.First(&ref, "ref_no = ?", refNo).Error; err == nil {
+				refID = int(ref.ID)
+				refNo = ref.RefNo
+			}
+		}
+
+		detail := models.InboundDetail{
+			InboundNo: inboundHeader.InboundNo, InboundId: int(inboundHeader.ID), ItemCode: item.ItemCode, ItemId: product.ID,
+			ProductNumber: product.ProductNumber, Barcode: uom.Ean, Uom: item.UOM, Quantity: inputQty, Location: item.Location,
+			QaStatus: item.QaStatus, WhsCode: inboundHeader.WhsCode, RecDate: item.RecDate, ProdDate: item.ProdDate, ExpDate: item.ExpDate,
+			LotNumber: item.LotNumber, SerialNumber: item.SerialNumber, CartonNumber: item.CartonNumber, CaseNumber: item.CaseNumber,
+			RefNo: refNo, RefId: refID, IsSerial: product.HasSerial, OwnerCode: inboundHeader.OwnerCode, DivisionCode: item.DivisionCode,
+			BundleProductID: item.BundleProductID, BundleProductCode: item.BundleProductCode, BundleQuantity: item.BundleQuantity,
+			CreatedBy: userID, UpdatedBy: userID,
+		}
+		if err := tx.Create(&detail).Error; err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false, "message": "Failed to insert inbound detail", "error": err.Error()})
+		}
+
+		if len(item.SerialNumbers) > 0 {
+			seenSN := map[string]bool{}
+			if int(item.Quantity) != len(item.SerialNumbers) {
+				tx.Rollback()
+				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Total serial number not match with quantity for item " + item.ItemCode})
+			}
+			for _, sn := range item.SerialNumbers {
+				sn = strings.TrimSpace(sn)
+				if sn == "" {
+					tx.Rollback()
+					return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Serial number cannot be empty"})
+				}
+				if seenSN[sn] {
+					tx.Rollback()
+					return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Duplicate serial number: " + sn})
+				}
+				seenSN[sn] = true
+				var existing models.InboundSerial
+				e := tx.Where("serial_number = ?", sn).First(&existing).Error
+				if e == nil {
+					tx.Rollback()
+					return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Duplicate serial number: " + sn})
+				}
+				if !errors.Is(e, gorm.ErrRecordNotFound) {
+					tx.Rollback()
+					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": e.Error()})
+				}
+				if err := tx.Create(&models.InboundSerial{InboundId: int(inboundHeader.ID), InboundDetailId: int(detail.ID), SerialNumber: sn, CreatedBy: userID, UpdatedBy: userID}).Error; err != nil {
+					tx.Rollback()
+					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+				}
+			}
+		}
+	}
+
+	if err := helpers.InsertTransactionHistory(tx, inboundHeader.InboundNo, "open", "INBOUND", "", userID); err != nil {
+		log.Println("Gagal insert history:", err)
+	}
+	if err := tx.Commit().Error; err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false, "message": "Failed to commit transaction", "error": err.Error()})
+	}
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Inbound created successfully", "data": fiber.Map{"inbound_id": inboundHeader.ID}})
+}
+
+func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
+	inboundNo := ctx.Params("inbound_no")
+	var payload Inbound
+	if err := ctx.BodyParser(&payload); err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
+	var policy models.InventoryPolicy
+	if err := c.DB.Where("owner_code = ?", payload.OwnerCode).First(&policy).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false, "message": "Failed to get inventory policy", "error": err.Error()})
+	}
+	for _, item := range payload.Items {
+		if item.Quantity == 0 {
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Quantity cannot be zero"})
+		}
+		if item.UOM == "" || item.ItemCode == "" {
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Item code and UOM cannot be empty"})
+		}
+		if policy.UseReceiveLocation && item.Location == "" {
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Receive location cannot be empty"})
+		}
+	}
+	userID := int(ctx.Locals("userID").(float64))
+	tx := c.DB.Begin()
+	if tx.Error != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": tx.Error.Error()})
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+	var header models.InboundHeader
+	if err := tx.First(&header, "inbound_no = ?", inboundNo).Error; err != nil {
+		tx.Rollback()
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Inbound not found"})
+		}
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	if header.Status == "complete" {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Inbound " + inboundNo + " is already complete", "message": "Inbound is already complete"})
+	}
+	var supplier models.Supplier
+	if err := tx.First(&supplier, "supplier_code = ?", payload.Supplier).Error; err != nil {
+		tx.Rollback()
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Supplier not found"})
+		}
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	header.InboundDate = payload.InboundDate
+	header.Supplier = payload.Supplier
+	header.SupplierId = int(supplier.ID)
+	header.ReceiptID = payload.ReceiptID
+	header.Type = payload.Type
+	header.Remarks = payload.Remarks
+	header.UpdatedBy = userID
+	header.Transporter = payload.Transporter
+	header.NoTruck = payload.NoTruck
+	header.Driver = payload.Driver
+	header.Container = payload.Container
+	header.WhsCode = payload.WhsCode
+	header.OwnerCode = payload.OwnerCode
+	header.Origin = payload.Origin
+	header.PoDate = payload.PoDate
+	header.ArrivalTime = payload.ArrivalTime
+	header.StartUnloading = payload.StartUnloading
+	header.EndUnloading = payload.EndUnloading
+	header.TruckSize = payload.TruckSize
+	header.BLNo = payload.BLNo
+	header.Koli = payload.Koli
+	if err := tx.Save(&header).Error; err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	for _, ref := range payload.References {
+		if ref.ID > 0 {
+			var r models.InboundReference
+			if err := tx.First(&r, "id = ?", ref.ID).Error; err == nil {
+				r.RefNo = ref.RefNo
+				if err := tx.Save(&r).Error; err != nil {
+					tx.Rollback()
+					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+				}
+				continue
+			}
+		}
+		if err := tx.Create(&models.InboundReference{InboundId: header.ID, RefNo: ref.RefNo}).Error; err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+	}
+
+	expanded, err := c.expandInboundItems(tx, payload.Items)
+	if err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Failed to expand inbound items", "error": err.Error()})
+	}
+	var existing []models.InboundDetail
+	if err := tx.Where("inbound_no = ?", inboundNo).Find(&existing).Error; err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	byID := map[uint]*models.InboundDetail{}
+	byBundle := map[string][]*models.InboundDetail{}
+	for i := range existing {
+		d := &existing[i]
+		byID[d.ID] = d
+		key := fmt.Sprintf("%d|%s", d.BundleProductID, d.BundleProductCode)
+		if d.BundleProductID > 0 && d.BundleProductCode != "" {
+			byBundle[key] = append(byBundle[key], d)
+		}
+	}
+	barcodeMap := map[uint]repositories.ResulInboundBarcodeByOutboundDetailID{}
+	ids := make([]uint, 0, len(existing))
+	for _, d := range existing {
+		ids = append(ids, d.ID)
+	}
+	if len(ids) > 0 {
+		barcodeMap, err = repositories.NewInboundRepository(tx).GetInboundBarcodesByDetailIDs(ids)
+		if err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+	}
+	var stock []models.InboundBarcode
+	if len(ids) > 0 {
+		if err := tx.Where("inbound_detail_id IN ? AND status = ?", ids, "in stock").Find(&stock).Error; err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+	}
+	putaway := map[uint]map[string]bool{}
+	for _, b := range stock {
+		if _, ok := putaway[b.InboundDetailId]; !ok {
+			putaway[b.InboundDetailId] = map[string]bool{}
+		}
+		if strings.TrimSpace(b.SerialNumber) != "" {
+			putaway[b.InboundDetailId][strings.TrimSpace(b.SerialNumber)] = true
+		}
+	}
+	serialMap := map[uint][]models.InboundSerial{}
+	if len(ids) > 0 {
+		var ss []models.InboundSerial
+		if err := tx.Where("inbound_detail_id IN ?", ids).Find(&ss).Error; err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+		for _, s := range ss {
+			serialMap[uint(s.InboundDetailId)] = append(serialMap[uint(s.InboundDetailId)], s)
+		}
+	}
+
+	used := map[uint]bool{}
+	usedBundle := map[string]bool{}
+	for _, item := range expanded {
+		product, ok := func() (models.Product, bool) {
+			p, ok := models.Product{}, false
+			var x models.Product
+			if tx.First(&x, "item_code = ?", item.ItemCode).Error == nil {
+				p = x
+				ok = true
+			}
+			return p, ok
+		}()
+		if !ok {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Product not found: " + item.ItemCode})
+		}
+		var uom models.UomConversion
+		if err := tx.First(&uom, "item_code = ? AND from_uom = ?", item.ItemCode, item.UOM).Error; err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "UOM conversion not found: " + item.ItemCode + " / " + item.UOM})
+		}
+		var d *models.InboundDetail
+		if item.ID > 0 {
+			d = byID[uint(item.ID)]
+		}
+		if d == nil && item.BundleProductID > 0 {
+			key := fmt.Sprintf("%d|%s", item.BundleProductID, item.BundleProductCode)
+			for _, cand := range byBundle[key] {
+				if !used[cand.ID] && cand.ItemCode == item.ItemCode {
+					d = cand
+					break
+				}
+			}
+		}
+		if d == nil {
+			for i := range existing {
+				cand := &existing[i]
+				if !used[cand.ID] && cand.BundleProductID == 0 && item.BundleProductID == 0 && cand.ItemCode == item.ItemCode && cand.Uom == item.UOM {
+					d = cand
+					break
+				}
+			}
+		}
+		if d == nil {
+			d = &models.InboundDetail{InboundNo: header.InboundNo, InboundId: int(header.ID), CreatedBy: userID}
+		}
+		if d.ID > 0 {
+			used[d.ID] = true
+		}
+		if item.BundleProductID > 0 {
+			usedBundle[fmt.Sprintf("%d|%s", item.BundleProductID, item.BundleProductCode)] = true
+		}
+		if !policy.UseLotNo {
+			item.LotNumber = header.InboundNo
+		}
+		qty := item.Quantity
+		if len(item.SerialNumbers) > 0 {
+			qty = float64(len(item.SerialNumbers))
+		}
+		// Scanned quantity may never be reduced.
+		if b, ok := barcodeMap[d.ID]; ok && b.TotalScan > int(qty) {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Quantity update for item " + item.ItemCode + " is less than the total scanned quantity"})
+		}
+		for sn := range putaway[d.ID] {
+			found := false
+			for _, in := range item.SerialNumbers {
+				if strings.TrimSpace(in) == sn {
+					found = true
+					break
+				}
+			}
+			if !found {
+				tx.Rollback()
+				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "serial number " + sn + " already putaway and cannot be removed"})
+			}
+		}
+		d.ItemId = product.ID
+		d.ProductNumber = product.ProductNumber
+		d.ItemCode = item.ItemCode
+		d.Barcode = uom.Ean
+		d.Quantity = qty
+		d.Location = item.Location
+		d.WhsCode = header.WhsCode
+		d.RecDate = item.RecDate
+		d.ProdDate = item.ProdDate
+		d.ExpDate = item.ExpDate
+		d.LotNumber = item.LotNumber
+		d.Uom = item.UOM
+		d.IsSerial = product.HasSerial
+		d.SerialNumber = item.SerialNumber
+		d.CartonNumber = item.CartonNumber
+		d.CaseNumber = item.CaseNumber
+		d.RefNo = item.RefNo
+		d.RefId = item.RefId
+		d.OwnerCode = header.OwnerCode
+		d.QaStatus = item.QaStatus
+		d.DivisionCode = item.DivisionCode
+		d.BundleProductID = item.BundleProductID
+		d.BundleProductCode = item.BundleProductCode
+		d.BundleQuantity = item.BundleQuantity
+		d.UpdatedBy = userID
+		if d.ID == 0 {
+			if err := tx.Create(d).Error; err != nil {
+				tx.Rollback()
+				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+			}
+		} else if err := tx.Save(d).Error; err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+		if len(item.SerialNumbers) > 0 {
+			if int(item.Quantity) != len(item.SerialNumbers) {
+				tx.Rollback()
+				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Jumlah serial number tidak sesuai quantity untuk item " + item.ItemCode})
+			}
+			seenSN := map[string]bool{}
+			for _, sn := range item.SerialNumbers {
+				sn = strings.TrimSpace(sn)
+				if sn == "" || seenSN[sn] {
+					tx.Rollback()
+					return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid or duplicate serial number: " + sn})
+				}
+				seenSN[sn] = true
+				for _, old := range serialMap[d.ID] {
+					if old.SerialNumber == sn {
+						continue
+					}
+				}
+				var other models.InboundSerial
+				if e := tx.Where("serial_number = ? AND inbound_detail_id != ?", sn, d.ID).First(&other).Error; e == nil {
+					tx.Rollback()
+					return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "serial number is already in use: " + sn})
+				} else if !errors.Is(e, gorm.ErrRecordNotFound) {
+					tx.Rollback()
+					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": e.Error()})
+				}
+			}
+			if err := tx.Where("inbound_detail_id = ?", d.ID).Delete(&models.InboundSerial{}).Error; err != nil {
+				tx.Rollback()
+				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+			}
+			for _, sn := range item.SerialNumbers {
+				if err := tx.Create(&models.InboundSerial{InboundId: int(header.ID), InboundDetailId: int(d.ID), SerialNumber: strings.TrimSpace(sn), CreatedBy: userID, UpdatedBy: userID}).Error; err != nil {
+					tx.Rollback()
+					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+				}
+			}
+		}
+	}
+	// Remove old details no longer present. Bundle details are treated as one logical group.
+	for _, d := range existing {
+		if used[d.ID] {
+			continue
+		}
+		if d.BundleProductID > 0 && d.BundleProductCode != "" {
+			key := fmt.Sprintf("%d|%s", d.BundleProductID, d.BundleProductCode)
+			if usedBundle[key] {
+				if b, ok := barcodeMap[d.ID]; ok && b.TotalScan > 0 {
+					tx.Rollback()
+					return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Bundle " + d.BundleProductCode + " contains scanned item and cannot remove component " + d.ItemCode})
+				}
+				if len(putaway[d.ID]) > 0 {
+					tx.Rollback()
+					return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Bundle " + d.BundleProductCode + " contains putaway item and cannot remove component " + d.ItemCode})
+				}
+				if err := tx.Where("inbound_detail_id = ?", d.ID).Delete(&models.InboundSerial{}).Error; err != nil {
+					tx.Rollback()
+					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+				}
+				if err := tx.Unscoped().Delete(d).Error; err != nil {
+					tx.Rollback()
+					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+				}
+				continue
+			}
+		} else {
+			if b, ok := barcodeMap[d.ID]; ok && b.TotalScan > 0 {
+				tx.Rollback()
+				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Item " + d.ItemCode + " is already scanned and cannot be deleted"})
+			}
+			if len(putaway[d.ID]) > 0 {
+				tx.Rollback()
+				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Item " + d.ItemCode + " is already putaway and cannot be deleted"})
+			}
+			if err := tx.Where("inbound_detail_id = ?", d.ID).Delete(&models.InboundSerial{}).Error; err != nil {
+				tx.Rollback()
+				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+			}
+			if err := tx.Unscoped().Delete(d).Error; err != nil {
+				tx.Rollback()
+				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+			}
+		}
+	}
+	if err := tx.Commit().Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Update Inbound " + header.InboundNo + " successfully"})
+}
+
+func (c *InboundController) DeleteItem(ctx *fiber.Ctx) error {
+	id := ctx.Params("id")
+	tx := c.DB.Begin()
+	if tx.Error != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": tx.Error.Error()})
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+	var detail models.InboundDetail
+	if err := tx.First(&detail, "id = ?", id).Error; err != nil {
+		tx.Rollback()
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Item not found"})
+		}
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	var header models.InboundHeader
+	if err := tx.First(&header, "inbound_no = ?", detail.InboundNo).Error; err != nil {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	if header.Status != "open" {
+		tx.Rollback()
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Inbound " + detail.InboundNo + " is not open", "message": "Inbound not open"})
+	}
+	var targets []models.InboundDetail
+	if detail.BundleProductID > 0 && detail.BundleProductCode != "" {
+		if err := tx.Where("inbound_no = ? AND bundle_product_id = ? AND bundle_product_code = ?", detail.InboundNo, detail.BundleProductID, detail.BundleProductCode).Find(&targets).Error; err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+	} else {
+		targets = []models.InboundDetail{detail}
+	}
+	for _, d := range targets {
+		var b repositories.ResulInboundBarcodeByOutboundDetailID
+		var err error
+		b, err = repositories.NewInboundRepository(tx).GetInboundBarcodeByOutboundDetailID(uint(d.ID))
+		if err == nil && b.ItemID == d.ItemId {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Bundle/item " + d.ItemCode + " is already scanned", "message": "Item already scanned"})
+		}
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+		var stock int64
+		if err := tx.Model(&models.InboundBarcode{}).Where("inbound_detail_id = ? AND status = ?", d.ID, "in stock").Count(&stock).Error; err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+		if stock > 0 {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Item " + d.ItemCode + " is already putaway"})
+		}
+	}
+	for _, d := range targets {
+		if err := tx.Unscoped().Where("inbound_detail_id = ?", d.ID).Delete(&models.InboundSerial{}).Error; err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+		if err := tx.Unscoped().Delete(&d).Error; err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+	}
+	if err := tx.Commit().Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	if detail.BundleProductID > 0 && detail.BundleProductCode != "" {
+		return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Bundle " + detail.BundleProductCode + " deleted successfully"})
+	}
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Item deleted successfully"})
+}
+
+const furunoInboundSheetName = "Receive Item Detail"
+
+type FurunoInboundUploadResponse struct {
+	Success          bool                           `json:"success"`
+	Message          string                         `json:"message"`
+	TotalRows        int                            `json:"total_rows"`
+	ProcessedRows    int                            `json:"processed_rows"`
+	SuccessCount     int                            `json:"success_count"`
+	FailedCount      int                            `json:"failed_count"`
+	InboundNumbers   []string                       `json:"inbound_numbers,omitempty"`
+	SkippedReceipts  []FurunoInboundSkippedReceipt  `json:"skipped_receipts,omitempty"`
+	ValidationErrors []FurunoInboundValidationError `json:"validation_errors,omitempty"`
+	Errors           []FurunoInboundExcelRowError   `json:"errors,omitempty"`
+}
+
+type FurunoInboundSkippedReceipt struct {
+	ReceiptID string `json:"receipt_id"`
+	Reason    string `json:"reason"`
+}
+
+type FurunoInboundValidationError struct {
 	Row     int    `json:"row"`
-	Message string `json:"message"`
-	Detail  string `json:"detail"`
-}
-
-type FurunoValidationError struct {
 	Field   string `json:"field"`
 	Message string `json:"message"`
+}
+
+type FurunoInboundExcelRowError struct {
 	Row     int    `json:"row"`
+	Message string `json:"message"`
+	Detail  string `json:"detail,omitempty"`
 }
 
 // ============================================================================
-// FURUNO SOURCE ROW / GROUP TYPES
+// INTERNAL DATA STRUCT
 // ============================================================================
 
 type FurunoInboundRow struct {
 	Row int
 
-	// Source / header information from Furuno Excel.
-	DODate             string
-	DONumber           string
-	PackingListNumber  string
-	VesselRemarks      string
-	CustomerName       string
-	CustomerReference  string
-	ModelPartNumber    string
-	ItemCode           string
-	ModelName          string
-	DOQuantity         float64
-	VendorSerialNumber string
-	FSGSerialNumber    string
-	FSGSerialQuantity  float64
-	RemarksForDO       string
-
-	// Resolved/import settings.
-	InboundDate    string
-	Type           string
-	Supplier       string
-	Transporter    string
-	Driver         string
-	WhsCode        string
-	OwnerCode      string
-	Origin         string
-	PoDate         string
-	NoTruck        string
-	Container      string
-	TruckSize      string
-	ArrivalTime    string
-	StartUnloading string
-	EndUnloading   string
-	BLNo           string
-	Koli           int
-	Remarks        string
-
-	// Detail values derived from Furuno row + import settings.
-	UOM          string
-	Location     string
-	QaStatus     string
-	RecDate      string
-	ProdDate     string
-	ExpDate      string
-	LotNumber    string
-	Division     string
-	CartonNumber string
-	CaseNumber   string
+	ReceiptID    string
+	InboundDate  string
+	ItemCode     string
+	PartCode     string
+	ItemName     string
+	ModelName    string
+	Quantity     float64
+	Unit         string
+	SupplierID   string
+	Supplier     string
 	SerialNumber string
 }
 
-type FurunoInboundGroup struct {
-	// Grouping key / ReceiptID is the Packing List #.
-	PackingListNumber string
-	DONumber          string // informational source value only
-	HeaderRow         FurunoInboundRow
-	Details           []FurunoInboundRow
-}
-
-type FurunoImportOptions struct {
-	OwnerCode    string
-	WhsCode      string
-	SupplierCode string
-	Origin       string
-	Type         string
-	UOM          string
-	Location     string
-	QaStatus     string
-	Division     string
-	Transporter  string
-	Driver       string
-	NoTruck      string
-	Container    string
-	TruckSize    string
-	ArrivalTime  string
-	StartUnload  string
-	EndUnload    string
-}
-
-type FurunoMergedDetail struct {
-	Representative FurunoInboundRow
-	Rows           []FurunoInboundRow
-	Quantity       float64
-	SerialNumbers  []string
-}
-
 // ============================================================================
-// CONSTANTS
+// HEADER CONFIGURATION
 // ============================================================================
 
-const (
-	furunoInboundSheetName         = "MonthlyDOIssuedDetailReportWit"
-	furunoInboundMaxHeaderScanRows = 10
-
-	furunoColDONumber          = 0
-	furunoColDODate            = 1
-	furunoColPackingList       = 2
-	furunoColVesselRemarks     = 3
-	furunoColCustomerName      = 4
-	furunoColCustomerReference = 5
-	furunoColModelPartNumber   = 6
-	furunoColItemCode          = 7
-	furunoColModelName         = 8
-	furunoColDOQuantity        = 9
-	furunoColVendorSerial      = 10
-	furunoColFSGSerial         = 11
-	furunoColFSGSerialQuantity = 12
-	furunoColRemarksForDO      = 13
-)
-
-var furunoInboundValidIBTypes = map[string]bool{
-	"RETURN": true,
-	"NORMAL": true,
-}
+type FurunoInboundHeaderMap map[string]int
 
 var furunoInboundRequiredHeaders = []string{
-	"DO Date",
-	"Packing List #",
-	"Vessel Related Remarks",
-	"Customer Name",
-	"Cust. Ref No.",
-	"Model/Part No",
-	"Item code",
-	"Model Name",
-	"DO Quantity",
-	"Vendor Serial Number",
-	"FSG Serial Number",
-	"FSG Serial Number Quantity",
-	"Remarks For DO",
+	"receive no receive item",
+	"date",
+	"code#",
+	"part code item",
+	"item name",
+	"model name",
+	"quantity",
+	"unit",
+	"supplier id supplier receive item",
+	"supplier",
+	"serial/production number",
 }
 
 // ============================================================================
-// GENERIC FURUNO HELPERS
+// MAIN HANDLER
 // ============================================================================
 
-func furunoInboundNormalizeHeader(value string) string {
-	value = strings.TrimSpace(value)
-	value = strings.Join(strings.Fields(value), " ")
-	return strings.ToLower(value)
-}
-
-func furunoInboundNormalizeValue(value string) string {
-	return strings.TrimSpace(value)
-}
-
-func furunoInboundGetCell(row []string, index int) string {
-	if index < 0 || index >= len(row) {
-		return ""
-	}
-	return furunoInboundNormalizeValue(row[index])
-}
-
-func furunoInboundParseFloat(value string) (float64, error) {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return 0, fmt.Errorf("value is empty")
-	}
-
-	value = strings.ReplaceAll(value, ",", "")
-
-	n, err := strconv.ParseFloat(value, 64)
-	if err != nil {
-		return 0, fmt.Errorf("invalid numeric value: %s", value)
-	}
-
-	return n, nil
-}
-
-func furunoInboundExcelSerialToDate(serial float64) string {
-	excelEpoch := time.Date(1899, 12, 30, 0, 0, 0, 0, time.UTC)
-	date := excelEpoch.Add(time.Duration(serial * 24 * float64(time.Hour)))
-	return date.Format("2006-01-02")
-}
-
-func furunoInboundParseDate(value string) (string, error) {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return "", fmt.Errorf("date value is empty")
-	}
-
-	// Excel serial date.
-	if serial, err := strconv.ParseFloat(value, 64); err == nil && serial > 0 {
-		return furunoInboundExcelSerialToDate(serial), nil
-	}
-
-	formats := []string{
-		"2006-01-02 15:04:05",
-		"2006-01-02 15:04",
-		"2006-01-02",
-		"2006/01/02",
-		"02/01/2006 15:04:05",
-		"02/01/2006 15:04",
-		"02/01/2006",
-		"01/02/2006",
-		"2/1/2006",
-		"1/2/2006",
-		"02-01-2006",
-		"01-02-2006",
-		"02-01-06",
-		"01-02-06",
-		"2-Jan-06",
-		"02-Jan-06",
-		"2-January-06",
-		"02-January-06",
-		"2-Jan-2006",
-		"02-Jan-2006",
-		"2-January-2006",
-		"02-January-2006",
-		"2 Jan 2006",
-		"02 Jan 2006",
-	}
-
-	for _, format := range formats {
-		if parsed, err := time.Parse(format, value); err == nil {
-			return parsed.Format("2006-01-02"), nil
-		}
-	}
-
-	return "", fmt.Errorf("invalid date format: %s", value)
-}
-
-func furunoInboundValidateTime(value string) (string, error) {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return "", nil
-	}
-
-	formats := []string{
-		"15:04",
-		"15:04:05",
-	}
-
-	for _, format := range formats {
-		if parsed, err := time.Parse(format, value); err == nil {
-			return parsed.Format("15:04"), nil
-		}
-	}
-
-	return "", fmt.Errorf("invalid time format (expected HH:mm): %s", value)
-}
-
-func furunoInboundJoinNonEmpty(values ...string) string {
-	parts := make([]string, 0, len(values))
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value != "" {
-			parts = append(parts, value)
-		}
-	}
-	return strings.Join(parts, " | ")
-}
-
-func furunoInboundIsEmptyRow(row []string) bool {
-	for _, cell := range row {
-		if strings.TrimSpace(cell) != "" {
-			return false
-		}
-	}
-	return true
-}
-
-// ============================================================================
-// FURUNO HEADER DETECTION
-// ============================================================================
-
-func furunoInboundFindHeaderColumn(headerRow []string, headerName string) int {
-	target := furunoInboundNormalizeHeader(headerName)
-	for i, cell := range headerRow {
-		if furunoInboundNormalizeHeader(cell) == target {
-			return i
-		}
-	}
-	return -1
-}
-
-func furunoInboundValidateHeaders(headerRow []string) []FurunoValidationError {
-	var errs []FurunoValidationError
-
-	for _, required := range furunoInboundRequiredHeaders {
-		if furunoInboundFindHeaderColumn(headerRow, required) < 0 {
-			errs = append(errs, FurunoValidationError{
-				Field:   required,
-				Message: "Required Furuno Excel header is missing",
-				Row:     1,
-			})
-		}
-	}
-
-	return errs
-}
-
-func furunoInboundDetectHeaderRow(rows [][]string) (int, error) {
-	if len(rows) == 0 {
-		return -1, fmt.Errorf("Excel file contains no rows")
-	}
-
-	limit := len(rows)
-	if limit > furunoInboundMaxHeaderScanRows {
-		limit = furunoInboundMaxHeaderScanRows
-	}
-
-	for i := 0; i < limit; i++ {
-		headerSet := make(map[string]bool)
-		for _, cell := range rows[i] {
-			h := furunoInboundNormalizeHeader(cell)
-			if h != "" {
-				headerSet[h] = true
-			}
-		}
-
-		matched := 0
-		for _, required := range furunoInboundRequiredHeaders {
-			if headerSet[furunoInboundNormalizeHeader(required)] {
-				matched++
-			}
-		}
-
-		// We require all Furuno columns because this is a dedicated template.
-		if matched == len(furunoInboundRequiredHeaders) {
-			return i, nil
-		}
-	}
-
-	return -1, fmt.Errorf("Furuno inbound template headers were not found in the first %d rows", furunoInboundMaxHeaderScanRows)
-}
-
-// ============================================================================
-// FURUNO IMPORT OPTIONS
-// ============================================================================
-
-func furunoInboundBuildOptions(ctx *fiber.Ctx) (FurunoImportOptions, []FurunoValidationError) {
-	options := FurunoImportOptions{
-		OwnerCode:    strings.TrimSpace(ctx.FormValue("owner_code")),
-		WhsCode:      strings.TrimSpace(ctx.FormValue("whs_code")),
-		SupplierCode: strings.TrimSpace(ctx.FormValue("supplier_code")),
-		Origin:       strings.TrimSpace(ctx.FormValue("origin")),
-		Type:         strings.TrimSpace(ctx.FormValue("type")),
-		UOM:          strings.TrimSpace(ctx.FormValue("uom")),
-		Location:     strings.TrimSpace(ctx.FormValue("location")),
-		QaStatus:     strings.TrimSpace(ctx.FormValue("qa_status")),
-		Division:     strings.TrimSpace(ctx.FormValue("division")),
-		Transporter:  strings.TrimSpace(ctx.FormValue("transporter")),
-		Driver:       strings.TrimSpace(ctx.FormValue("driver")),
-		NoTruck:      strings.TrimSpace(ctx.FormValue("no_truck")),
-		Container:    strings.TrimSpace(ctx.FormValue("container")),
-		TruckSize:    strings.TrimSpace(ctx.FormValue("truck_size")),
-		ArrivalTime:  strings.TrimSpace(ctx.FormValue("arrival_time")),
-		StartUnload:  strings.TrimSpace(ctx.FormValue("start_unloading")),
-		EndUnload:    strings.TrimSpace(ctx.FormValue("end_unloading")),
-	}
-
-	if options.Type == "" {
-		options.Type = "NORMAL"
-	}
-
-	if options.UOM == "" {
-		options.UOM = "PCS"
-	}
-
-	var errs []FurunoValidationError
-
-	if options.OwnerCode == "" {
-		errs = append(errs, FurunoValidationError{
-			Field:   "OwnerCode",
-			Message: `Form field "owner_code" is required for Furuno import`,
-			Row:     0,
-		})
-	}
-	if options.WhsCode == "" {
-		errs = append(errs, FurunoValidationError{
-			Field:   "WhsCode",
-			Message: `Form field "whs_code" is required for Furuno import`,
-			Row:     0,
-		})
-	}
-	if options.SupplierCode == "" {
-		errs = append(errs, FurunoValidationError{
-			Field:   "SupplierCode",
-			Message: `Form field "supplier_code" is required for Furuno import`,
-			Row:     0,
-		})
-	}
-	if options.Origin == "" {
-		errs = append(errs, FurunoValidationError{
-			Field:   "Origin",
-			Message: `Form field "origin" is required for Furuno import`,
-			Row:     0,
-		})
-	}
-	if !furunoInboundValidIBTypes[options.Type] {
-		errs = append(errs, FurunoValidationError{
-			Field:   "Type",
-			Message: fmt.Sprintf("IB Type must be RETURN or NORMAL (case-sensitive), got: %s", options.Type),
-			Row:     0,
-		})
-	}
-
-	if value, err := furunoInboundValidateTime(options.ArrivalTime); err != nil {
-		errs = append(errs, FurunoValidationError{Field: "ArrivalTime", Message: err.Error(), Row: 0})
-	} else {
-		options.ArrivalTime = value
-	}
-	if value, err := furunoInboundValidateTime(options.StartUnload); err != nil {
-		errs = append(errs, FurunoValidationError{Field: "StartUnloading", Message: err.Error(), Row: 0})
-	} else {
-		options.StartUnload = value
-	}
-	if value, err := furunoInboundValidateTime(options.EndUnload); err != nil {
-		errs = append(errs, FurunoValidationError{Field: "EndUnloading", Message: err.Error(), Row: 0})
-	} else {
-		options.EndUnload = value
-	}
-
-	return options, errs
-}
-
-// ============================================================================
-// FURUNO ROW PARSER
-// ============================================================================
-
-func furunoInboundParseRows(
-	rows [][]string,
-	headerRowIndex int,
-	options FurunoImportOptions,
-) ([]FurunoInboundRow, []FurunoValidationError) {
-	if headerRowIndex < 0 || headerRowIndex >= len(rows) {
-		return nil, []FurunoValidationError{{
-			Field:   "Header",
-			Message: "Invalid Furuno header row",
-			Row:     headerRowIndex + 1,
-		}}
-	}
-
-	headerRow := rows[headerRowIndex]
-	var errs []FurunoValidationError
-
-	if headerErrors := furunoInboundValidateHeaders(headerRow); len(headerErrors) > 0 {
-		return nil, headerErrors
-	}
-
-	col := make(map[string]int)
-	for _, required := range furunoInboundRequiredHeaders {
-		col[furunoInboundNormalizeHeader(required)] = furunoInboundFindHeaderColumn(headerRow, required)
-	}
-
-	// DO Number is optional/informational. It is never used as ReceiptID.
-	col[furunoInboundNormalizeHeader("DO Number")] = furunoInboundFindHeaderColumn(headerRow, "DO Number")
-
-	var parsed []FurunoInboundRow
-
-	for i := headerRowIndex + 1; i < len(rows); i++ {
-		row := rows[i]
-		excelRow := i + 1
-
-		if furunoInboundIsEmptyRow(row) {
-			continue
-		}
-
-		addErr := func(field, message string) {
-			errs = append(errs, FurunoValidationError{
-				Field:   field,
-				Message: message,
-				Row:     excelRow,
-			})
-		}
-
-		r := FurunoInboundRow{Row: excelRow}
-
-		// Source fields.
-		r.DONumber = furunoInboundGetCell(row, col[furunoInboundNormalizeHeader("DO Number")])
-		r.PackingListNumber = furunoInboundGetCell(row, col[furunoInboundNormalizeHeader("Packing List #")])
-		r.VesselRemarks = furunoInboundGetCell(row, col[furunoInboundNormalizeHeader("Vessel Related Remarks")])
-		r.CustomerName = furunoInboundGetCell(row, col[furunoInboundNormalizeHeader("Customer Name")])
-		r.CustomerReference = furunoInboundGetCell(row, col[furunoInboundNormalizeHeader("Cust. Ref No.")])
-		r.ModelPartNumber = furunoInboundGetCell(row, col[furunoInboundNormalizeHeader("Model/Part No")])
-		r.ItemCode = furunoInboundGetCell(row, col[furunoInboundNormalizeHeader("Item code")])
-		r.ModelName = furunoInboundGetCell(row, col[furunoInboundNormalizeHeader("Model Name")])
-		r.VendorSerialNumber = furunoInboundGetCell(row, col[furunoInboundNormalizeHeader("Vendor Serial Number")])
-		r.FSGSerialNumber = furunoInboundGetCell(row, col[furunoInboundNormalizeHeader("FSG Serial Number")])
-		r.RemarksForDO = furunoInboundGetCell(row, col[furunoInboundNormalizeHeader("Remarks For DO")])
-
-		// DO Date.
-		doDateRaw := furunoInboundGetCell(row, col[furunoInboundNormalizeHeader("DO Date")])
-		if doDateRaw == "" {
-			addErr("DO Date", "DO Date cannot be empty")
-		} else if parsedDate, err := furunoInboundParseDate(doDateRaw); err != nil {
-			addErr("DO Date", err.Error())
-		} else {
-			r.DODate = parsedDate
-		}
-
-		// Quantity.
-		qtyRaw := furunoInboundGetCell(row, col[furunoInboundNormalizeHeader("DO Quantity")])
-		if qtyRaw == "" {
-			addErr("DO Quantity", "DO Quantity cannot be empty")
-		} else if qty, err := furunoInboundParseFloat(qtyRaw); err != nil {
-			addErr("DO Quantity", err.Error())
-		} else if qty <= 0 {
-			addErr("DO Quantity", "DO Quantity must be greater than zero")
-		} else {
-			r.DOQuantity = qty
-		}
-
-		// FSG serial quantity.
-		fsgQtyRaw := furunoInboundGetCell(row, col[furunoInboundNormalizeHeader("FSG Serial Number Quantity")])
-		if fsgQtyRaw != "" {
-			if fsgQty, err := furunoInboundParseFloat(fsgQtyRaw); err != nil {
-				addErr("FSG Serial Number Quantity", err.Error())
-			} else if fsgQty < 0 {
-				addErr("FSG Serial Number Quantity", "FSG Serial Number Quantity cannot be negative")
-			} else {
-				r.FSGSerialQuantity = fsgQty
-			}
-		}
-
-		// Required source fields.
-		// DO Number is informational only and is intentionally NOT required.
-		// ReceiptID is derived from Packing List # below.
-		if r.PackingListNumber == "" {
-			addErr("Packing List #", "Packing List # cannot be empty")
-		}
-		if r.ItemCode == "" {
-			addErr("Item code", "Item code cannot be empty")
-		}
-
-		// FSG serial takes priority; vendor serial is a fallback.
-		if r.FSGSerialNumber != "" {
-			r.SerialNumber = r.FSGSerialNumber
-		} else {
-			r.SerialNumber = r.VendorSerialNumber
-		}
-
-		// Derived WMS header values.
-		r.InboundDate = r.DODate
-		r.PoDate = r.DODate
-		r.RecDate = r.DODate
-		r.Type = options.Type
-		r.Supplier = options.SupplierCode
-		r.Transporter = options.Transporter
-		r.Driver = options.Driver
-		r.WhsCode = options.WhsCode
-		r.OwnerCode = options.OwnerCode
-		r.Origin = options.Origin
-		r.NoTruck = options.NoTruck
-		r.Container = options.Container
-		r.TruckSize = options.TruckSize
-		r.ArrivalTime = options.ArrivalTime
-		r.StartUnloading = options.StartUnload
-		r.EndUnloading = options.EndUnload
-		r.BLNo = r.PackingListNumber
-		r.Koli = 0
-		r.UOM = options.UOM
-		r.Location = options.Location
-		r.QaStatus = options.QaStatus
-		r.Division = options.Division
-
-		// Furuno source does not have separate WMS lot/production/expiry fields.
-		r.ProdDate = ""
-		r.ExpDate = ""
-		r.LotNumber = ""
-		r.CartonNumber = ""
-		// Furuno: Vessel Related Remarks menjadi Case Number pada inbound detail.
-		r.CaseNumber = r.VesselRemarks
-
-		// Keep useful source information in Remarks.
-		// DO Number is intentionally stored here instead of being used as ReceiptID.
-		r.Remarks = furunoInboundJoinNonEmpty(
-			func() string {
-				if r.DONumber == "" {
-					return ""
-				}
-				return "DO Number: " + r.DONumber
-			}(),
-			r.VesselRemarks,
-			r.CustomerName,
-			r.CustomerReference,
-			r.ModelPartNumber,
-			r.ModelName,
-			r.RemarksForDO,
-		)
-
-		parsed = append(parsed, r)
-	}
-
-	return parsed, errs
-}
-
-// ============================================================================
-// FURUNO GROUPING / CONSISTENCY
-// ============================================================================
-
-func furunoInboundGroupRows(rows []FurunoInboundRow) []FurunoInboundGroup {
-	index := make(map[string]int)
-	groups := make([]FurunoInboundGroup, 0)
-
-	for _, row := range rows {
-		// ReceiptID is Packing List #, so all detail rows belonging to the
-		// same Packing List # become one inbound group.
-		groupKey := row.PackingListNumber
-		idx, exists := index[groupKey]
-		if !exists {
-			groups = append(groups, FurunoInboundGroup{
-				PackingListNumber: row.PackingListNumber,
-				DONumber:          row.DONumber, // informational only
-				HeaderRow:         row,
-				Details:           []FurunoInboundRow{},
-			})
-			idx = len(groups) - 1
-			index[groupKey] = idx
-		}
-
-		groups[idx].Details = append(groups[idx].Details, row)
-	}
-
-	return groups
-}
-
-func furunoInboundHeaderValue(row FurunoInboundRow, field string) string {
-	switch field {
-	case "DODate":
-		return row.DODate
-	case "Type":
-		return row.Type
-	case "Supplier":
-		return row.Supplier
-	case "Transporter":
-		return row.Transporter
-	case "Driver":
-		return row.Driver
-	case "WhsCode":
-		return row.WhsCode
-	case "OwnerCode":
-		return row.OwnerCode
-	case "Origin":
-		return row.Origin
-	case "PoDate":
-		return row.PoDate
-	case "NoTruck":
-		return row.NoTruck
-	case "Container":
-		return row.Container
-	case "TruckSize":
-		return row.TruckSize
-	case "ArrivalTime":
-		return row.ArrivalTime
-	case "StartUnloading":
-		return row.StartUnloading
-	case "EndUnloading":
-		return row.EndUnloading
-	case "BLNo":
-		return row.BLNo
-	case "Remarks":
-		return row.Remarks
-	default:
-		return ""
-	}
-}
-
-func furunoInboundValidateGroupConsistency(group FurunoInboundGroup) []FurunoValidationError {
-	fields := []string{
-		"DODate",
-		"Type",
-		"Supplier",
-		"Transporter",
-		"Driver",
-		"WhsCode",
-		"OwnerCode", "Origin", "PoDate", "NoTruck",
-		"Container", "TruckSize", "ArrivalTime", "StartUnloading",
-		"EndUnloading", "BLNo",
-		// "Remarks",
-	}
-
-	var errs []FurunoValidationError
-	ref := group.HeaderRow
-
-	for _, row := range group.Details {
-		if row.Row == ref.Row {
-			continue
-		}
-
-		for _, field := range fields {
-			refValue := furunoInboundHeaderValue(ref, field)
-			rowValue := furunoInboundHeaderValue(row, field)
-			if refValue != rowValue {
-				errs = append(errs, FurunoValidationError{
-					Field: field,
-					Message: fmt.Sprintf(
-						"Inconsistent %s within Packing List # %s: row %d has '%s', expected '%s' from row %d",
-						field,
-						group.PackingListNumber,
-						row.Row,
-						rowValue,
-						refValue,
-						ref.Row,
-					),
-					Row: row.Row,
-				})
-			}
-		}
-	}
-
-	return errs
-}
-
-func furunoInboundCheckDuplicateSerials(rows []FurunoInboundRow) []FurunoValidationError {
-	var errs []FurunoValidationError
-	seen := make(map[string]int)
-
-	for _, row := range rows {
-		if row.SerialNumber == "" {
-			continue
-		}
-
-		key := row.SerialNumber + "|" + row.PackingListNumber
-		if existingRow, exists := seen[key]; exists {
-			errs = append(errs, FurunoValidationError{
-				Field: "SerialNumber",
-				Message: fmt.Sprintf(
-					"Duplicate serial number '%s' within Packing List # %s (same as row %d)",
-					row.SerialNumber,
-					row.PackingListNumber,
-					existingRow,
-				),
-				Row: row.Row,
-			})
-		} else {
-			seen[key] = row.Row
-		}
-	}
-
-	return errs
-}
-
-func furunoInboundDetailGroupKey(row FurunoInboundRow) string {
-	return fmt.Sprintf(
-		"%s|%s|%s|%s|%s|%s|%s|%s|%s",
-		row.ItemCode,
-		row.UOM,
-		row.Location,
-		row.QaStatus,
-		row.ProdDate,
-		row.ExpDate,
-		row.LotNumber,
-		row.CartonNumber,
-		row.CaseNumber,
+func (c *InboundController) CreateInboundFromFurunoExcelFile(
+	ctx *fiber.Ctx,
+) error {
+
+	// =========================================================================
+	// 1. FORM PARAMETER
+	// =========================================================================
+
+	ownerCode := strings.TrimSpace(
+		ctx.FormValue("owner_code"),
 	)
-}
 
-func furunoInboundMergeDetails(rows []FurunoInboundRow) []FurunoMergedDetail {
-	index := make(map[string]int)
-	merged := make([]FurunoMergedDetail, 0)
-
-	for _, row := range rows {
-		key := furunoInboundDetailGroupKey(row)
-
-		idx, exists := index[key]
-		if !exists {
-			merged = append(merged, FurunoMergedDetail{
-				Representative: row,
-				Rows:           []FurunoInboundRow{row},
-				Quantity:       row.DOQuantity,
-			})
-			idx = len(merged) - 1
-			index[key] = idx
-		} else {
-			merged[idx].Quantity += row.DOQuantity
-			merged[idx].Rows = append(merged[idx].Rows, row)
-		}
-	}
-
-	for i := range merged {
-		for _, row := range merged[i].Rows {
-			if row.SerialNumber != "" {
-				merged[i].SerialNumbers = append(merged[i].SerialNumbers, row.SerialNumber)
-			}
-		}
-	}
-
-	return merged
-}
-
-// ============================================================================
-// FURUNO CONTROLLER
-// ============================================================================
-
-func (c *InboundController) CreateInboundFromFurunoExcelFile(ctx *fiber.Ctx) error {
-	// --------------------------------------------------------------------------
-	// Upload / extension
-	// --------------------------------------------------------------------------
-	file, err := ctx.FormFile("file")
-	if err != nil {
-		return ctx.Status(fiber.StatusBadRequest).JSON(FurunoExcelUploadResponse{
-			Success: false,
-			Message: "No file uploaded or invalid file",
-			Errors: []FurunoExcelRowError{
-				{Row: 0, Message: "File Error", Detail: err.Error()},
+	if ownerCode == "" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(
+			FurunoInboundUploadResponse{
+				Success: false,
+				Message: "Owner code is required",
 			},
-		})
+		)
 	}
 
-	if !strings.HasSuffix(strings.ToLower(file.Filename), ".xlsx") {
-		return ctx.Status(fiber.StatusBadRequest).JSON(FurunoExcelUploadResponse{
-			Success: false,
-			Message: "Invalid file format. Only .xlsx files are allowed for Furuno inbound import",
-		})
+	whsCode := strings.TrimSpace(
+		ctx.FormValue("whs_code"),
+	)
+
+	if whsCode == "" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(
+			FurunoInboundUploadResponse{
+				Success: false,
+				Message: "Warehouse code is required",
+			},
+		)
 	}
+
+	handlingIDRaw := strings.TrimSpace(
+		ctx.FormValue("handling_id"),
+	)
+
+	if handlingIDRaw == "" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(
+			FurunoInboundUploadResponse{
+				Success: false,
+				Message: "Handling ID is required",
+			},
+		)
+	}
+
+	handlingID, err := strconv.Atoi(handlingIDRaw)
+
+	if err != nil || handlingID <= 0 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(
+			FurunoInboundUploadResponse{
+				Success: false,
+				Message: "Invalid handling_id",
+				Errors: []FurunoInboundExcelRowError{
+					{
+						Row:     0,
+						Message: "Handling Validation Error",
+						Detail:  "handling_id must be a positive integer",
+					},
+				},
+			},
+		)
+	}
+
+	// =========================================================================
+	// 2. GET USER ID
+	// =========================================================================
+
+	userIDValue := ctx.Locals("userID")
+
+	if userIDValue == nil {
+		return ctx.Status(fiber.StatusUnauthorized).JSON(
+			FurunoInboundUploadResponse{
+				Success: false,
+				Message: "User ID not found",
+			},
+		)
+	}
+
+	currentUserID := 0
+
+	switch value := userIDValue.(type) {
+
+	case float64:
+		currentUserID = int(value)
+
+	case int:
+		currentUserID = value
+
+	case uint:
+		currentUserID = int(value)
+
+	case string:
+
+		userID, err := strconv.Atoi(value)
+
+		if err != nil {
+			return ctx.Status(fiber.StatusUnauthorized).JSON(
+				FurunoInboundUploadResponse{
+					Success: false,
+					Message: "Invalid user ID",
+				},
+			)
+		}
+
+		currentUserID = userID
+
+	default:
+
+		return ctx.Status(fiber.StatusUnauthorized).JSON(
+			FurunoInboundUploadResponse{
+				Success: false,
+				Message: "Invalid user ID",
+			},
+		)
+	}
+
+	if currentUserID <= 0 {
+		return ctx.Status(fiber.StatusUnauthorized).JSON(
+			FurunoInboundUploadResponse{
+				Success: false,
+				Message: "Invalid user ID",
+			},
+		)
+	}
+
+	// =========================================================================
+	// 3. GET FILE
+	// =========================================================================
+
+	file, err := ctx.FormFile("file")
+
+	if err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(
+			FurunoInboundUploadResponse{
+				Success: false,
+				Message: "No file uploaded or invalid file",
+				Errors: []FurunoInboundExcelRowError{
+					{
+						Row:     0,
+						Message: "File Error",
+						Detail:  err.Error(),
+					},
+				},
+			},
+		)
+	}
+
+	// =========================================================================
+	// 4. VALIDATE EXTENSION
+	// =========================================================================
+
+	lowerName := strings.ToLower(
+		file.Filename,
+	)
+
+	if !strings.HasSuffix(lowerName, ".xlsx") &&
+		!strings.HasSuffix(lowerName, ".xls") {
+
+		return ctx.Status(fiber.StatusBadRequest).JSON(
+			FurunoInboundUploadResponse{
+				Success: false,
+				Message: "Invalid file format. Only .xlsx and .xls files are allowed",
+			},
+		)
+	}
+
+	// =========================================================================
+	// 5. VALIDATE SIZE
+	// =========================================================================
+
+	if file.Size > 10*1024*1024 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(
+			FurunoInboundUploadResponse{
+				Success: false,
+				Message: "File size exceeds maximum limit of 10MB",
+			},
+		)
+	}
+
+	// =========================================================================
+	// 6. OPEN EXCEL
+	// =========================================================================
 
 	fileHeader, err := file.Open()
+
 	if err != nil {
-		return ctx.Status(fiber.StatusInternalServerError).JSON(FurunoExcelUploadResponse{
-			Success: false,
-			Message: "Failed to open uploaded Furuno file",
-			Errors: []FurunoExcelRowError{
-				{Row: 0, Message: "File Processing Error", Detail: err.Error()},
+		return ctx.Status(fiber.StatusInternalServerError).JSON(
+			FurunoInboundUploadResponse{
+				Success: false,
+				Message: "Failed to open uploaded file",
+				Errors: []FurunoInboundExcelRowError{
+					{
+						Row:     0,
+						Message: "File Error",
+						Detail:  err.Error(),
+					},
+				},
 			},
-		})
+		)
 	}
+
 	defer fileHeader.Close()
 
 	excelFile, err := excelize.OpenReader(fileHeader)
+
 	if err != nil {
-		return ctx.Status(fiber.StatusBadRequest).JSON(FurunoExcelUploadResponse{
-			Success: false,
-			Message: "Failed to read Furuno Excel file. Please ensure the file is a valid .xlsx workbook",
-			Errors: []FurunoExcelRowError{
-				{Row: 0, Message: "Excel Read Error", Detail: err.Error()},
+		return ctx.Status(fiber.StatusBadRequest).JSON(
+			FurunoInboundUploadResponse{
+				Success: false,
+				Message: "Failed to read Excel file. Please ensure the file is not corrupted",
+				Errors: []FurunoInboundExcelRowError{
+					{
+						Row:     0,
+						Message: "Excel Read Error",
+						Detail:  err.Error(),
+					},
+				},
 			},
-		})
+		)
 	}
+
 	defer excelFile.Close()
 
-	// --------------------------------------------------------------------------
-	// Sheet
-	// --------------------------------------------------------------------------
-	sheetName := furunoInboundSheetName
-	sheetList := excelFile.GetSheetList()
+	// =========================================================================
+	// 7. FIND SHEET
+	// =========================================================================
 
-	if len(sheetList) == 0 {
-		return ctx.Status(fiber.StatusBadRequest).JSON(FurunoExcelUploadResponse{
-			Success: false,
-			Message: "Furuno Excel file contains no worksheets",
-		})
+	sheetName, err := findFurunoInboundSheet(
+		excelFile,
+		furunoInboundSheetName,
+	)
+
+	if err != nil {
+		return ctx.Status(fiber.StatusBadRequest).JSON(
+			FurunoInboundUploadResponse{
+				Success: false,
+				Message: fmt.Sprintf(
+					"Sheet '%s' not found. Available sheets: %s",
+					furunoInboundSheetName,
+					strings.Join(
+						excelFile.GetSheetList(),
+						", ",
+					),
+				),
+			},
+		)
 	}
 
-	// Allow the configured sheet first; if the vendor changes the workbook
-	// sheet suffix, fallback to the first sheet instead of hard failing.
-	foundSheet := false
-	for _, name := range sheetList {
-		if name == sheetName {
-			foundSheet = true
-			break
-		}
-	}
-	if !foundSheet {
-		sheetName = sheetList[0]
-	}
+	// =========================================================================
+	// 8. READ ROWS
+	// =========================================================================
 
 	rows, err := excelFile.GetRows(sheetName)
+
 	if err != nil {
-		return ctx.Status(fiber.StatusInternalServerError).JSON(FurunoExcelUploadResponse{
-			Success: false,
-			Message: "Failed to read rows from Furuno Excel sheet",
-			Errors: []FurunoExcelRowError{
-				{Row: 0, Message: "Sheet Read Error", Detail: err.Error()},
+		return ctx.Status(fiber.StatusInternalServerError).JSON(
+			FurunoInboundUploadResponse{
+				Success: false,
+				Message: "Failed to read rows from Excel",
+				Errors: []FurunoInboundExcelRowError{
+					{
+						Row:     0,
+						Message: "Sheet Read Error",
+						Detail:  err.Error(),
+					},
+				},
 			},
-		})
+		)
 	}
 
 	if len(rows) < 2 {
-		return ctx.Status(fiber.StatusBadRequest).JSON(FurunoExcelUploadResponse{
-			Success: false,
-			Message: "Furuno Excel file must contain a header row and at least one data row",
-		})
+		return ctx.Status(fiber.StatusBadRequest).JSON(
+			FurunoInboundUploadResponse{
+				Success: false,
+				Message: "Excel file contains no data rows",
+			},
+		)
 	}
 
-	// --------------------------------------------------------------------------
-	// Import options
-	// --------------------------------------------------------------------------
-	options, optionErrors := furunoInboundBuildOptions(ctx)
-	if len(optionErrors) > 0 {
-		return ctx.Status(fiber.StatusBadRequest).JSON(FurunoExcelUploadResponse{
-			Success:          false,
-			Message:          fmt.Sprintf("Furuno import configuration validation failed with %d error(s)", len(optionErrors)),
-			ValidationErrors: optionErrors,
-			TotalRows:        0,
-		})
-	}
+	// =========================================================================
+	// 9. BUILD HEADER MAP
+	// =========================================================================
 
-	// --------------------------------------------------------------------------
-	// Find / validate Furuno header row
-	// --------------------------------------------------------------------------
-	headerIndex, err := furunoInboundDetectHeaderRow(rows)
+	headerMap, err := buildFurunoInboundHeaderMap(
+		rows[0],
+	)
+
 	if err != nil {
-		return ctx.Status(fiber.StatusBadRequest).JSON(FurunoExcelUploadResponse{
-			Success: false,
-			Message: "Invalid Furuno inbound template",
-			Errors: []FurunoExcelRowError{
-				{Row: 1, Message: "Template Error", Detail: err.Error()},
+		return ctx.Status(fiber.StatusBadRequest).JSON(
+			FurunoInboundUploadResponse{
+				Success: false,
+				Message: err.Error(),
 			},
-			TotalRows: len(rows),
-		})
+		)
 	}
 
-	// --------------------------------------------------------------------------
-	// Parse rows
-	// --------------------------------------------------------------------------
-	parsedRows, parseErrors := furunoInboundParseRows(rows, headerIndex, options)
-	dataRowCount := len(rows) - headerIndex - 1
-	if dataRowCount < 0 {
-		dataRowCount = 0
-	}
+	// =========================================================================
+	// 10. PARSE EXCEL
+	// =========================================================================
 
-	if len(parseErrors) > 0 {
-		return ctx.Status(fiber.StatusBadRequest).JSON(FurunoExcelUploadResponse{
-			Success:          false,
-			Message:          fmt.Sprintf("Furuno validation failed with %d error(s)", len(parseErrors)),
-			TotalRows:        dataRowCount,
-			ValidationErrors: parseErrors,
-		})
-	}
+	inboundRows, validationErrors :=
+		parseFurunoInboundRows(
+			rows,
+			headerMap,
+		)
 
-	if len(parsedRows) == 0 {
-		return ctx.Status(fiber.StatusBadRequest).JSON(FurunoExcelUploadResponse{
-			Success:   false,
-			Message:   "No valid data rows found in Furuno Excel file",
-			TotalRows: dataRowCount,
-		})
-	}
-
-	// --------------------------------------------------------------------------
-	// Group by Packing List # (used as ReceiptID)
-	// --------------------------------------------------------------------------
-	groups := furunoInboundGroupRows(parsedRows)
-
-	// --------------------------------------------------------------------------
-	// Header consistency
-	// --------------------------------------------------------------------------
-	var consistencyErrors []FurunoValidationError
-	for _, group := range groups {
-		consistencyErrors = append(consistencyErrors, furunoInboundValidateGroupConsistency(group)...)
-	}
-	if len(consistencyErrors) > 0 {
-		return ctx.Status(fiber.StatusBadRequest).JSON(FurunoExcelUploadResponse{
-			Success:          false,
-			Message:          fmt.Sprintf("Furuno DO consistency validation failed with %d error(s)", len(consistencyErrors)),
-			TotalRows:        dataRowCount,
-			ValidationErrors: consistencyErrors,
-		})
-	}
-
-	// --------------------------------------------------------------------------
-	// Duplicate serial check within file (scoped by Packing List #)
-	// --------------------------------------------------------------------------
-	duplicateSerialErrors := furunoInboundCheckDuplicateSerials(parsedRows)
-	if len(duplicateSerialErrors) > 0 {
-		return ctx.Status(fiber.StatusBadRequest).JSON(FurunoExcelUploadResponse{
-			Success:          false,
-			Message:          "Duplicate Furuno serial numbers found in Excel file",
-			TotalRows:        dataRowCount,
-			ValidationErrors: duplicateSerialErrors,
-		})
-	}
-
-	// --------------------------------------------------------------------------
-	// User ID
-	// --------------------------------------------------------------------------
-	userID := 0
-	if raw := ctx.Locals("userID"); raw != nil {
-		if parsed, ok := raw.(float64); ok {
-			userID = int(parsed)
-		} else if parsed, ok := raw.(int); ok {
-			userID = parsed
-		}
-	}
-
-	// --------------------------------------------------------------------------
-	// Inventory policy
-	// --------------------------------------------------------------------------
-	var inventoryPolicy models.InventoryPolicy
-	if err := c.DB.Where("owner_code = ?", options.OwnerCode).First(&inventoryPolicy).Error; err != nil {
-		return ctx.Status(fiber.StatusInternalServerError).JSON(FurunoExcelUploadResponse{
-			Success: false,
-			Message: "Failed to get inventory policy for owner: " + options.OwnerCode,
-			Errors: []FurunoExcelRowError{
-				{Row: 0, Message: "Inventory Policy Error", Detail: err.Error()},
+	if len(validationErrors) > 0 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(
+			FurunoInboundUploadResponse{
+				Success: false,
+				Message: fmt.Sprintf(
+					"Validation failed with %d error(s)",
+					len(validationErrors),
+				),
+				TotalRows:        len(rows) - 1,
+				ProcessedRows:    len(inboundRows),
+				ValidationErrors: validationErrors,
 			},
-		})
+		)
 	}
 
-	// --------------------------------------------------------------------------
-	// Existing serial check in DB
-	// --------------------------------------------------------------------------
-	var serialConflictErrors []FurunoValidationError
-	for _, row := range parsedRows {
-		if row.SerialNumber == "" {
-			continue
-		}
-
-		var existing models.InboundSerial
-		err := c.DB.Where("serial_number = ?", row.SerialNumber).First(&existing).Error
-		if err == nil {
-			serialConflictErrors = append(serialConflictErrors, FurunoValidationError{
-				Field:   "SerialNumber",
-				Message: fmt.Sprintf("Serial number '%s' already registered in system", row.SerialNumber),
-				Row:     row.Row,
-			})
-		}
+	if len(inboundRows) == 0 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(
+			FurunoInboundUploadResponse{
+				Success:       false,
+				Message:       "No valid rows found",
+				TotalRows:     len(rows) - 1,
+				ProcessedRows: 0,
+			},
+		)
 	}
 
-	if len(serialConflictErrors) > 0 {
-		return ctx.Status(fiber.StatusBadRequest).JSON(FurunoExcelUploadResponse{
-			Success:          false,
-			Message:          "Furuno serial numbers already exist in system",
-			TotalRows:        dataRowCount,
-			ValidationErrors: serialConflictErrors,
-		})
+	// =========================================================================
+	// 11. GROUP BY RECEIPT ID
+	// =========================================================================
+
+	receiptMap := groupFurunoInboundRowsByReceiptID(
+		inboundRows,
+	)
+
+	receiptIDs := make(
+		[]string,
+		0,
+		len(receiptMap),
+	)
+
+	for receiptID := range receiptMap {
+		receiptIDs = append(
+			receiptIDs,
+			receiptID,
+		)
 	}
 
-	// Keep policy variable intentionally used so this dedicated importer follows
-	// the same owner-level policy lookup as the default inbound importer.
-	_ = inventoryPolicy
+	sort.Strings(receiptIDs)
 
-	// --------------------------------------------------------------------------
-	// Master data validation (fail-fast before transaction)
-	// --------------------------------------------------------------------------
-	for _, group := range groups {
-		h := group.HeaderRow
+	// =========================================================================
+	// 12. START TRANSACTION
+	// =========================================================================
 
-		var warehouse models.Warehouse
-		if err := c.DB.Where("code = ?", h.WhsCode).First(&warehouse).Error; err != nil {
-			return ctx.Status(fiber.StatusInternalServerError).JSON(FurunoExcelUploadResponse{
-				Success: false,
-				Message: "Failed to get warehouse: " + h.WhsCode,
-				Errors: []FurunoExcelRowError{
-					{Row: h.Row, Message: "Warehouse Error", Detail: err.Error()},
-				},
-			})
-		}
-
-		var supplier models.Supplier
-		if err := c.DB.Where("supplier_code = ?", h.Supplier).First(&supplier).Error; err != nil {
-			return ctx.Status(fiber.StatusInternalServerError).JSON(FurunoExcelUploadResponse{
-				Success: false,
-				Message: "Failed to get supplier: " + h.Supplier,
-				Errors: []FurunoExcelRowError{
-					{Row: h.Row, Message: "Supplier Error", Detail: err.Error()},
-				},
-			})
-		}
-
-		var origin models.Origin
-		if err := c.DB.Where("country = ?", h.Origin).First(&origin).Error; err != nil {
-			return ctx.Status(fiber.StatusInternalServerError).JSON(FurunoExcelUploadResponse{
-				Success: false,
-				Message: "Failed to get origin: " + h.Origin,
-				Errors: []FurunoExcelRowError{
-					{Row: h.Row, Message: "Origin Error", Detail: err.Error()},
-				},
-			})
-		}
-
-		if h.Transporter != "" {
-			var transporter models.Transporter
-			if err := c.DB.Where("transporter_code = ?", h.Transporter).First(&transporter).Error; err != nil {
-				return ctx.Status(fiber.StatusInternalServerError).JSON(FurunoExcelUploadResponse{
-					Success: false,
-					Message: "Failed to get transporter: " + h.Transporter,
-					Errors: []FurunoExcelRowError{
-						{Row: h.Row, Message: "Transporter Error", Detail: err.Error()},
-					},
-				})
-			}
-		}
-
-		var existingCount int64
-		if err := c.DB.Model(&models.InboundHeader{}).
-			Where("receipt_id = ?", h.PackingListNumber).
-			Count(&existingCount).Error; err != nil {
-			return ctx.Status(fiber.StatusInternalServerError).JSON(FurunoExcelUploadResponse{
-				Success: false,
-				Message: "Failed to check existing Packing List #: " + h.PackingListNumber,
-				Errors: []FurunoExcelRowError{
-					{Row: h.Row, Message: "Database Error", Detail: err.Error()},
-				},
-			})
-		}
-
-		if existingCount > 0 {
-			return ctx.Status(fiber.StatusBadRequest).JSON(FurunoExcelUploadResponse{
-				Success:   false,
-				Message:   "Packing List # already exists: " + h.PackingListNumber,
-				TotalRows: dataRowCount,
-				ValidationErrors: []FurunoValidationError{
-					{Field: "Packing List #", Message: "Packing List # already exists in database: " + h.PackingListNumber, Row: h.Row},
-				},
-			})
-		}
-	}
-
-	// --------------------------------------------------------------------------
-	// Transaction: all-or-nothing
-	// --------------------------------------------------------------------------
 	tx := c.DB.Begin()
+
 	if tx.Error != nil {
-		return ctx.Status(fiber.StatusInternalServerError).JSON(FurunoExcelUploadResponse{
-			Success: false,
-			Message: "Failed to start database transaction",
-			Errors: []FurunoExcelRowError{
-				{Row: 0, Message: "Transaction Error", Detail: tx.Error.Error()},
+		return ctx.Status(fiber.StatusInternalServerError).JSON(
+			FurunoInboundUploadResponse{
+				Success: false,
+				Message: "Failed to start database transaction",
+				Errors: []FurunoInboundExcelRowError{
+					{
+						Row:     0,
+						Message: "Transaction Error",
+						Detail:  tx.Error.Error(),
+					},
+				},
 			},
-		})
+		)
 	}
 
 	defer func() {
 		if r := recover(); r != nil {
+
 			tx.Rollback()
-			log.Printf("Panic recovered in CreateInboundFromFurunoExcelFile: %v", r)
+
+			log.Printf(
+				"Panic recovered in CreateInboundFromFurunoExcelFile: %v",
+				r,
+			)
 		}
 	}()
 
+	// =========================================================================
+	// 13. VALIDATE OWNER
+	// =========================================================================
+
+	var inventoryPolicy models.InventoryPolicy
+
+	if err := tx.
+		Where("owner_code = ?", ownerCode).
+		First(&inventoryPolicy).
+		Error; err != nil {
+
+		tx.Rollback()
+
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ctx.Status(fiber.StatusNotFound).JSON(
+				FurunoInboundUploadResponse{
+					Success: false,
+					Message: "Owner not found: " + ownerCode,
+				},
+			)
+		}
+
+		return ctx.Status(fiber.StatusInternalServerError).JSON(
+			FurunoInboundUploadResponse{
+				Success: false,
+				Message: "Failed to validate owner",
+				Errors: []FurunoInboundExcelRowError{
+					{
+						Row:     0,
+						Message: "Owner Validation Error",
+						Detail:  err.Error(),
+					},
+				},
+			},
+		)
+	}
+
+	// =========================================================================
+	// 14. VALIDATE WAREHOUSE
+	// =========================================================================
+
+	var warehouse models.Warehouse
+
+	if err := tx.
+		Where("code = ?", whsCode).
+		First(&warehouse).
+		Error; err != nil {
+
+		tx.Rollback()
+
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ctx.Status(fiber.StatusNotFound).JSON(
+				FurunoInboundUploadResponse{
+					Success: false,
+					Message: "Warehouse not found: " + whsCode,
+				},
+			)
+		}
+
+		return ctx.Status(fiber.StatusInternalServerError).JSON(
+			FurunoInboundUploadResponse{
+				Success: false,
+				Message: "Failed to validate warehouse",
+				Errors: []FurunoInboundExcelRowError{
+					{
+						Row:     0,
+						Message: "Warehouse Validation Error",
+						Detail:  err.Error(),
+					},
+				},
+			},
+		)
+	}
+
+	// =========================================================================
+	// 15. CHECK DUPLICATE RECEIPT ID
+	// =========================================================================
+
+	duplicateReceipts := make(
+		map[string]string,
+	)
+
+	for _, receiptID := range receiptIDs {
+
+		var count int64
+
+		err := tx.
+			Model(&models.InboundHeader{}).
+			Where(
+				"receipt_id = ?",
+				receiptID,
+			).
+			Count(&count).
+			Error
+
+		if err != nil {
+
+			tx.Rollback()
+
+			return ctx.Status(fiber.StatusInternalServerError).JSON(
+				FurunoInboundUploadResponse{
+					Success: false,
+					Message: "Failed to check duplicate receipt ID",
+					Errors: []FurunoInboundExcelRowError{
+						{
+							Row:     0,
+							Message: "Duplicate Check Error",
+							Detail:  err.Error(),
+						},
+					},
+				},
+			)
+		}
+
+		if count > 0 {
+			duplicateReceipts[receiptID] =
+				fmt.Sprintf(
+					"Receipt ID '%s' already exists",
+					receiptID,
+				)
+		}
+	}
+
+	// =========================================================================
+	// 16. FILTER VALID RECEIPTS
+	// =========================================================================
+
+	validReceiptIDs := make(
+		[]string,
+		0,
+	)
+
+	skippedReceipts := make(
+		[]FurunoInboundSkippedReceipt,
+		0,
+	)
+
+	for _, receiptID := range receiptIDs {
+
+		if reason, exists :=
+			duplicateReceipts[receiptID]; exists {
+
+			skippedReceipts = append(
+				skippedReceipts,
+				FurunoInboundSkippedReceipt{
+					ReceiptID: receiptID,
+					Reason:    reason,
+				},
+			)
+
+			continue
+		}
+
+		validReceiptIDs = append(
+			validReceiptIDs,
+			receiptID,
+		)
+	}
+
+	if len(validReceiptIDs) == 0 {
+
+		tx.Rollback()
+
+		return ctx.Status(fiber.StatusOK).JSON(
+			FurunoInboundUploadResponse{
+				Success:         false,
+				Message:         "No valid inbound to process. All receipt IDs already exist.",
+				TotalRows:       len(rows) - 1,
+				ProcessedRows:   len(inboundRows),
+				SuccessCount:    0,
+				FailedCount:     len(skippedReceipts),
+				SkippedReceipts: skippedReceipts,
+				InboundNumbers:  []string{},
+			},
+		)
+	}
+
+	// =========================================================================
+	// 17. CREATE INBOUND
+	// =========================================================================
+
 	repo := repositories.NewInboundRepository(tx)
 
-	createdInbounds := make([]string, 0, len(groups))
-	successCount := 0
+	var inboundNumbers []string
 
-	for _, group := range groups {
-		h := group.HeaderRow
+	totalSuccessItems := 0
 
-		inboundNo, err := repo.GenerateInboundNo()
-		if err != nil {
+	for _, receiptID := range validReceiptIDs {
+
+		items := receiptMap[receiptID]
+
+		if len(items) == 0 {
+			continue
+		}
+
+		firstItem := items[0]
+
+		// =====================================================================
+		// VALIDATE SUPPLIER
+		// =====================================================================
+
+		supplierName := strings.TrimSpace(
+			firstItem.Supplier,
+		)
+
+		if supplierName == "" {
+
 			tx.Rollback()
-			return ctx.Status(fiber.StatusInternalServerError).JSON(FurunoExcelUploadResponse{
-				Success: false,
-				Message: fmt.Sprintf("Failed to generate inbound number for Packing List # %s", h.PackingListNumber),
-				Errors: []FurunoExcelRowError{
-					{Row: h.Row, Message: "Inbound Generation Error", Detail: err.Error()},
+
+			return ctx.Status(fiber.StatusBadRequest).JSON(
+				FurunoInboundUploadResponse{
+					Success: false,
+					Message: fmt.Sprintf(
+						"Supplier is required for receipt %s",
+						receiptID,
+					),
+					Errors: []FurunoInboundExcelRowError{
+						{
+							Row:     firstItem.Row,
+							Message: "Supplier Validation Error",
+							Detail:  "Supplier from Excel is empty",
+						},
+					},
 				},
-			})
+			)
 		}
 
 		var supplier models.Supplier
-		if err := tx.First(&supplier, "supplier_code = ?", h.Supplier).Error; err != nil {
+
+		if err := tx.
+			Where(
+				"LOWER(LTRIM(RTRIM(supplier_name))) = LOWER(LTRIM(RTRIM(?)))",
+				supplierName,
+			).
+			Where("owner_code = ?", ownerCode).
+			Where("is_active = ?", true).
+			First(&supplier).
+			Error; err != nil {
+
 			tx.Rollback()
-			return ctx.Status(fiber.StatusInternalServerError).JSON(FurunoExcelUploadResponse{
-				Success: false,
-				Message: fmt.Sprintf("Failed to validate supplier for Packing List # %s", h.PackingListNumber),
-				Errors: []FurunoExcelRowError{
-					{Row: h.Row, Message: "Database Error", Detail: err.Error()},
+
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ctx.Status(fiber.StatusBadRequest).JSON(
+					FurunoInboundUploadResponse{
+						Success: false,
+						Message: fmt.Sprintf(
+							"Supplier not found or inactive: %s",
+							supplierName,
+						),
+						Errors: []FurunoInboundExcelRowError{
+							{
+								Row:     firstItem.Row,
+								Message: "Supplier Not Found",
+								Detail: fmt.Sprintf(
+									"Supplier '%s' does not exist, is inactive, or does not belong to owner '%s'",
+									supplierName,
+									ownerCode,
+								),
+							},
+						},
+					},
+				)
+			}
+
+			return ctx.Status(fiber.StatusInternalServerError).JSON(
+				FurunoInboundUploadResponse{
+					Success: false,
+					Message: "Failed to validate supplier",
+					Errors: []FurunoInboundExcelRowError{
+						{
+							Row:     firstItem.Row,
+							Message: "Supplier Validation Error",
+							Detail:  err.Error(),
+						},
+					},
 				},
-			})
+			)
 		}
+
+		// =====================================================================
+		// GENERATE INBOUND NUMBER
+		// =====================================================================
+
+		inboundNo, err :=
+			repo.GenerateInboundNo()
+
+		if err != nil {
+
+			tx.Rollback()
+
+			return ctx.Status(
+				fiber.StatusInternalServerError,
+			).JSON(
+				FurunoInboundUploadResponse{
+					Success: false,
+					Message: "Failed to generate inbound number",
+					Errors: []FurunoInboundExcelRowError{
+						{
+							Row:     firstItem.Row,
+							Message: "Generation Error",
+							Detail:  err.Error(),
+						},
+					},
+				},
+			)
+		}
+
+		// =====================================================================
+		// CURRENT TIME
+		// =====================================================================
+
+		now := time.Now()
+
+		nowTime :=
+			now.Format("15:04")
+
+		// =====================================================================
+		// INBOUND HEADER
+		// =====================================================================
 
 		inboundHeader := models.InboundHeader{
-			InboundNo:      inboundNo,
-			InboundDate:    h.InboundDate,
-			ReceiptID:      h.PackingListNumber,
-			Supplier:       h.Supplier,
-			SupplierId:     int(supplier.ID),
-			Status:         "open",
-			RawStatus:      "DRAFT",
-			DraftTime:      time.Now(),
-			Transporter:    h.Transporter,
-			NoTruck:        h.NoTruck,
-			Driver:         h.Driver,
-			Container:      h.Container,
-			Remarks:        h.Remarks,
-			Type:           h.Type,
-			WhsCode:        h.WhsCode,
-			OwnerCode:      h.OwnerCode,
-			Origin:         h.Origin,
-			PoDate:         h.PoDate,
-			ArrivalTime:    h.ArrivalTime,
-			StartUnloading: h.StartUnloading,
-			EndUnloading:   h.EndUnloading,
-			TruckSize:      h.TruckSize,
-			BLNo:           h.BLNo,
-			Koli:           h.Koli,
-			CreatedBy:      userID,
-			UpdatedBy:      userID,
+
+			InboundNo: inboundNo,
+
+			OwnerCode: ownerCode,
+
+			WhsCode: whsCode,
+
+			ReceiptID: receiptID,
+
+			SupplierId: int(supplier.ID),
+			Supplier:   supplier.SupplierCode,
+
+			Status: "open",
+
+			RawStatus: "DRAFT",
+
+			DraftTime: now,
+
+			InboundDate: firstItem.InboundDate,
+
+			Type: "FURUNO",
+
+			Remarks: fmt.Sprintf(
+				"FURUNO | Receive No: %s",
+				receiptID,
+			),
+
+			Integration: false,
+
+			ArrivalTime: nowTime,
+
+			CreatedBy: currentUserID,
+
+			UpdatedBy: currentUserID,
 		}
 
-		if err := tx.Create(&inboundHeader).Error; err != nil {
+		// =====================================================================
+		// INSERT HEADER
+		// =====================================================================
+
+		if err := tx.
+			Create(&inboundHeader).
+			Error; err != nil {
+
 			tx.Rollback()
-			return ctx.Status(fiber.StatusInternalServerError).JSON(FurunoExcelUploadResponse{
-				Success: false,
-				Message: fmt.Sprintf("Failed to create inbound header for Packing List # %s", h.PackingListNumber),
-				Errors: []FurunoExcelRowError{
-					{Row: h.Row, Message: "Database Insert Error", Detail: err.Error()},
+
+			return ctx.Status(
+				fiber.StatusInternalServerError,
+			).JSON(
+				FurunoInboundUploadResponse{
+					Success: false,
+					Message: fmt.Sprintf(
+						"Failed to create inbound header for receipt %s",
+						receiptID,
+					),
+					Errors: []FurunoInboundExcelRowError{
+						{
+							Row:     firstItem.Row,
+							Message: "Header Insert Error",
+							Detail:  err.Error(),
+						},
+					},
 				},
-			})
+			)
 		}
+
+		// =====================================================================
+		// INSERT REFERENCE
+		// =====================================================================
 
 		inboundReference := models.InboundReference{
 			InboundId: uint(inboundHeader.ID),
-			RefNo:     h.PackingListNumber,
+			RefNo:     receiptID,
 		}
 
-		if err := tx.Create(&inboundReference).Error; err != nil {
+		if err := tx.
+			Create(&inboundReference).
+			Error; err != nil {
+
 			tx.Rollback()
-			return ctx.Status(fiber.StatusInternalServerError).JSON(FurunoExcelUploadResponse{
-				Success: false,
-				Message: fmt.Sprintf("Failed to create inbound reference for Packing List # %s", h.PackingListNumber),
-				Errors: []FurunoExcelRowError{
-					{Row: h.Row, Message: "Database Insert Error", Detail: err.Error()},
+
+			return ctx.Status(
+				fiber.StatusInternalServerError,
+			).JSON(
+				FurunoInboundUploadResponse{
+					Success: false,
+					Message: fmt.Sprintf(
+						"Failed to insert inbound reference for receipt %s",
+						receiptID,
+					),
+					Errors: []FurunoInboundExcelRowError{
+						{
+							Row:     firstItem.Row,
+							Message: "Reference Insert Error",
+							Detail:  err.Error(),
+						},
+					},
 				},
-			})
+			)
 		}
 
-		mergedDetails := furunoInboundMergeDetails(group.Details)
+		// =====================================================================
+		// EXPAND BUNDLE
+		// =====================================================================
 
-		for _, md := range mergedDetails {
-			detail := md.Representative
+		expandedItems, err := c.expandFurunoInboundItems(tx, items)
+		if err != nil {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusBadRequest).JSON(
+				FurunoInboundUploadResponse{
+					Success: false,
+					Message: "Failed to expand Furuno inbound items",
+					Errors: []FurunoInboundExcelRowError{{
+						Row:     firstItem.Row,
+						Message: "Bundle Expansion Error",
+						Detail:  err.Error(),
+					}},
+				},
+			)
+		}
+
+		if len(expandedItems) == 0 {
+			tx.Rollback()
+			return ctx.Status(fiber.StatusBadRequest).JSON(
+				FurunoInboundUploadResponse{
+					Success: false,
+					Message: "No items after bundle expansion",
+				},
+			)
+		}
+
+		// =====================================================================
+		// INSERT EXPANDED DETAILS
+		// =====================================================================
+
+		for _, item := range expandedItems {
+
+			// ================================================================
+			// SOURCE PRODUCT / COMPONENT PRODUCT
+			// ================================================================
 
 			var product models.Product
-			if err := tx.First(&product, "item_code = ? AND owner_code = ?", detail.ItemCode, h.OwnerCode).Error; err != nil {
+
+			if err := tx.
+				Where(
+					"item_code = ?",
+					strings.TrimSpace(item.ItemCode),
+				).
+				First(&product).
+				Error; err != nil {
+
 				tx.Rollback()
-				return ctx.Status(fiber.StatusNotFound).JSON(FurunoExcelUploadResponse{
-					Success: false,
-					Message: fmt.Sprintf("Product not found for item code: %s (Packing List # %s)", detail.ItemCode, h.PackingListNumber),
-					Errors: []FurunoExcelRowError{
-						{Row: detail.Row, Message: "Product Not Found", Detail: "Item code: " + detail.ItemCode},
+
+				if errors.Is(
+					err,
+					gorm.ErrRecordNotFound,
+				) {
+
+					return ctx.Status(
+						fiber.StatusNotFound,
+					).JSON(
+						FurunoInboundUploadResponse{
+							Success: false,
+							Message: fmt.Sprintf(
+								"Product not found: %s",
+								item.ItemCode,
+							),
+							Errors: []FurunoInboundExcelRowError{
+								{
+									Row:     item.Row,
+									Message: "Product Not Found",
+									Detail: fmt.Sprintf(
+										"SKU: %s",
+										item.ItemCode,
+									),
+								},
+							},
+						},
+					)
+				}
+
+				return ctx.Status(
+					fiber.StatusInternalServerError,
+				).JSON(
+					FurunoInboundUploadResponse{
+						Success: false,
+						Message: "Failed to lookup product",
+						Errors: []FurunoInboundExcelRowError{
+							{
+								Row:     item.Row,
+								Message: "Product Lookup Error",
+								Detail:  err.Error(),
+							},
+						},
 					},
-				})
+				)
 			}
+
+			// ================================================================
+			// UOM CONVERSION
+			// ================================================================
 
 			var uomConversion models.UomConversion
-			if err := tx.First(&uomConversion, "item_code = ? AND from_uom = ?", product.ItemCode, detail.UOM).Error; err != nil {
-				tx.Rollback()
-				return ctx.Status(fiber.StatusNotFound).JSON(FurunoExcelUploadResponse{
-					Success: false,
-					Message: fmt.Sprintf("UOM conversion not found (Packing List # %s)", h.PackingListNumber),
-					Errors: []FurunoExcelRowError{
-						{
-							Row:     detail.Row,
-							Message: "UOM Not Found",
-							Detail:  fmt.Sprintf("Item: %s, UOM: %s", detail.ItemCode, detail.UOM),
-						},
-					},
-				})
-			}
 
-			if detail.QaStatus != "" {
-				var qaStatus models.QaStatus
-				if err := tx.First(&qaStatus, "qa_status = ?", detail.QaStatus).Error; err != nil {
+			if err := tx.
+				Where(
+					"item_code = ? AND factor = 1",
+					product.ItemCode,
+				).
+				First(&uomConversion).
+				Error; err != nil {
+
+				if err2 := tx.
+					Where(
+						"item_code = ?",
+						product.ItemCode,
+					).
+					First(&uomConversion).
+					Error; err2 != nil {
+
 					tx.Rollback()
-					return ctx.Status(fiber.StatusNotFound).JSON(FurunoExcelUploadResponse{
-						Success: false,
-						Message: fmt.Sprintf("QA status not found (Packing List # %s)", h.PackingListNumber),
-						Errors: []FurunoExcelRowError{
-							{Row: detail.Row, Message: "QA Status Not Found", Detail: "Status: " + detail.QaStatus},
+
+					return ctx.Status(
+						fiber.StatusNotFound,
+					).JSON(
+						FurunoInboundUploadResponse{
+							Success: false,
+							Message: fmt.Sprintf(
+								"UOM conversion not found for SKU: %s",
+								item.ItemCode,
+							),
+							Errors: []FurunoInboundExcelRowError{
+								{
+									Row:     item.Row,
+									Message: "UOM Not Found",
+									Detail: fmt.Sprintf(
+										"SKU: %s",
+										item.ItemCode,
+									),
+								},
+							},
 						},
-					})
+					)
 				}
 			}
 
-			inboundDetail := models.InboundDetail{
-				InboundNo:     inboundNo,
-				InboundId:     int(inboundHeader.ID),
-				ItemCode:      detail.ItemCode,
-				ItemId:        product.ID,
-				ProductNumber: product.ProductNumber,
-				Barcode:       uomConversion.Ean,
-				Uom:           detail.UOM,
-				Quantity:      md.Quantity,
-				RcvLocation:   detail.Location,
-				Location:      detail.Location,
-				QaStatus:      detail.QaStatus,
-				RecDate:       detail.RecDate,
-				ProdDate:      detail.ProdDate,
-				ExpDate:       detail.ExpDate,
-				LotNumber:     detail.LotNumber,
-				CartonNumber:  detail.CartonNumber,
-				CaseNumber:    detail.CaseNumber,
-				SerialNumber:  "",
-				IsSerial:      product.HasSerial,
-				SN:            product.HasSerial,
-				RefId:         int(inboundReference.ID),
-				RefNo:         h.PackingListNumber,
-				OwnerCode:     h.OwnerCode,
-				WhsCode:       h.WhsCode,
-				DivisionCode:  detail.Division,
-				CreatedBy:     userID,
-				UpdatedBy:     userID,
+			// ================================================================
+			// RESOLVE UOM
+			// ================================================================
+
+			detailUOM :=
+				uomConversion.FromUom
+
+			if strings.TrimSpace(item.Unit) != "" {
+
+				var excelUOMConversion models.UomConversion
+
+				errUOM := tx.
+					Where(
+						"item_code = ? AND from_uom = ?",
+						product.ItemCode,
+						strings.TrimSpace(
+							item.Unit,
+						),
+					).
+					First(
+						&excelUOMConversion,
+					).
+					Error
+
+				if errUOM == nil {
+
+					uomConversion =
+						excelUOMConversion
+
+					detailUOM =
+						excelUOMConversion.FromUom
+				}
 			}
 
-			if err := tx.Create(&inboundDetail).Error; err != nil {
+			// ================================================================
+			// BUNDLE REFERENCE
+			// ================================================================
+
+			bundleProductID := item.BundleProductID
+			bundleProductCode := item.BundleProductCode
+			bundleQuantity := item.BundleQuantity
+
+			// ================================================================
+			// INSERT DETAIL
+			// ================================================================
+
+			inboundDetail :=
+				models.InboundDetail{
+
+					OwnerCode: ownerCode,
+
+					WhsCode: whsCode,
+
+					DivisionCode: "REGULAR",
+
+					InboundId: int(
+						inboundHeader.ID,
+					),
+
+					InboundNo: inboundNo,
+
+					ItemId: product.ID,
+
+					ProductNumber: product.ProductNumber,
+
+					ItemCode: product.ItemCode,
+
+					Barcode: uomConversion.Ean,
+
+					Quantity: item.Quantity,
+
+					RcvLocation: "",
+
+					QaStatus: "A",
+
+					Location: "",
+
+					Status: "draft",
+
+					RecDate: item.InboundDate,
+
+					Uom: detailUOM,
+
+					RefId: int(
+						inboundReference.ID,
+					),
+
+					RefNo: inboundReference.RefNo,
+
+					IsSerial: product.HasSerial,
+
+					HandlingId: handlingID,
+
+					HandlingUsed: "",
+
+					// PartCode Excel -> Remarks.
+					Remarks: item.PartCode,
+
+					// Bundle reference.
+					BundleProductID: bundleProductID,
+
+					BundleProductCode: bundleProductCode,
+
+					BundleQuantity: bundleQuantity,
+
+					CreatedBy: currentUserID,
+
+					UpdatedBy: currentUserID,
+				}
+
+			// ================================================================
+			// SERIAL FLAG
+			// ================================================================
+
+			serialNumbers :=
+				splitFurunoInboundSerials(
+					item.SerialNumber,
+				)
+
+			if len(serialNumbers) > 0 {
+
+				inboundDetail.IsSerial = "Y"
+
+				inboundDetail.SerialNumber = ""
+			}
+
+			// ================================================================
+			// INSERT DETAIL
+			// ================================================================
+
+			if err := tx.
+				Create(&inboundDetail).
+				Error; err != nil {
+
 				tx.Rollback()
-				return ctx.Status(fiber.StatusInternalServerError).JSON(FurunoExcelUploadResponse{
-					Success: false,
-					Message: fmt.Sprintf("Failed to create inbound detail (Packing List # %s)", h.PackingListNumber),
-					Errors: []FurunoExcelRowError{
-						{Row: detail.Row, Message: "Database Insert Error", Detail: err.Error()},
+
+				return ctx.Status(
+					fiber.StatusInternalServerError,
+				).JSON(
+					FurunoInboundUploadResponse{
+						Success: false,
+						Message: fmt.Sprintf(
+							"Failed to create inbound detail for SKU: %s",
+							item.ItemCode,
+						),
+						Errors: []FurunoInboundExcelRowError{
+							{
+								Row:     item.Row,
+								Message: "Detail Insert Error",
+								Detail:  err.Error(),
+							},
+						},
 					},
-				})
+				)
 			}
 
-			// Intentionally store Furuno serials independently of Product.HasSerial.
-			// The source file explicitly provides serial information.
-			for _, serial := range md.SerialNumbers {
-				if serial == "" {
+			// ================================================================
+			// INSERT SERIAL
+			// ================================================================
+
+			for _, serialNumber := range serialNumbers {
+
+				serialNumber =
+					strings.TrimSpace(
+						serialNumber,
+					)
+
+				if serialNumber == "" {
 					continue
 				}
 
-				inboundSerial := models.InboundSerial{
-					InboundId:       int(inboundHeader.ID),
-					InboundDetailId: int(inboundDetail.ID),
-					SerialNumber:    serial,
-					CreatedBy:       userID,
-					UpdatedBy:       userID,
-				}
+				inboundSerial :=
+					models.InboundSerial{
 
-				if err := tx.Create(&inboundSerial).Error; err != nil {
+						InboundId: int(
+							inboundHeader.ID,
+						),
+
+						InboundDetailId: int(
+							inboundDetail.ID,
+						),
+
+						SerialNumber: serialNumber,
+
+						CreatedBy: currentUserID,
+
+						UpdatedBy: currentUserID,
+					}
+
+				if err := tx.
+					Create(&inboundSerial).
+					Error; err != nil {
+
 					tx.Rollback()
-					return ctx.Status(fiber.StatusInternalServerError).JSON(FurunoExcelUploadResponse{
-						Success: false,
-						Message: fmt.Sprintf("Failed to create inbound serial (Packing List # %s, SN: %s)", h.PackingListNumber, serial),
-						Errors: []FurunoExcelRowError{
-							{Row: detail.Row, Message: "Database Insert Error", Detail: err.Error()},
+
+					return ctx.Status(
+						fiber.StatusInternalServerError,
+					).JSON(
+						FurunoInboundUploadResponse{
+							Success: false,
+							Message: "Failed to insert inbound serial",
+							Errors: []FurunoInboundExcelRowError{
+								{
+									Row:     item.Row,
+									Message: "Serial Insert Error",
+									Detail:  err.Error(),
+								},
+							},
 						},
-					})
+					)
 				}
 			}
 
-			successCount += len(md.Rows)
+			totalSuccessItems++
 		}
 
-		if err := helpers.InsertTransactionHistory(tx, inboundNo, "open", "INBOUND", "Created from Furuno Excel upload", userID); err != nil {
-			log.Printf("Warning: Failed to insert Furuno transaction history for %s: %v", inboundNo, err)
+		// =====================================================================
+		// TRANSACTION HISTORY
+		// =====================================================================
+
+		if err := helpers.InsertTransactionHistory(
+			tx,
+			inboundNo,
+			"open",
+			"INBOUND",
+			fmt.Sprintf(
+				"Created from FURUNO Excel - Receive No: %s",
+				receiptID,
+			),
+			currentUserID,
+		); err != nil {
+
+			log.Printf(
+				"Warning: Failed to insert transaction history for %s: %v",
+				inboundNo,
+				err,
+			)
 		}
 
-		createdInbounds = append(createdInbounds, inboundNo)
+		inboundNumbers =
+			append(
+				inboundNumbers,
+				inboundNo,
+			)
 	}
+
+	// =========================================================================
+	// 18. COMMIT
+	// =========================================================================
 
 	if err := tx.Commit().Error; err != nil {
-		return ctx.Status(fiber.StatusInternalServerError).JSON(FurunoExcelUploadResponse{
-			Success: false,
-			Message: "Failed to commit Furuno inbound transaction",
-			Errors: []FurunoExcelRowError{
-				{Row: 0, Message: "Transaction Commit Error", Detail: err.Error()},
+
+		return ctx.Status(
+			fiber.StatusInternalServerError,
+		).JSON(
+			FurunoInboundUploadResponse{
+				Success: false,
+				Message: "Failed to commit transaction",
+				Errors: []FurunoInboundExcelRowError{
+					{
+						Row:     0,
+						Message: "Transaction Commit Error",
+						Detail:  err.Error(),
+					},
+				},
 			},
-		})
+		)
 	}
 
-	return ctx.Status(fiber.StatusOK).JSON(FurunoExcelUploadResponse{
-		Success:        true,
-		Message:        fmt.Sprintf("Successfully created %d Furuno inbound(s) with %d items", len(createdInbounds), successCount),
-		TotalRows:      dataRowCount,
-		ProcessedRows:  len(parsedRows),
-		SkippedRows:    dataRowCount - len(parsedRows),
-		SuccessCount:   successCount,
-		FailedCount:    0,
-		InboundNumbers: createdInbounds,
-	})
+	// =========================================================================
+	// 19. RESPONSE
+	// =========================================================================
+
+	message := fmt.Sprintf(
+		"Created %d inbound(s) with %d item(s) from FURUNO Excel",
+		len(inboundNumbers),
+		totalSuccessItems,
+	)
+
+	if len(skippedReceipts) > 0 {
+
+		message += fmt.Sprintf(
+			". %d receipt(s) skipped because already exist",
+			len(skippedReceipts),
+		)
+	}
+
+	return ctx.Status(
+		fiber.StatusOK,
+	).JSON(
+		FurunoInboundUploadResponse{
+
+			Success: true,
+
+			Message: message,
+
+			TotalRows: len(rows) - 1,
+
+			ProcessedRows: len(inboundRows),
+
+			SuccessCount: totalSuccessItems,
+
+			FailedCount: len(skippedReceipts),
+
+			InboundNumbers: inboundNumbers,
+
+			SkippedReceipts: skippedReceipts,
+		},
+	)
 }
 
-// ============================================================================
-// FURUNO INTEGRATION ENTRY POINT
-// ============================================================================
+type FurunoInboundExpandedRow struct {
+	FurunoInboundRow
+	BundleProductID   int
+	BundleProductCode string
+	BundleQuantity    float64
+}
 
-func (c *InboundController) CreateInboundFromFurunoExcelIntegration(ctx *fiber.Ctx) error {
-	ctx.Locals("userID", float64(0))
-	return c.CreateInboundFromFurunoExcelFile(ctx)
+func (c *InboundController) expandFurunoInboundItems(
+	tx *gorm.DB,
+	rows []FurunoInboundRow,
+) ([]FurunoInboundExpandedRow, error) {
+	bundleService := services.NewProductBundleService(tx)
+	expanded := make([]FurunoInboundExpandedRow, 0)
+
+	for _, row := range rows {
+		var product models.Product
+		if err := tx.Where("item_code = ?", strings.TrimSpace(row.ItemCode)).First(&product).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, fmt.Errorf("product not found: %s", row.ItemCode)
+			}
+			return nil, err
+		}
+
+		if product.IsBundle != "Y" {
+			expanded = append(expanded, FurunoInboundExpandedRow{FurunoInboundRow: row})
+			continue
+		}
+
+		components, err := bundleService.ExpandBundle(tx, product.ID, row.Quantity)
+		if err != nil {
+			return nil, fmt.Errorf("failed to expand bundle %s: %w", product.ItemCode, err)
+		}
+		if len(components) == 0 {
+			return nil, fmt.Errorf("bundle %s has no components", product.ItemCode)
+		}
+
+		for _, component := range components {
+			child := row
+			child.ItemCode = component.ItemCode
+			child.Quantity = component.Qty
+			child.Unit = component.UOM
+			// Excel PartCode remains unchanged and is stored only as Remarks.
+			expanded = append(expanded, FurunoInboundExpandedRow{
+				FurunoInboundRow:  child,
+				BundleProductID:   int(product.ID),
+				BundleProductCode: product.ItemCode,
+				BundleQuantity:    row.Quantity,
+			})
+		}
+	}
+
+	return expanded, nil
+}
+
+func buildFurunoInboundHeaderMap(
+	headerRow []string,
+) (FurunoInboundHeaderMap, error) {
+
+	headerMap :=
+		make(FurunoInboundHeaderMap)
+
+	for index, header := range headerRow {
+
+		normalized :=
+			normalizeFurunoInboundHeader(
+				header,
+			)
+
+		if normalized == "" {
+			continue
+		}
+
+		if _, exists :=
+			headerMap[normalized]; exists {
+
+			return nil, fmt.Errorf(
+				"duplicate Excel header found: '%s'",
+				header,
+			)
+		}
+
+		headerMap[normalized] =
+			index
+	}
+
+	// Validate required headers.
+
+	for _, required := range furunoInboundRequiredHeaders {
+
+		if _, exists :=
+			headerMap[required]; !exists {
+
+			return nil, fmt.Errorf(
+				"required Excel header '%s' not found",
+				required,
+			)
+		}
+	}
+
+	return headerMap, nil
+}
+
+func parseFurunoInboundRows(
+	rows [][]string,
+	headerMap FurunoInboundHeaderMap,
+) (
+	[]FurunoInboundRow,
+	[]FurunoInboundValidationError,
+) {
+
+	var result []FurunoInboundRow
+
+	var errs []FurunoInboundValidationError
+
+	// Row 0 = header.
+
+	for i := 1; i < len(rows); i++ {
+
+		row := rows[i]
+
+		rowNum := i + 1
+
+		// =====================================================================
+		// EMPTY ROW
+		// =====================================================================
+
+		if furunoInboundRowIsEmpty(row) {
+			continue
+		}
+
+		// =====================================================================
+		// RECEIVE NO
+		// =====================================================================
+
+		receiptID :=
+			strings.TrimSpace(
+				getFurunoInboundCell(
+					row,
+					headerMap,
+					"receive no receive item",
+				),
+			)
+
+		if receiptID == "" {
+
+			errs = append(
+				errs,
+				FurunoInboundValidationError{
+					Row:     rowNum,
+					Field:   "Receive No Receive Item",
+					Message: "Receive No cannot be empty",
+				},
+			)
+
+			continue
+		}
+
+		// =====================================================================
+		// ITEM CODE
+		// =====================================================================
+
+		itemCodeRaw :=
+			strings.TrimSpace(
+				getFurunoInboundCell(
+					row,
+					headerMap,
+					"code#",
+				),
+			)
+
+		if itemCodeRaw == "" {
+
+			errs = append(
+				errs,
+				FurunoInboundValidationError{
+					Row:     rowNum,
+					Field:   "Code#",
+					Message: "Code# cannot be empty",
+				},
+			)
+
+			continue
+		}
+
+		itemCode :=
+			cleanFurunoInboundItemCode(
+				itemCodeRaw,
+			)
+
+		// =====================================================================
+		// PART CODE
+		// =====================================================================
+
+		partCode :=
+			strings.TrimSpace(
+				getFurunoInboundCell(
+					row,
+					headerMap,
+					"part code item",
+				),
+			)
+
+		// =====================================================================
+		// ITEM NAME
+		// =====================================================================
+
+		itemName :=
+			strings.TrimSpace(
+				getFurunoInboundCell(
+					row,
+					headerMap,
+					"item name",
+				),
+			)
+
+		// =====================================================================
+		// MODEL NAME
+		// =====================================================================
+
+		modelName :=
+			strings.TrimSpace(
+				getFurunoInboundCell(
+					row,
+					headerMap,
+					"model name",
+				),
+			)
+
+		// =====================================================================
+		// QUANTITY
+		// =====================================================================
+
+		qtyRaw :=
+			strings.TrimSpace(
+				getFurunoInboundCell(
+					row,
+					headerMap,
+					"quantity",
+				),
+			)
+
+		if qtyRaw == "" {
+
+			errs = append(
+				errs,
+				FurunoInboundValidationError{
+					Row:     rowNum,
+					Field:   "Quantity",
+					Message: "Quantity cannot be empty",
+				},
+			)
+
+			continue
+		}
+
+		qty, err :=
+			strconv.ParseFloat(
+				qtyRaw,
+				64,
+			)
+
+		if err != nil || qty <= 0 {
+
+			errs = append(
+				errs,
+				FurunoInboundValidationError{
+					Row:   rowNum,
+					Field: "Quantity",
+					Message: fmt.Sprintf(
+						"Invalid quantity: %s",
+						qtyRaw,
+					),
+				},
+			)
+
+			continue
+		}
+
+		// =====================================================================
+		// UNIT
+		// =====================================================================
+
+		unit :=
+			strings.TrimSpace(
+				getFurunoInboundCell(
+					row,
+					headerMap,
+					"unit",
+				),
+			)
+
+			// =====================================================================
+			// DATE
+			// =====================================================================
+
+			// dateRaw :=
+			// 	strings.TrimSpace(
+			// 		getFurunoInboundCell(
+			// 			row,
+			// 			headerMap,
+			// 			"date",
+			// 		),
+			// 	)
+
+			// if dateRaw == "" {
+
+			// 	errs = append(
+			// 		errs,
+			// 		FurunoInboundValidationError{
+			// 			Row:     rowNum,
+			// 			Field:   "Date",
+			// 			Message: "Date cannot be empty",
+			// 		},
+			// 	)
+
+			// 	continue
+			// }
+
+		nowDate := time.Now().Format("2006-01-02")
+		// dateRaw := strings.TrimSpace(
+		// 	getFurunoCell(
+		// 		row,
+		// 		headerMap,
+		// 		"date",
+		// 	),
+		// )
+
+		parsedDate :=
+			parseFurunoInboundDate(
+				nowDate,
+			)
+
+		// Hard Code Date Format: 2023-08-15
+		// parsedDate :=
+
+		if parsedDate == "" {
+
+			errs = append(
+				errs,
+				FurunoInboundValidationError{
+					Row:   rowNum,
+					Field: "Date",
+					Message: fmt.Sprintf(
+						"Invalid date format: %s",
+						nowDate,
+					),
+				},
+			)
+
+			continue
+		}
+
+		// =====================================================================
+		// SUPPLIER ID
+		// =====================================================================
+
+		supplierID :=
+			strings.TrimSpace(
+				getFurunoInboundCell(
+					row,
+					headerMap,
+					"supplier id supplier receive item",
+				),
+			)
+
+		if supplierID == "" {
+
+			errs = append(
+				errs,
+				FurunoInboundValidationError{
+					Row:     rowNum,
+					Field:   "Supplier ID Supplier Receive Item",
+					Message: "Supplier ID cannot be empty",
+				},
+			)
+
+			continue
+		}
+
+		// =====================================================================
+		// SUPPLIER
+		// =====================================================================
+
+		supplier :=
+			strings.TrimSpace(
+				getFurunoInboundCell(
+					row,
+					headerMap,
+					"supplier",
+				),
+			)
+
+		if supplier == "" {
+
+			errs = append(
+				errs,
+				FurunoInboundValidationError{
+					Row:     rowNum,
+					Field:   "Supplier",
+					Message: "Supplier cannot be empty",
+				},
+			)
+
+			continue
+		}
+
+		// =====================================================================
+		// SERIAL
+		// =====================================================================
+
+		serialNumber :=
+			strings.TrimSpace(
+				getFurunoInboundCell(
+					row,
+					headerMap,
+					"serial/production number",
+				),
+			)
+
+		// =====================================================================
+		// APPEND
+		// =====================================================================
+
+		result = append(
+			result,
+			FurunoInboundRow{
+
+				Row: rowNum,
+
+				ReceiptID: receiptID,
+
+				InboundDate: parsedDate,
+
+				ItemCode: itemCode,
+
+				PartCode: partCode,
+
+				ItemName: itemName,
+
+				ModelName: modelName,
+
+				Quantity: qty,
+
+				Unit: unit,
+
+				SupplierID: supplierID,
+
+				Supplier: supplier,
+
+				SerialNumber: serialNumber,
+			},
+		)
+	}
+
+	return result, errs
+}
+
+func groupFurunoInboundRowsByReceiptID(
+	rows []FurunoInboundRow,
+) map[string][]FurunoInboundRow {
+
+	result :=
+		make(
+			map[string][]FurunoInboundRow,
+		)
+
+	for _, row := range rows {
+
+		result[row.ReceiptID] =
+			append(
+				result[row.ReceiptID],
+				row,
+			)
+	}
+
+	return result
+}
+
+func getFurunoInboundCell(
+	row []string,
+	headerMap FurunoInboundHeaderMap,
+	header string,
+) string {
+
+	index, exists :=
+		headerMap[normalizeFurunoInboundHeader(
+			header,
+		)]
+
+	if !exists {
+		return ""
+	}
+
+	if index < 0 ||
+		index >= len(row) {
+		return ""
+	}
+
+	return row[index]
+}
+
+func normalizeFurunoInboundHeader(
+	header string,
+) string {
+
+	header =
+		strings.TrimSpace(
+			header,
+		)
+
+	header =
+		strings.ToLower(
+			header,
+		)
+
+	header =
+		strings.Join(
+			strings.Fields(header),
+			" ",
+		)
+
+	return header
+}
+
+func furunoInboundRowIsEmpty(
+	row []string,
+) bool {
+
+	for _, cell := range row {
+
+		if strings.TrimSpace(cell) != "" {
+			return false
+		}
+	}
+
+	return true
+}
+
+func cleanFurunoInboundItemCode(
+	raw string,
+) string {
+
+	raw =
+		strings.TrimSpace(
+			raw,
+		)
+
+	if idx :=
+		strings.Index(
+			raw,
+			".",
+		); idx != -1 {
+
+		decimal :=
+			raw[idx+1:]
+
+		allZero := true
+
+		for _, ch := range decimal {
+
+			if ch != '0' {
+
+				allZero = false
+
+				break
+			}
+		}
+
+		if allZero {
+			return raw[:idx]
+		}
+	}
+
+	return raw
+}
+
+func parseFurunoInboundDate(
+	raw string,
+) string {
+
+	raw =
+		strings.TrimSpace(
+			raw,
+		)
+
+	if raw == "" {
+		return ""
+	}
+
+	// =====================================================================
+	// Excel serial number
+	// =====================================================================
+
+	if days, err :=
+		strconv.ParseFloat(
+			raw,
+			64,
+		); err == nil &&
+		days > 40000 {
+
+		excelEpoch :=
+			time.Date(
+				1899,
+				12,
+				30,
+				0,
+				0,
+				0,
+				0,
+				time.UTC,
+			)
+
+		date :=
+			excelEpoch.Add(
+				time.Duration(
+					days,
+				) * 24 * time.Hour,
+			)
+
+		return date.Format(
+			"2006-01-02",
+		)
+	}
+
+	// =====================================================================
+	// STRING FORMATS
+	// =====================================================================
+
+	dateFormats := []string{
+
+		"2006-01-02 15:04:05",
+		"2006-01-02 15:04",
+		"2006-01-02",
+
+		"02/01/2006 15:04:05",
+		"02/01/2006 15:04",
+		"02/01/2006",
+
+		"01/02/2006",
+
+		"2/1/2006",
+		"1/2/2006",
+
+		"02-01-06",
+		"02-01-2006",
+
+		"2-Jan-06",
+		"02-Jan-06",
+		"2-January-06",
+		"02-January-06",
+
+		"2-Jan-2006",
+		"02-Jan-2006",
+		"2-January-2006",
+		"02-January-2006",
+
+		"2 Jan 2006",
+		"02 Jan 2006",
+	}
+
+	for _, format := range dateFormats {
+
+		if t, err :=
+			time.Parse(
+				format,
+				raw,
+			); err == nil {
+
+			return t.Format(
+				"2006-01-02",
+			)
+		}
+	}
+
+	return ""
+}
+
+func splitFurunoInboundSerials(
+	value string,
+) []string {
+
+	value =
+		strings.TrimSpace(
+			value,
+		)
+
+	if value == "" {
+		return nil
+	}
+
+	parts :=
+		strings.Split(
+			value,
+			",",
+		)
+
+	result :=
+		make(
+			[]string,
+			0,
+			len(parts),
+		)
+
+	for _, part := range parts {
+
+		part =
+			strings.TrimSpace(
+				part,
+			)
+
+		if part == "" {
+			continue
+		}
+
+		result =
+			append(
+				result,
+				part,
+			)
+	}
+
+	return result
+}
+
+func findFurunoInboundSheet(
+	file *excelize.File,
+	expected string,
+) (string, error) {
+
+	expectedNormalized :=
+		normalizeFurunoInboundHeader(
+			expected,
+		)
+
+	for _, sheet := range file.GetSheetList() {
+
+		if normalizeFurunoInboundHeader(sheet) ==
+			expectedNormalized {
+
+			return sheet, nil
+		}
+	}
+
+	return "",
+		fmt.Errorf(
+			"sheet '%s' not found",
+			expected,
+		)
 }

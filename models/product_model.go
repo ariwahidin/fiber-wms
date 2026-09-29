@@ -29,10 +29,26 @@ type Product struct {
 	HasSerial     string  `json:"has_serial" gorm:"default:'N'"`
 	ManualBook    string  `json:"manual_book" gorm:"default:'N'"`
 	HasAdaptor    string  `json:"has_adaptor" gorm:"default:'N'"`
+	IsBundle      string  `json:"is_bundle" gorm:"default:'N'"`
 	Remarks       string  `json:"remarks"`
 	UserDef1      string  `json:"user_def1"`
 	UserDef2      string  `json:"user_def2"`
 	UserDef3      string  `json:"user_def3"`
+	CreatedBy     int
+	UpdatedBy     int
+	DeletedBy     int
+}
+
+type ProductBundle struct {
+	gorm.Model
+
+	BundleProductId uint    `json:"bundle_product_id"`
+	ItemId          uint    `json:"item_id"`
+	ItemCode        string  `json:"item_code"`
+	Qty             float64 `json:"qty"`
+
+	BundleProduct Product `json:"bundle_product" gorm:"foreignKey:BundleProductId;references:ID"`
+	ItemProduct   Product `json:"item_product" gorm:"foreignKey:ItemId;references:ID"`
 	CreatedBy     int
 	UpdatedBy     int
 	DeletedBy     int

@@ -58,53 +58,125 @@ func (c *InventoryController) GetInternalTransferInventories(ctx *fiber.Ctx) err
 	pallet := strings.TrimSpace(ctx.Query("pallet"))
 	search := strings.TrimSpace(ctx.Query("search"))
 
-	query := c.DB.Model(&models.Inventory{}).
+	query := c.DB.
+		Model(&models.Inventory{}).
 		Preload("Product").
 		Where("inventories.qty_available > ?", 0).
 		Where("inventories.deleted_at IS NULL")
 
+	// =========================
+	// FILTER
+	// =========================
+
 	if itemCode != "" {
-		query = query.Where("inventories.item_code = ?", itemCode)
-	}
-	if ownerCode != "" {
-		query = query.Where("inventories.owner_code = ?", ownerCode)
-	}
-	if whsCode != "" {
-		query = query.Where("inventories.whs_code = ?", whsCode)
-	}
-	if location != "" {
-		query = query.Where("inventories.location = ?", location)
-	}
-	if divisionCode != "" {
-		query = query.Where("inventories.division_code = ?", divisionCode)
-	}
-	if qaStatus != "" {
-		query = query.Where("inventories.qa_status = ?", qaStatus)
-	}
-	if pallet != "" {
-		query = query.Where("inventories.pallet = ?", pallet)
-	}
-	if search != "" {
-		like := "%" + search + "%"
-		query = query.Where(`(
-            inventories.item_code LIKE ? OR
-            inventories.barcode LIKE ? OR
-            inventories.pallet LIKE ? OR
-            inventories.location LIKE ? OR
-            inventories.carton_number LIKE ? OR
-            inventories.case_number LIKE ?
-        )`, like, like, like, like, like, like)
+		query = query.Where(
+			"inventories.item_code = ?",
+			itemCode,
+		)
 	}
 
+	if ownerCode != "" {
+		query = query.Where(
+			"inventories.owner_code = ?",
+			ownerCode,
+		)
+	}
+
+	if whsCode != "" {
+		query = query.Where(
+			"inventories.whs_code = ?",
+			whsCode,
+		)
+	}
+
+	if location != "" {
+		query = query.Where(
+			"inventories.location = ?",
+			location,
+		)
+	}
+
+	if divisionCode != "" {
+		query = query.Where(
+			"inventories.division_code = ?",
+			divisionCode,
+		)
+	}
+
+	if qaStatus != "" {
+		query = query.Where(
+			"inventories.qa_status = ?",
+			qaStatus,
+		)
+	}
+
+	if pallet != "" {
+		query = query.Where(
+			"inventories.pallet = ?",
+			pallet,
+		)
+	}
+
+	// =========================
+	// SEARCH
+	// =========================
+
+	if search != "" {
+		like := "%" + search + "%"
+
+		query = query.Where(`
+			(
+				inventories.item_code LIKE ? OR
+				inventories.barcode LIKE ? OR
+				inventories.pallet LIKE ? OR
+				inventories.location LIKE ? OR
+				inventories.carton_number LIKE ? OR
+				inventories.case_number LIKE ? OR
+				EXISTS (
+					SELECT 1
+					FROM products
+					WHERE products.item_code = inventories.item_code
+					  AND products.unit_model LIKE ?
+					  AND products.deleted_at IS NULL
+				)
+			)
+		`,
+			like,
+			like,
+			like,
+			like,
+			like,
+			like,
+			like,
+		)
+	}
+
+	// =========================
+	// FETCH INVENTORY
+	// =========================
+
 	var inventories []models.Inventory
+
 	if err := query.
-		Order("inventories.item_code ASC, inventories.whs_code ASC, inventories.location ASC, inventories.id ASC").
+		Order(`
+			inventories.item_code ASC,
+			inventories.whs_code ASC,
+			inventories.location ASC,
+			inventories.id ASC
+		`).
 		Find(&inventories).Error; err != nil {
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+
+		return ctx.Status(
+			fiber.StatusInternalServerError,
+		).JSON(fiber.Map{
 			"success": false,
 			"error":   "Failed to fetch transfer inventories: " + err.Error(),
 		})
 	}
+
+	// =========================
+	// EMPTY RESULT
+	// =========================
 
 	if len(inventories) == 0 {
 		return ctx.JSON(fiber.Map{
@@ -116,10 +188,19 @@ func (c *InventoryController) GetInternalTransferInventories(ctx *fiber.Ctx) err
 		})
 	}
 
+	// =========================
+	// GET INVENTORY IDS
+	// =========================
+
 	ids := make([]uint, 0, len(inventories))
+
 	for _, inv := range inventories {
 		ids = append(ids, inv.ID)
 	}
+
+	// =========================
+	// INVENTORY SERIAL STAT
+	// =========================
 
 	type serialStat struct {
 		InventoryID uint `gorm:"column:inventory_id"`
@@ -127,45 +208,79 @@ func (c *InventoryController) GetInternalTransferInventories(ctx *fiber.Ctx) err
 		AllRows     int  `gorm:"column:all_rows"`
 	}
 
-	// Count available serials and all active serial rows separately.
-	// AllRows is used to distinguish a true non-serial inventory from a
-	// serial inventory whose available serial count has reached zero.
 	var stats []serialStat
-	if err := c.DB.Model(&models.InventorySerial{}).
+
+	if err := c.DB.
+		Model(&models.InventorySerial{}).
 		Select(`
-            inventory_id,
-            SUM(CASE WHEN qty_available > 0 THEN 1 ELSE 0 END) AS total,
-            COUNT(*) AS all_rows
-        `).
+			inventory_id,
+			SUM(
+				CASE
+					WHEN qty_available > 0 THEN 1
+					ELSE 0
+				END
+			) AS total,
+			COUNT(*) AS all_rows
+		`).
 		Where("inventory_id IN ?", ids).
 		Where("deleted_at IS NULL").
 		Group("inventory_id").
 		Scan(&stats).Error; err != nil {
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+
+		return ctx.Status(
+			fiber.StatusInternalServerError,
+		).JSON(fiber.Map{
 			"success": false,
-			"error":   "Failed to count inventory serials: " + err.Error(),
+			"error": "Failed to count inventory serials: " +
+				err.Error(),
 		})
 	}
 
+	// =========================
+	// SERIAL STAT MAP
+	// =========================
+
 	statMap := make(map[uint]serialStat, len(stats))
+
 	for _, stat := range stats {
 		statMap[stat.InventoryID] = stat
 	}
 
-	result := make([]InternalTransferInventory, 0, len(inventories))
+	// =========================
+	// BUILD RESULT
+	// =========================
+
+	result := make(
+		[]InternalTransferInventory,
+		0,
+		len(inventories),
+	)
+
 	for _, inv := range inventories {
+
 		stat := statMap[inv.ID]
+
 		mode := "quantity"
+
+		// Jika terdapat InventorySerial,
+		// inventory dianggap serial.
 		if stat.AllRows > 0 {
 			mode = "serial"
 		}
 
-		result = append(result, InternalTransferInventory{
-			Inventory:        inv,
-			AvailableSerials: stat.Total,
-			TransferMode:     mode,
-		})
+		result = append(
+			result,
+			InternalTransferInventory{
+				Inventory:        inv,
+				AvailableSerials: stat.Total,
+				TransferMode:     mode,
+			},
+		)
 	}
+
+	// =========================
+	// RESPONSE
+	// =========================
 
 	return ctx.JSON(fiber.Map{
 		"success": true,

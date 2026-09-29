@@ -55,6 +55,22 @@ func SetupInventoryRoutes(app *fiber.App) {
 		inventoryController.TransferInventoryInternal,
 	)
 
+	// CHANGE ITEM
+	api.Get(
+		"/change-item/inventories",
+		inventoryController.GetChangeItemInventories,
+	)
+
+	api.Get(
+		"/change-item/serials",
+		inventoryController.GetChangeItemSerials,
+	)
+
+	api.Post(
+		"/change-item",
+		inventoryController.ChangeItem,
+	)
+
 	// api.Get("/inventory/serials", inventoryController.GetInventorySerials)
 	// api.Post("/inventory/transfer-v2", inventoryController.TransferInventoryV2)
 

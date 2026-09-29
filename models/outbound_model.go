@@ -100,12 +100,27 @@ type OutboundDetail struct {
 	UpdatedBy    int
 	DeletedBy    int
 
+	BundleProductID   int     `json:"bundle_product_id" gorm:"default:null"`
+	BundleProductCode string  `json:"bundle_product_code" gorm:"default:null"`
+	BundleQuantity    float64 `json:"bundle_quantity" gorm:"default:null"`
+
 	// Relationship
 	Product                 Product                  `gorm:"foreignKey:ItemID;references:ID" json:"product"`
 	OutboundDetailHandlings []OutboundDetailHandling `gorm:"foreignKey:OutboundDetailId;references:ID;constraint:OnDelete:CASCADE" json:"outbound_detail_handlings"`
 	OutboundPickings        []OutboundPicking        `gorm:"foreignKey:OutboundDetailId;references:ID;constraint:OnDelete:CASCADE" json:"picking_sheets"`
 	Handling                []OutboundDetailHandling `gorm:"foreignKey:OutboundDetailId;references:ID;" json:"handling"`
 	OutboundSerials         []OutboundSerial         `gorm:"foreignKey:OutboundDetailId;references:ID;constraint:OnDelete:CASCADE" json:"serial_numbers"`
+}
+
+type OutboundSerial struct {
+	gorm.Model
+	OutboundId       int    `json:"outbound_id" gorm:"default:null"`
+	OutboundDetailId int    `gorm:"foreignKey:OutboundDetailId" json:"outbound_detail_id"`
+	SerialNumber     string `json:"serial_number"`
+
+	CreatedBy int
+	UpdatedBy int
+	DeletedBy int
 }
 
 type OutboundPicking struct {
@@ -271,17 +286,6 @@ type OutboundBarcode struct {
 
 	OutboundHeader OutboundHeader `json:"Outbound" gorm:"foreignKey:OutboundId;references:ID"`
 	Product        Product        `json:"product" gorm:"foreignKey:ItemID;references:ID"`
-}
-
-type OutboundSerial struct {
-	gorm.Model
-	OutboundId       int    `json:"outbound_id" gorm:"default:null"`
-	OutboundDetailId int    `gorm:"foreignKey:OutboundDetailId" json:"outbound_detail_id"`
-	SerialNumber     string `json:"serial_number"`
-
-	CreatedBy int
-	UpdatedBy int
-	DeletedBy int
 }
 
 type OutboundPacking struct {

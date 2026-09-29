@@ -42,9 +42,22 @@ type productInputStruct struct {
 	Waranty      string  `json:"waranty" validate:"required,min=1"`
 	Adaptor      string  `json:"adaptor" validate:"required,min=1"`
 	ManualBook   string  `json:"manual_book" validate:"required,min=1"`
+	IsBundle     string  `json:"is_bundle"`
 	Uom          string  `json:"uom" validate:"required,min=1"`
 	OwnerCode    string  `json:"owner_code" validate:"required,min=3"`
 	UserDef1     string  `json:"user_def1"`
+}
+
+func (c *ProductController) GetAllProducts(ctx *fiber.Ctx) error {
+	var products []models.Product
+	query := c.DB.Order("item_code ASC")
+	if owner := ctx.Query("owner"); owner != "" {
+		query = query.Where("owner_code = ?", owner)
+	}
+	if err := query.Find(&products).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Products found", "data": products})
 }
 
 func (c *ProductController) CreateProduct(ctx *fiber.Ctx) error {
@@ -73,6 +86,12 @@ func (c *ProductController) CreateProduct(ctx *fiber.Ctx) error {
 
 	userID := int(ctx.Locals("userID").(float64))
 
+	isBundle := strings.ToUpper(strings.TrimSpace(input.IsBundle))
+
+	if isBundle != "Y" {
+		isBundle = "N"
+	}
+
 	product := models.Product{
 		ItemCode:     input.ItemCode,
 		ItemName:     input.ItemName,
@@ -92,6 +111,7 @@ func (c *ProductController) CreateProduct(ctx *fiber.Ctx) error {
 		HasWaranty:   input.Waranty,
 		HasAdaptor:   input.Adaptor,
 		ManualBook:   input.ManualBook,
+		IsBundle:     isBundle,
 		Uom:          input.Uom,
 		OwnerCode:    input.OwnerCode,
 		UserDef1:     input.UserDef1,
@@ -136,29 +156,6 @@ func (c *ProductController) GetProductByID(ctx *fiber.Ctx) error {
 	}
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Product found", "data": result})
-}
-
-func (c *ProductController) LookupProduct(ctx *fiber.Ctx) error {
-	barcode := ctx.Query("barcode")
-	sku := ctx.Query("sku")
-
-	if barcode == "" && sku == "" {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "barcode or sku query param is required"})
-	}
-
-	var product models.Product
-	var err error
-	if sku != "" {
-		err = c.DB.Where("item_code = ?", sku).First(&product).Error
-	} else {
-		err = c.DB.Where("barcode = ?", barcode).First(&product).Error
-	}
-
-	if err != nil {
-		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"success": false, "message": "Product not found"})
-	}
-
-	return ctx.JSON(fiber.Map{"success": true, "data": product})
 }
 
 func (c *ProductController) UpdateProduct(ctx *fiber.Ctx) error {
@@ -238,6 +235,11 @@ func (c *ProductController) UpdateProduct(ctx *fiber.Ctx) error {
 	}
 
 	userID := int(ctx.Locals("userID").(float64))
+	isBundle := strings.ToUpper(strings.TrimSpace(input.IsBundle))
+
+	if isBundle != "Y" {
+		isBundle = "N"
+	}
 
 	if err := c.DB.Model(&models.Product{}).Where("id = ?", id).Updates(map[string]interface{}{
 		"item_code":      input.ItemCode,
@@ -258,6 +260,7 @@ func (c *ProductController) UpdateProduct(ctx *fiber.Ctx) error {
 		"has_waranty":    input.Waranty,
 		"has_adaptor":    input.Adaptor,
 		"manual_book":    input.ManualBook,
+		"is_bundle":      isBundle,
 		"uom":            input.Uom,
 		"owner_code":     input.OwnerCode,
 		"user_def1":      input.UserDef1,
@@ -306,16 +309,27 @@ func (c *ProductController) UpdateProduct(ctx *fiber.Ctx) error {
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Product updated successfully", "data": product})
 }
 
-func (c *ProductController) GetAllProducts(ctx *fiber.Ctx) error {
-	var products []models.Product
-	query := c.DB.Order("item_code ASC")
-	if owner := ctx.Query("owner"); owner != "" {
-		query = query.Where("owner_code = ?", owner)
+func (c *ProductController) LookupProduct(ctx *fiber.Ctx) error {
+	barcode := ctx.Query("barcode")
+	sku := ctx.Query("sku")
+
+	if barcode == "" && sku == "" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "barcode or sku query param is required"})
 	}
-	if err := query.Find(&products).Error; err != nil {
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+
+	var product models.Product
+	var err error
+	if sku != "" {
+		err = c.DB.Where("item_code = ?", sku).First(&product).Error
+	} else {
+		err = c.DB.Where("barcode = ?", barcode).First(&product).Error
 	}
-	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Products found", "data": products})
+
+	if err != nil {
+		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"success": false, "message": "Product not found"})
+	}
+
+	return ctx.JSON(fiber.Map{"success": true, "data": product})
 }
 
 type ProductWithStock struct {

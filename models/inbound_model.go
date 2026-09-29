@@ -67,39 +67,42 @@ type InboundReference struct {
 
 type InboundDetail struct {
 	gorm.Model
-	OwnerCode     string  `json:"owner_code" required:"required"`
-	WhsCode       string  `json:"whs_code" required:"required"`
-	DivisionCode  string  `json:"division_code" required:"required" gorm:"default:REGULAR"`
-	InboundId     int     `json:"inbound_id" gorm:"default:null"`
-	InboundNo     string  `json:"inbound_no"`
-	ItemId        uint    `json:"item_id" required:"required"`
-	ProductNumber int     `json:"product_number"`
-	ItemCode      string  `json:"item_code" required:"required"`
-	Barcode       string  `json:"barcode"`
-	Quantity      float64 `json:"quantity" required:"required"`
-	RcvLocation   string  `json:"rcv_location"`
-	QaStatus      string  `json:"qa_status" gorm:"default:'pending'"`
-	Location      string  `json:"location" required:"required"`
-	Status        string  `json:"status" gorm:"default:'draft'"`
-	RecDate       string  `json:"rec_date" gorm:"default:null"`
-	ProdDate      string  `json:"prod_date" gorm:"default:null"`
-	ExpDate       string  `json:"exp_date" gorm:"default:null"`
-	LotNumber     string  `json:"lot_number" gorm:"default:null"`
-	CaseNumber    string  `json:"case_number" gorm:"default:null"`
-	CartonNumber  string  `json:"carton_number" gorm:"default:null"`
-	SerialNumber  string  `json:"serial_number" gorm:"default:null"`
-	Uom           string  `json:"uom" required:"required"`
-	IsSerial      string  `json:"is_serial"`
-	SN            string  `json:"sn"`
-	HandlingId    int     `json:"handling_id" required:"required"`
-	HandlingUsed  string  `json:"handling_used"`
-	TotalVas      int     `json:"total_vas"`
-	Remarks       string  `json:"remarks"`
-	RefId         int     `json:"ref_id"`
-	RefNo         string  `json:"ref_no"`
-	CreatedBy     int
-	UpdatedBy     int
-	DeletedBy     int
+	OwnerCode         string  `json:"owner_code" required:"required"`
+	WhsCode           string  `json:"whs_code" required:"required"`
+	DivisionCode      string  `json:"division_code" required:"required" gorm:"default:REGULAR"`
+	InboundId         int     `json:"inbound_id" gorm:"default:null"`
+	InboundNo         string  `json:"inbound_no"`
+	ItemId            uint    `json:"item_id" required:"required"`
+	ProductNumber     int     `json:"product_number"`
+	ItemCode          string  `json:"item_code" required:"required"`
+	Barcode           string  `json:"barcode"`
+	Quantity          float64 `json:"quantity" required:"required"`
+	RcvLocation       string  `json:"rcv_location"`
+	QaStatus          string  `json:"qa_status" gorm:"default:'pending'"`
+	Location          string  `json:"location" required:"required"`
+	Status            string  `json:"status" gorm:"default:'draft'"`
+	RecDate           string  `json:"rec_date" gorm:"default:null"`
+	ProdDate          string  `json:"prod_date" gorm:"default:null"`
+	ExpDate           string  `json:"exp_date" gorm:"default:null"`
+	LotNumber         string  `json:"lot_number" gorm:"default:null"`
+	CaseNumber        string  `json:"case_number" gorm:"default:null"`
+	CartonNumber      string  `json:"carton_number" gorm:"default:null"`
+	SerialNumber      string  `json:"serial_number" gorm:"default:null"`
+	Uom               string  `json:"uom" required:"required"`
+	IsSerial          string  `json:"is_serial"`
+	SN                string  `json:"sn"`
+	HandlingId        int     `json:"handling_id" required:"required"`
+	HandlingUsed      string  `json:"handling_used"`
+	TotalVas          int     `json:"total_vas"`
+	Remarks           string  `json:"remarks"`
+	RefId             int     `json:"ref_id"`
+	RefNo             string  `json:"ref_no"`
+	BundleProductID   int     `json:"bundle_product_id" gorm:"default:null"`
+	BundleProductCode string  `json:"bundle_product_code" gorm:"default:null"`
+	BundleQuantity    float64 `json:"bundle_quantity" gorm:"default:null"`
+	CreatedBy         int
+	UpdatedBy         int
+	DeletedBy         int
 
 	// Relations
 	Received []InboundBarcode `gorm:"foreignKey:InboundDetailId;references:ID;constraint:OnDelete:CASCADE" json:"received"`

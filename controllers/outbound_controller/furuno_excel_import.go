@@ -12,6 +12,7 @@ import (
 	"fiber-app/controllers/helpers"
 	"fiber-app/models"
 	"fiber-app/repositories"
+	"fiber-app/services"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/xuri/excelize/v2"
@@ -96,6 +97,7 @@ type FurunoOrderRow struct {
 	Row int
 
 	ItemCode      string
+	PartCode      string
 	ItemName      string
 	Quantity      float64
 	Unit          string
@@ -132,6 +134,7 @@ var furunoRequiredHeaders = []string{
 	"customer",
 	"serial/production number",
 	"name warehouse",
+	"part code",
 }
 
 // ============================================================================
@@ -588,8 +591,9 @@ func (c *OutboundController) CreateOutboundFromFurunoExcel(ctx *fiber.Ctx) error
 		}
 	}
 
-	customerNameToCode := make(map[string]string)
+	// customerNameToCode := make(map[string]string)
 
+	customerMap := make(map[string]models.Customer)
 	if len(customerNameSet) > 0 {
 
 		names := make([]string, 0, len(customerNameSet))
@@ -619,8 +623,11 @@ func (c *OutboundController) CreateOutboundFromFurunoExcel(ctx *fiber.Ctx) error
 			})
 		}
 
+		// for _, customer := range customers {
+		// 	customerNameToCode[strings.TrimSpace(customer.CustomerName)] = customer.CustomerCode
+		// }
 		for _, customer := range customers {
-			customerNameToCode[strings.TrimSpace(customer.CustomerName)] = customer.CustomerCode
+			customerMap[strings.TrimSpace(customer.CustomerName)] = customer
 		}
 	}
 
@@ -670,11 +677,33 @@ func (c *OutboundController) CreateOutboundFromFurunoExcel(ctx *fiber.Ctx) error
 		// Resolve Customer
 		// ---------------------------------------------------------------------
 
-		customerCode := ""
+		// customerCode := ""
 
-		if code, found := customerNameToCode[strings.TrimSpace(firstItem.CustomerName)]; found {
-			customerCode = code
+		// if code, found := customerNameToCode[strings.TrimSpace(firstItem.CustomerName)]; found {
+		// 	customerCode = code
+		// }
+
+		// ---------------------------------------------------------------------
+		// Resolve Customer
+		// ---------------------------------------------------------------------
+
+		customer, found := customerMap[strings.TrimSpace(firstItem.CustomerName)]
+
+		if !found {
+			tx.Rollback()
+
+			return ctx.Status(fiber.StatusNotFound).JSON(
+				FurunoUploadResponse{
+					Success: false,
+					Message: fmt.Sprintf(
+						"Customer not found: %s",
+						firstItem.CustomerName,
+					),
+				},
+			)
 		}
+
+		customerCode := customer.CustomerCode
 
 		// ---------------------------------------------------------------------
 		// Current Time
@@ -702,18 +731,39 @@ func (c *OutboundController) CreateOutboundFromFurunoExcel(ctx *fiber.Ctx) error
 			OutboundNo:   outboundNo,
 			OutboundDate: firstItem.OutboundDate,
 			ShipmentID:   shipmentID,
-			CustomerCode: customerCode,
-			WhsCode:      whsCode,
-			OwnerCode:    ownerCode,
-			Status:       "open",
-			RawStatus:    "DRAFT",
-			DraftTime:    now,
-			Remarks:      remarks,
-			Source:       "FURUNO",
-			Integration:  false,
-			DelivTo:      firstItem.CustomerName,
-			CreatedBy:    currentUserID,
-			UpdatedBy:    currentUserID,
+
+			CustomerCode: customer.CustomerCode,
+
+			WhsCode:     whsCode,
+			OrderType:   "B2B - Normal",
+			OwnerCode:   ownerCode,
+			Status:      "open",
+			RawStatus:   "DRAFT",
+			DraftTime:   now,
+			Remarks:     remarks,
+			Source:      "FURUNO",
+			Integration: false,
+
+			CustAddress: strings.TrimSpace(
+				strings.Join([]string{
+					customer.CustAddr1,
+					customer.CustAddr2,
+				}, " "),
+			),
+			CustCity: customer.CustCity,
+
+			DelivTo: customer.CustomerCode,
+
+			DelivAddress: strings.TrimSpace(
+				strings.Join([]string{
+					customer.CustAddr1,
+					customer.CustAddr2,
+				}, " "),
+			),
+			DelivCity: customer.CustCity,
+
+			CreatedBy: currentUserID,
+			UpdatedBy: currentUserID,
 
 			PlanPickupDate: nowDate,
 			PlanPickupTime: "16:00",
@@ -753,10 +803,37 @@ func (c *OutboundController) CreateOutboundFromFurunoExcel(ctx *fiber.Ctx) error
 		}
 
 		// ---------------------------------------------------------------------
+		// Expand Bundle / Prepare Outbound Items
+		// ---------------------------------------------------------------------
+
+		expandedItems, err := c.expandFurunoOutboundItems(
+			tx,
+			items,
+		)
+
+		if err != nil {
+			tx.Rollback()
+
+			return ctx.Status(fiber.StatusBadRequest).JSON(
+				FurunoUploadResponse{
+					Success: false,
+					Message: "Failed to expand Furuno outbound items",
+					Errors: []FurunoExcelRowError{
+						{
+							Row:     firstItem.Row,
+							Message: "Bundle Expansion Error",
+							Detail:  err.Error(),
+						},
+					},
+				},
+			)
+		}
+
+		// ---------------------------------------------------------------------
 		// Insert Details
 		// ---------------------------------------------------------------------
 
-		for _, item := range items {
+		for _, item := range expandedItems {
 
 			// ================================================================
 			// Product Lookup
@@ -781,7 +858,7 @@ func (c *OutboundController) CreateOutboundFromFurunoExcel(ctx *fiber.Ctx) error
 							),
 							Errors: []FurunoExcelRowError{
 								{
-									Row:     item.Row,
+									Row:     firstItem.Row,
 									Message: "Product Not Found",
 									Detail: fmt.Sprintf(
 										"SKU: %s",
@@ -799,7 +876,7 @@ func (c *OutboundController) CreateOutboundFromFurunoExcel(ctx *fiber.Ctx) error
 						Message: "Failed to lookup product",
 						Errors: []FurunoExcelRowError{
 							{
-								Row:     item.Row,
+								Row:     firstItem.Row,
 								Message: "Product Lookup Error",
 								Detail:  err.Error(),
 							},
@@ -810,11 +887,6 @@ func (c *OutboundController) CreateOutboundFromFurunoExcel(ctx *fiber.Ctx) error
 
 			// ================================================================
 			// UOM Conversion
-			//
-			// Sama seperti flow B2B:
-			//
-			// 1. Coba factor = 1
-			// 2. Kalau tidak ada, ambil conversion pertama
 			// ================================================================
 
 			var uomConversion models.UomConversion
@@ -844,7 +916,7 @@ func (c *OutboundController) CreateOutboundFromFurunoExcel(ctx *fiber.Ctx) error
 							),
 							Errors: []FurunoExcelRowError{
 								{
-									Row:     item.Row,
+									Row:     firstItem.Row,
 									Message: "UOM Not Found",
 									Detail: fmt.Sprintf(
 										"SKU: %s",
@@ -859,24 +931,19 @@ func (c *OutboundController) CreateOutboundFromFurunoExcel(ctx *fiber.Ctx) error
 
 			// ================================================================
 			// UOM
-			//
-			// Kalau Excel Unit kosong, gunakan UOM conversion.
-			// Kalau Excel Unit ada, tetap gunakan UOM conversion karena
-			// conversion master adalah sumber UOM WMS.
 			// ================================================================
 
 			detailUOM := uomConversion.FromUom
 
-			if strings.TrimSpace(item.Unit) != "" {
+			if strings.TrimSpace(item.UOM) != "" {
 
-				// Cari conversion berdasarkan UOM dari Excel.
 				var excelUOMConversion models.UomConversion
 
 				errUOM := tx.
 					Where(
 						"item_code = ? AND from_uom = ?",
 						product.ItemCode,
-						strings.TrimSpace(item.Unit),
+						strings.TrimSpace(item.UOM),
 					).
 					First(&excelUOMConversion).Error
 
@@ -906,14 +973,24 @@ func (c *OutboundController) CreateOutboundFromFurunoExcel(ctx *fiber.Ctx) error
 				Uom:          detailUOM,
 				Quantity:     item.Quantity,
 				WhsCode:      whsCode,
-				DivisionCode: "SALES",
+				DivisionCode: "REGULAR",
 				QaStatus:     "A",
 				OwnerCode:    ownerCode,
-				Remarks:      item.ItemName,
-				SNCheck:      "N",
-				SerialNumber: item.SerialNumber,
-				CreatedBy:    currentUserID,
-				UpdatedBy:    currentUserID,
+
+				// Part Code dari Excel.
+				Remarks: item.Remarks,
+
+				// Serial disimpan di outbound_serials.
+				SerialNumber: "",
+
+				// Bundle reference.
+				BundleProductID:   item.BundleProductID,
+				BundleProductCode: item.BundleProductCode,
+				BundleQuantity:    item.BundleQuantity,
+
+				SNCheck:   "N",
+				CreatedBy: currentUserID,
+				UpdatedBy: currentUserID,
 			}
 
 			if err := tx.
@@ -932,7 +1009,7 @@ func (c *OutboundController) CreateOutboundFromFurunoExcel(ctx *fiber.Ctx) error
 					),
 					Errors: []FurunoExcelRowError{
 						{
-							Row:     item.Row,
+							Row:     firstItem.Row,
 							Message: "Detail Insert Error",
 							Detail:  err.Error(),
 						},
@@ -941,15 +1018,26 @@ func (c *OutboundController) CreateOutboundFromFurunoExcel(ctx *fiber.Ctx) error
 			}
 
 			// ================================================================
-			// Insert Serial
+			// Insert Serial Numbers
+			//
+			// Satu cell Excel dapat berisi:
+			// SN001,SN002,SN003
+			//
+			// Setiap serial dibuat menjadi satu outbound serial record.
 			// ================================================================
 
-			if strings.TrimSpace(item.SerialNumber) != "" {
+			for _, sn := range item.SerialNumbers {
+
+				sn = strings.TrimSpace(sn)
+
+				if sn == "" {
+					continue
+				}
 
 				serial := models.OutboundSerial{
 					OutboundId:       int(outboundHeader.ID),
 					OutboundDetailId: int(outboundDetail.ID),
-					SerialNumber:     strings.TrimSpace(item.SerialNumber),
+					SerialNumber:     sn,
 					CreatedBy:        currentUserID,
 					UpdatedBy:        currentUserID,
 				}
@@ -967,7 +1055,7 @@ func (c *OutboundController) CreateOutboundFromFurunoExcel(ctx *fiber.Ctx) error
 						Message: "Failed to insert outbound serial",
 						Errors: []FurunoExcelRowError{
 							{
-								Row:     item.Row,
+								Row:     firstItem.Row,
 								Message: "Serial Insert Error",
 								Detail:  err.Error(),
 							},
@@ -1248,6 +1336,18 @@ func parseFurunoRows(
 		itemCode := cleanFurunoItemCode(itemCodeRaw)
 
 		// ================================================================
+		// Part Code
+		// ================================================================
+
+		partCode := strings.TrimSpace(
+			getFurunoCell(
+				row,
+				headerMap,
+				"part code",
+			),
+		)
+
+		// ================================================================
 		// Item Name
 		// ================================================================
 
@@ -1323,6 +1423,7 @@ func parseFurunoRows(
 		// Date
 		// ================================================================
 
+		nowDate := time.Now().Format("2006-01-02")
 		dateRaw := strings.TrimSpace(
 			getFurunoCell(
 				row,
@@ -1330,6 +1431,8 @@ func parseFurunoRows(
 				"date",
 			),
 		)
+
+		dateRaw = nowDate
 
 		parsedDate := parseFurunoDate(dateRaw)
 
@@ -1383,6 +1486,7 @@ func parseFurunoRows(
 			FurunoOrderRow{
 				Row:           rowNum,
 				ItemCode:      itemCode,
+				PartCode:      partCode,
 				ItemName:      itemName,
 				Quantity:      qty,
 				Unit:          unit,
@@ -1631,6 +1735,155 @@ func parseFurunoDate(
 	}
 
 	return ""
+}
+
+// ============================================================================
+// FURUNO BUNDLE EXPANSION
+// ============================================================================
+//
+// Bundle source:
+// - Code#       = parent bundle item
+// - Part Code   = component item expected from Excel
+// - Remarks     = Part Code
+//
+// Bundle expansion itself uses the same ProductBundleService used by
+// the normal CreateOutbound flow.
+// ============================================================================
+
+func (c *OutboundController) expandFurunoOutboundItems(
+	tx *gorm.DB,
+	rows []FurunoOrderRow,
+) ([]OutboundItem, error) {
+
+	bundleService := services.NewProductBundleService(tx)
+
+	var expanded []OutboundItem
+
+	for _, row := range rows {
+
+		var product models.Product
+
+		if err := tx.
+			Where("item_code = ?", strings.TrimSpace(row.ItemCode)).
+			First(&product).Error; err != nil {
+
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, fmt.Errorf(
+					"product not found: %s",
+					row.ItemCode,
+				)
+			}
+
+			return nil, err
+		}
+
+		// =========================================================
+		// NORMAL PRODUCT
+		// =========================================================
+
+		if product.IsBundle != "Y" {
+
+			item := OutboundItem{
+				ItemCode:      product.ItemCode,
+				Quantity:      row.Quantity,
+				UOM:           row.Unit,
+				Remarks:       row.PartCode,
+				SerialNumber:  "",
+				SerialNumbers: splitFurunoSerials(row.SerialNumber),
+			}
+
+			expanded = append(expanded, item)
+
+			continue
+		}
+
+		// =========================================================
+		// BUNDLE PRODUCT
+		// =========================================================
+
+		// Component sepenuhnya diambil dari database.
+		// Excel PartCode TIDAK digunakan untuk matching.
+		components, err := bundleService.ExpandBundle(
+			tx,
+			product.ID,
+			row.Quantity,
+		)
+
+		if err != nil {
+			return nil, fmt.Errorf(
+				"failed to expand bundle %s: %w",
+				product.ItemCode,
+				err,
+			)
+		}
+
+		// =========================================================
+		// CREATE ALL BUNDLE COMPONENTS
+		// =========================================================
+
+		for _, component := range components {
+
+			componentItem := OutboundItem{
+				// Dari database ProductBundle
+				ItemCode: component.ItemCode,
+				Quantity: component.Qty,
+				UOM:      component.UOM,
+
+				// Bundle reference
+				BundleProductID:   int(product.ID),
+				BundleProductCode: product.ItemCode,
+				BundleQuantity:    row.Quantity,
+
+				// Excel PartCode HANYA untuk Remarks
+				Remarks: row.PartCode,
+
+				// Serial dari Excel row
+				SerialNumber:  "",
+				SerialNumbers: splitFurunoSerials(row.SerialNumber),
+
+				// Tidak diwariskan dari bundle parent
+				LotNumber:    "",
+				ExpDate:      "",
+				CartonNumber: "",
+				CaseNumber:   "",
+				Location:     "",
+			}
+
+			expanded = append(expanded, componentItem)
+		}
+	}
+
+	return expanded, nil
+}
+
+// ============================================================================
+// SPLIT FURUNO SERIALS
+// ============================================================================
+
+func splitFurunoSerials(value string) []string {
+
+	value = strings.TrimSpace(value)
+
+	if value == "" {
+		return nil
+	}
+
+	parts := strings.Split(value, ",")
+
+	result := make([]string, 0, len(parts))
+
+	for _, part := range parts {
+
+		part = strings.TrimSpace(part)
+
+		if part == "" {
+			continue
+		}
+
+		result = append(result, part)
+	}
+
+	return result
 }
 
 // ============================================================================
