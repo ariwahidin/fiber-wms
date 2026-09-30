@@ -1929,7 +1929,10 @@ func (c *InboundController) DeleteSelectedBarcodes(ctx *fiber.Ctx) error {
 func (c *InboundController) GetPutawaySheet(ctx *fiber.Ctx) error {
 	id, err := ctx.ParamsInt("id")
 	if err != nil {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid ID"})
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"error":   "Invalid ID",
+		})
 	}
 
 	type PutawaySheet struct {
@@ -1941,6 +1944,8 @@ func (c *InboundController) GetPutawaySheet(ctx *fiber.Ctx) error {
 		ItemCode       string  `json:"item_code"`
 		ItemName       string  `json:"item_name"`
 		Barcode        string  `json:"barcode"`
+		IMD            string  `json:"imd"`
+		SerialNumber   string  `json:"serial_number"`
 		SupplierName   string  `json:"supplier_name"`
 		LotNumber      string  `json:"lot_number"`
 		Quantity       int     `json:"quantity"`
@@ -1961,38 +1966,218 @@ func (c *InboundController) GetPutawaySheet(ctx *fiber.Ctx) error {
 		Koli           int     `json:"koli"`
 		Container      string  `json:"container"`
 		WhsCode        string  `json:"whs_code"`
+		CaseNumber     string  `json:"case_no"`
+		CartonNumber   string  `json:"carton_no"`
+		Location       string  `json:"location"`
 	}
 
-	sql := `SELECT b.inbound_date, b.inbound_no, b.receipt_id, tp.transporter_name as transporter,
-	b.no_truck, b.driver, b.truck_size, b.arrival_time, b.start_unloading, b.end_unloading, p.item_name,
-	a.item_code, a.barcode, p.cbm, b.bl_no, b.remarks, b.koli, b.container, a.whs_code,
-	s.supplier_name, a.quantity, a.uom, b.owner_code, a.exp_date, a.prod_date, a.rec_date, a.lot_number
-	FROM inbound_details a
-	INNER JOIN inbound_headers b ON a.inbound_id = b.id
-	LEFT JOIN suppliers s ON b.supplier_id = s.id
-	LEFT JOIN transporters tp ON b.transporter = tp.transporter_code
-	LEFT JOIN products p ON a.item_code = p.item_code
-	WHERE inbound_id = ?`
+	sql := `
+		SELECT
+			b.inbound_date,
+			b.inbound_no,
+			b.receipt_id,
+
+			tp.transporter_name AS transporter,
+
+			b.no_truck,
+			b.driver,
+			b.truck_size,
+			b.arrival_time,
+			b.start_unloading,
+			b.end_unloading,
+
+			p.item_name,
+
+			a.item_code,
+			a.barcode,
+
+			-- IMD dari bundle product code
+			a.bundle_product_code AS imd,
+
+			-- Serial number digabung dalam satu row
+			ISNULL(
+				(
+					SELECT STRING_AGG(srl.serial_number, ', ')
+					FROM inbound_serials srl
+					WHERE srl.inbound_detail_id = a.id
+						AND srl.deleted_at IS NULL
+				),
+				''
+			) AS serial_number,
+
+			p.cbm,
+
+			b.bl_no,
+			b.remarks,
+			b.koli,
+			b.container,
+
+			a.whs_code,
+
+			s.supplier_name,
+
+			a.quantity,
+			a.uom,
+
+			b.owner_code,
+
+			a.exp_date,
+			a.prod_date,
+			a.rec_date,
+			a.lot_number,
+
+			a.case_number AS case_no,
+			a.carton_number AS carton_no,
+			a.location
+
+		FROM inbound_details a
+
+		INNER JOIN inbound_headers b
+			ON a.inbound_id = b.id
+
+		LEFT JOIN suppliers s
+			ON b.supplier_id = s.id
+
+		LEFT JOIN transporters tp
+			ON b.transporter = tp.transporter_code
+
+		LEFT JOIN products p
+			ON a.item_code = p.item_code
+
+		WHERE a.inbound_id = ?
+			AND a.deleted_at IS NULL
+
+		ORDER BY a.id ASC
+	`
 
 	var putawaySheet []PutawaySheet
+
 	if err := c.DB.Raw(sql, id).Scan(&putawaySheet).Error; err != nil {
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"error":   err.Error(),
+		})
 	}
 
-	fmt.Println(putawaySheet)
+	if len(putawaySheet) == 0 {
+		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"success": false,
+			"message": "Putaway Sheet Not Found",
+		})
+	}
+
+	// =========================================================
+	// INVENTORY POLICY
+	// =========================================================
 
 	var inventoryPolicy models.InventoryPolicy
-	if len(putawaySheet) > 0 {
-		if err := c.DB.Debug().First(&inventoryPolicy, "owner_code = ?", putawaySheet[0].OwnerCode).Error; err != nil {
-			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-		}
+
+	if err := c.DB.
+		First(
+			&inventoryPolicy,
+			"owner_code = ?",
+			putawaySheet[0].OwnerCode,
+		).Error; err != nil {
+
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"error":   err.Error(),
+		})
 	}
 
-	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Putaway Sheet Found", "data": fiber.Map{
-		"putaway_sheet":    putawaySheet,
-		"inventory_policy": inventoryPolicy,
-	}})
+	fmt.Println("========================================")
+	fmt.Println("PUTAWAY SHEET")
+	fmt.Println("========================================")
+
+	for _, item := range putawaySheet {
+		fmt.Printf(
+			"Item: %s | IMD: %s | Serial: %s | Qty: %d\n",
+			item.ItemCode,
+			item.IMD,
+			item.SerialNumber,
+			item.Quantity,
+		)
+	}
+
+	fmt.Println("========================================")
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": "Putaway Sheet Found",
+		"data": fiber.Map{
+			"putaway_sheet":    putawaySheet,
+			"inventory_policy": inventoryPolicy,
+		},
+	})
 }
+
+// func (c *InboundController) GetPutawaySheet(ctx *fiber.Ctx) error {
+// 	id, err := ctx.ParamsInt("id")
+// 	if err != nil {
+// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid ID"})
+// 	}
+
+// 	type PutawaySheet struct {
+// 		OwnerCode      string  `json:"owner_code"`
+// 		InboundDate    string  `json:"inbound_date"`
+// 		ReceiptID      string  `json:"receipt_id"`
+// 		PoNumber       string  `json:"po_number"`
+// 		InboundNo      string  `json:"inbound_no"`
+// 		ItemCode       string  `json:"item_code"`
+// 		ItemName       string  `json:"item_name"`
+// 		Barcode        string  `json:"barcode"`
+// 		SupplierName   string  `json:"supplier_name"`
+// 		LotNumber      string  `json:"lot_number"`
+// 		Quantity       int     `json:"quantity"`
+// 		RecDate        string  `json:"rec_date"`
+// 		ProdDate       string  `json:"prod_date"`
+// 		ExpDate        string  `json:"exp_date"`
+// 		Uom            string  `json:"uom"`
+// 		Transporter    string  `json:"transporter"`
+// 		NoTruck        string  `json:"no_truck"`
+// 		Driver         string  `json:"driver"`
+// 		TruckSize      string  `json:"truck_size"`
+// 		ArrivalTime    string  `json:"arrival_time"`
+// 		StartUnloading string  `json:"start_unloading"`
+// 		EndUnloading   string  `json:"end_unloading"`
+// 		Cbm            float64 `json:"cbm"`
+// 		BLNo           string  `json:"bl_no"`
+// 		Remarks        string  `json:"remarks"`
+// 		Koli           int     `json:"koli"`
+// 		Container      string  `json:"container"`
+// 		WhsCode        string  `json:"whs_code"`
+// 	}
+
+// 	sql := `SELECT b.inbound_date, b.inbound_no, b.receipt_id, tp.transporter_name as transporter,
+// 	b.no_truck, b.driver, b.truck_size, b.arrival_time, b.start_unloading, b.end_unloading, p.item_name,
+// 	a.item_code, a.barcode, p.cbm, b.bl_no, b.remarks, b.koli, b.container, a.whs_code,
+// 	s.supplier_name, a.quantity, a.uom, b.owner_code, a.exp_date, a.prod_date, a.rec_date, a.lot_number
+// 	FROM inbound_details a
+// 	INNER JOIN inbound_headers b ON a.inbound_id = b.id
+// 	LEFT JOIN suppliers s ON b.supplier_id = s.id
+// 	LEFT JOIN transporters tp ON b.transporter = tp.transporter_code
+// 	LEFT JOIN products p ON a.item_code = p.item_code
+// 	WHERE inbound_id = ?`
+
+// 	var putawaySheet []PutawaySheet
+// 	if err := c.DB.Raw(sql, id).Scan(&putawaySheet).Error; err != nil {
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+// 	}
+
+// 	fmt.Println(putawaySheet)
+
+// 	var inventoryPolicy models.InventoryPolicy
+// 	if len(putawaySheet) > 0 {
+// 		if err := c.DB.Debug().First(&inventoryPolicy, "owner_code = ?", putawaySheet[0].OwnerCode).Error; err != nil {
+// 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+// 		}
+// 	}
+
+// 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Putaway Sheet Found", "data": fiber.Map{
+// 		"putaway_sheet":    putawaySheet,
+// 		"inventory_policy": inventoryPolicy,
+// 	}})
+// }
 
 func (c *InboundController) PutawayByInboundNo(ctx *fiber.Ctx) error {
 	var payload struct {
@@ -2577,6 +2762,218 @@ func (c *InboundController) HandleComplete(ctx *fiber.Ctx) error {
 	}
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Inbound " + inboundHeader.InboundNo + " completed successfully"})
+}
+
+func (c *InboundController) HandleCancel(ctx *fiber.Ctx) error {
+	inboundNo := strings.TrimSpace(ctx.Params("inbound_no"))
+
+	if inboundNo == "" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "Inbound no cannot be empty",
+			"error":   "Inbound no cannot be empty",
+		})
+	}
+
+	// =========================================================
+	// USER
+	// =========================================================
+
+	userIDValue := ctx.Locals("userID")
+	if userIDValue == nil {
+		return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"success": false,
+			"message": "Unauthorized",
+			"error":   "User ID not found",
+		})
+	}
+
+	userIDFloat, ok := userIDValue.(float64)
+	if !ok {
+		return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"success": false,
+			"message": "Invalid user ID",
+			"error":   "Invalid user ID",
+		})
+	}
+
+	userID := int(userIDFloat)
+
+	// =========================================================
+	// BEGIN TRANSACTION
+	// =========================================================
+
+	tx := c.DB.Begin()
+
+	if tx.Error != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to begin transaction",
+			"error":   tx.Error.Error(),
+		})
+	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	// =========================================================
+	// GET INBOUND
+	// =========================================================
+
+	var inbound models.InboundHeader
+
+	if err := tx.
+		Where("inbound_no = ?", inboundNo).
+		First(&inbound).Error; err != nil {
+
+		tx.Rollback()
+
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"success": false,
+				"message": "Inbound not found",
+				"error":   "Inbound not found: " + inboundNo,
+			})
+		}
+
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to get inbound",
+			"error":   err.Error(),
+		})
+	}
+
+	// =========================================================
+	// CHECK CURRENT STATUS
+	// =========================================================
+
+	if strings.EqualFold(inbound.Status, "canceled") ||
+		strings.EqualFold(inbound.Status, "cancel") ||
+		strings.EqualFold(inbound.Status, "cancelled") {
+
+		tx.Rollback()
+
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "Inbound already cancelled",
+			"error":   "Inbound already cancelled: " + inboundNo,
+		})
+	}
+
+	// =========================================================
+	// CHECK INBOUND BARCODE
+	//
+	// Cancel hanya boleh jika TIDAK ADA item sama sekali
+	// di inbound_barcodes.
+	//
+	// GORM otomatis tidak menghitung record yang sudah
+	// soft deleted karena DeletedAt.
+	// =========================================================
+
+	var barcodeCount int64
+
+	if err := tx.
+		Model(&models.InboundBarcode{}).
+		Where("inbound_id = ?", inbound.ID).
+		Count(&barcodeCount).Error; err != nil {
+
+		tx.Rollback()
+
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to check received items",
+			"error":   err.Error(),
+		})
+	}
+
+	if barcodeCount > 0 {
+		tx.Rollback()
+
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "Inbound cannot be cancelled because received items already exist",
+			"error": fiber.Map{
+				"inbound_no":   inbound.InboundNo,
+				"received_qty": barcodeCount,
+			},
+		})
+	}
+
+	// =========================================================
+	// UPDATE CANCEL
+	// =========================================================
+
+	now := time.Now()
+
+	inbound.Status = "canceled"
+	inbound.RawStatus = "CANCELED"
+	inbound.CancelAt = &now
+	inbound.CancelBy = userID
+	inbound.UpdatedBy = userID
+
+	if err := tx.Save(&inbound).Error; err != nil {
+		tx.Rollback()
+
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to cancel inbound",
+			"error":   err.Error(),
+		})
+	}
+
+	// =========================================================
+	// TRANSACTION HISTORY
+	// =========================================================
+
+	if err := helpers.InsertTransactionHistory(
+		tx,
+		inbound.InboundNo,
+		"cancel",
+		"INBOUND",
+		"",
+		userID,
+	); err != nil {
+
+		tx.Rollback()
+
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to insert transaction history",
+			"error":   err.Error(),
+		})
+	}
+
+	// =========================================================
+	// COMMIT
+	// =========================================================
+
+	if err := tx.Commit().Error; err != nil {
+		tx.Rollback()
+
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to commit transaction",
+			"error":   err.Error(),
+		})
+	}
+
+	// =========================================================
+	// RESPONSE
+	// =========================================================
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": "Inbound cancelled successfully",
+		"data": fiber.Map{
+			"inbound_no": inbound.InboundNo,
+			"status":     inbound.Status,
+			"cancel_at":  inbound.CancelAt,
+			"cancel_by":  inbound.CancelBy,
+		},
+	})
 }
 
 func (c *InboundController) GetInventoryByInbound(ctx *fiber.Ctx) error {

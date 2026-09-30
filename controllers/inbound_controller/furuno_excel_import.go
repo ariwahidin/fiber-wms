@@ -85,15 +85,15 @@ func (c *InboundController) CreateInbound(ctx *fiber.Ctx) error {
 		if item.ItemCode == "" {
 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Item code cannot be empty", "error": "Item code cannot be empty"})
 		}
-		if policy.UseReceiveLocation && item.Location == "" {
-			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Receive location cannot be empty", "error": "Receive location cannot be empty"})
-		}
-		if policy.UseCartonNumber && item.CartonNumber == "" {
-			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Carton number cannot be empty", "error": "Carton number cannot be empty"})
-		}
-		if policy.UseCaseNumber && item.CaseNumber == "" {
-			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Case number cannot be empty", "error": "Case number cannot be empty"})
-		}
+		// if policy.UseReceiveLocation && item.Location == "" {
+		// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Receive location cannot be empty", "error": "Receive location cannot be empty"})
+		// }
+		// if policy.UseCartonNumber && item.CartonNumber == "" {
+		// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Carton number cannot be empty", "error": "Carton number cannot be empty"})
+		// }
+		// if policy.UseCaseNumber && item.CaseNumber == "" {
+		// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Case number cannot be empty", "error": "Case number cannot be empty"})
+		// }
 	}
 
 	// Expand bundle before duplicate validation / insert. The parent bundle is
@@ -293,9 +293,9 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 		if item.UOM == "" || item.ItemCode == "" {
 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Item code and UOM cannot be empty"})
 		}
-		if policy.UseReceiveLocation && item.Location == "" {
-			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Receive location cannot be empty"})
-		}
+		// if policy.UseReceiveLocation && item.Location == "" {
+		// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Receive location cannot be empty"})
+		// }
 	}
 	userID := int(ctx.Locals("userID").(float64))
 	tx := c.DB.Begin()
@@ -560,14 +560,14 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 						continue
 					}
 				}
-				var other models.InboundSerial
-				if e := tx.Where("serial_number = ? AND inbound_detail_id != ?", sn, d.ID).First(&other).Error; e == nil {
-					tx.Rollback()
-					return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "serial number is already in use: " + sn})
-				} else if !errors.Is(e, gorm.ErrRecordNotFound) {
-					tx.Rollback()
-					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": e.Error()})
-				}
+				// var other models.InboundSerial
+				// if e := tx.Where("serial_number = ? AND inbound_detail_id != ?", sn, d.ID).First(&other).Error; e == nil {
+				// 	tx.Rollback()
+				// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "serial number is already in use: " + sn})
+				// } else if !errors.Is(e, gorm.ErrRecordNotFound) {
+				// 	tx.Rollback()
+				// 	return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": e.Error()})
+				// }
 			}
 			if err := tx.Where("inbound_detail_id = ?", d.ID).Delete(&models.InboundSerial{}).Error; err != nil {
 				tx.Rollback()

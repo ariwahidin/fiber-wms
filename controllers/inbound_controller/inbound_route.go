@@ -38,6 +38,7 @@ func SetupInboundRoutes(app *fiber.App) {
 	api.Post("/complete/:inbound_no", inboundController.HandleComplete)
 	api.Post("/open", inboundController.HandleOpen)
 	api.Post("/checking", inboundController.HandleChecking)
+	api.Post("/cancel/:inbound_no", inboundController.HandleCancel)
 }
 
 func SetupIntegrationRoutes(app *fiber.App) {

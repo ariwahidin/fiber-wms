@@ -610,68 +610,210 @@ func (c *OutboundController) GetOutboundListOutboundHandling(ctx *fiber.Ctx) err
 }
 
 func (c *OutboundController) GetOutboundByID(ctx *fiber.Ctx) error {
-	outbound_no := ctx.Params("outbound_no")
-	var OutboundHeader models.OutboundHeader
+	outboundNo := ctx.Params("outbound_no")
+
+	// =========================================================
+	// GET OUTBOUND HEADER + DETAILS
+	// =========================================================
+
+	var outboundHeader models.OutboundHeader
+
 	if err := c.DB.Debug().
 		Preload("OutboundDetails.Product").
-		First(&OutboundHeader, "outbound_no = ?", outbound_no).Error; err != nil {
+		First(&outboundHeader, "outbound_no = ?", outboundNo).Error; err != nil {
+
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Inbound not found"})
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"error": "Outbound not found",
+			})
 		}
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": err.Error(),
+		})
 	}
+
+	// =========================================================
+	// GET OUTBOUND BARCODES
+	// =========================================================
 
 	outboundRepo := repositories.NewOutboundRepository(c.DB)
-	OutboundBarcodes, err := outboundRepo.GetOutboundBarcodeByOutboundID(OutboundHeader.ID)
+
+	outboundBarcodes, err := outboundRepo.GetOutboundBarcodeByOutboundID(
+		outboundHeader.ID,
+	)
+
 	if err != nil {
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": err.Error(),
+		})
 	}
 
-	// Ambil OutboundSerial untuk semua detail, group by detail ID
-	detailIDs := make([]uint, 0, len(OutboundHeader.OutboundDetails))
-	for _, d := range OutboundHeader.OutboundDetails {
-		detailIDs = append(detailIDs, d.ID)
+	// =========================================================
+	// GET OUTBOUND SERIALS
+	// =========================================================
+	//
+	// Ambil semua serial berdasarkan outbound_detail_id.
+	// Kemudian group berdasarkan detail ID.
+	//
+	// Contoh:
+	// detail 10 => SN001, SN002, SN003
+	// detail 11 => SN004, SN005
+	//
+
+	detailIDs := make([]uint, 0, len(outboundHeader.OutboundDetails))
+
+	for _, detail := range outboundHeader.OutboundDetails {
+		detailIDs = append(detailIDs, detail.ID)
 	}
 
 	serialsByDetail := make(map[uint][]string)
+
 	if len(detailIDs) > 0 {
-		var serials []models.OutboundSerial
-		if err := c.DB.Where("outbound_detail_id IN ?", detailIDs).Find(&serials).Error; err != nil {
-			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+
+		var outboundSerials []models.OutboundSerial
+
+		if err := c.DB.Debug().
+			Where("outbound_detail_id IN ?", detailIDs).
+			Order("id ASC").
+			Find(&outboundSerials).Error; err != nil {
+
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error": err.Error(),
+			})
 		}
-		for _, s := range serials {
-			serialsByDetail[uint(s.OutboundDetailId)] = append(serialsByDetail[uint(s.OutboundDetailId)], s.SerialNumber)
+
+		for _, serial := range outboundSerials {
+
+			detailID := uint(serial.OutboundDetailId)
+
+			// Skip serial kosong
+			if strings.TrimSpace(serial.SerialNumber) == "" {
+				continue
+			}
+
+			serialsByDetail[detailID] = append(
+				serialsByDetail[detailID],
+				serial.SerialNumber,
+			)
 		}
 	}
 
-	// Sisipkan serial_numbers ke tiap detail sebagai field tambahan di response
-	type detailWithSerial struct {
+	// =========================================================
+	// RESPONSE DETAIL
+	// =========================================================
+	//
+	// serial_numbers dibuat menjadi string:
+	//
+	// "SN001,SN002,SN003"
+	//
+	// Bukan lagi:
+	//
+	// ["SN001", "SN002", "SN003"]
+	//
+
+	type DetailResponse struct {
 		models.OutboundDetail
-		SerialNumbers []string `json:"serial_numbers"`
+
+		SerialNumbers string `json:"serial_numbers"`
 	}
 
-	detailsWithSerial := make([]detailWithSerial, 0, len(OutboundHeader.OutboundDetails))
-	for _, d := range OutboundHeader.OutboundDetails {
-		sn := serialsByDetail[d.ID]
-		if sn == nil {
-			sn = []string{}
+	details := make([]DetailResponse, 0, len(outboundHeader.OutboundDetails))
+
+	for _, detail := range outboundHeader.OutboundDetails {
+
+		serialNumbers := serialsByDetail[detail.ID]
+
+		serialNumbersString := ""
+
+		if len(serialNumbers) > 0 {
+			serialNumbersString = strings.Join(serialNumbers, ",")
 		}
-		detailsWithSerial = append(detailsWithSerial, detailWithSerial{
-			OutboundDetail: d,
-			SerialNumbers:  sn,
+
+		details = append(details, DetailResponse{
+			OutboundDetail: detail,
+			SerialNumbers:  serialNumbersString,
 		})
 	}
+
+	// =========================================================
+	// RESPONSE
+	// =========================================================
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
 		"success": true,
 		"data": fiber.Map{
-			"outbound": OutboundHeader,
-			"barcodes": OutboundBarcodes,
-			"details":  detailsWithSerial, // tambahan: detail + serial_numbers
+			"outbound": outboundHeader,
+			"barcodes": outboundBarcodes,
+			"details":  details,
 		},
 		"message": "Outbound found",
 	})
 }
+
+// func (c *OutboundController) GetOutboundByID(ctx *fiber.Ctx) error {
+// 	outbound_no := ctx.Params("outbound_no")
+// 	var OutboundHeader models.OutboundHeader
+// 	if err := c.DB.Debug().
+// 		Preload("OutboundDetails.Product").
+// 		First(&OutboundHeader, "outbound_no = ?", outbound_no).Error; err != nil {
+// 		if errors.Is(err, gorm.ErrRecordNotFound) {
+// 			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Inbound not found"})
+// 		}
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+// 	}
+
+// 	outboundRepo := repositories.NewOutboundRepository(c.DB)
+// 	OutboundBarcodes, err := outboundRepo.GetOutboundBarcodeByOutboundID(OutboundHeader.ID)
+// 	if err != nil {
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+// 	}
+
+// 	// Ambil OutboundSerial untuk semua detail, group by detail ID
+// 	detailIDs := make([]uint, 0, len(OutboundHeader.OutboundDetails))
+// 	for _, d := range OutboundHeader.OutboundDetails {
+// 		detailIDs = append(detailIDs, d.ID)
+// 	}
+
+// 	serialsByDetail := make(map[uint][]string)
+// 	if len(detailIDs) > 0 {
+// 		var serials []models.OutboundSerial
+// 		if err := c.DB.Where("outbound_detail_id IN ?", detailIDs).Find(&serials).Error; err != nil {
+// 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+// 		}
+// 		for _, s := range serials {
+// 			serialsByDetail[uint(s.OutboundDetailId)] = append(serialsByDetail[uint(s.OutboundDetailId)], s.SerialNumber)
+// 		}
+// 	}
+
+// 	// Sisipkan serial_numbers ke tiap detail sebagai field tambahan di response
+// 	type detailWithSerial struct {
+// 		models.OutboundDetail
+// 		SerialNumbers []string `json:"serial_numbers"`
+// 	}
+
+// 	detailsWithSerial := make([]detailWithSerial, 0, len(OutboundHeader.OutboundDetails))
+// 	for _, d := range OutboundHeader.OutboundDetails {
+// 		sn := serialsByDetail[d.ID]
+// 		if sn == nil {
+// 			sn = []string{}
+// 		}
+// 		detailsWithSerial = append(detailsWithSerial, detailWithSerial{
+// 			OutboundDetail: d,
+// 			SerialNumbers:  sn,
+// 		})
+// 	}
+
+// 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+// 		"success": true,
+// 		"data": fiber.Map{
+// 			"outbound": OutboundHeader,
+// 			"barcodes": OutboundBarcodes,
+// 			"details":  detailsWithSerial, // tambahan: detail + serial_numbers
+// 		},
+// 		"message": "Outbound found",
+// 	})
+// }
 
 func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
 	outboundNo := ctx.Params("outbound_no")
