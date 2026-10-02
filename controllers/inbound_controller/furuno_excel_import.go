@@ -824,32 +824,7 @@ func (c *InboundController) CreateInboundFromFurunoExcelFile(
 		ctx.FormValue("handling_id"),
 	)
 
-	if handlingIDRaw == "" {
-		return ctx.Status(fiber.StatusBadRequest).JSON(
-			FurunoInboundUploadResponse{
-				Success: false,
-				Message: "Handling ID is required",
-			},
-		)
-	}
-
 	handlingID, err := strconv.Atoi(handlingIDRaw)
-
-	if err != nil || handlingID <= 0 {
-		return ctx.Status(fiber.StatusBadRequest).JSON(
-			FurunoInboundUploadResponse{
-				Success: false,
-				Message: "Invalid handling_id",
-				Errors: []FurunoInboundExcelRowError{
-					{
-						Row:     0,
-						Message: "Handling Validation Error",
-						Detail:  "handling_id must be a positive integer",
-					},
-				},
-			},
-		)
-	}
 
 	// =========================================================================
 	// 2. GET USER ID
@@ -1792,66 +1767,39 @@ func (c *InboundController) CreateInboundFromFurunoExcelFile(
 
 			inboundDetail :=
 				models.InboundDetail{
-
-					OwnerCode: ownerCode,
-
-					WhsCode: whsCode,
-
+					OwnerCode:    ownerCode,
+					WhsCode:      whsCode,
 					DivisionCode: "REGULAR",
-
 					InboundId: int(
 						inboundHeader.ID,
 					),
-
-					InboundNo: inboundNo,
-
-					ItemId: product.ID,
-
+					InboundNo:     inboundNo,
+					ItemId:        product.ID,
 					ProductNumber: product.ProductNumber,
-
-					ItemCode: product.ItemCode,
-
-					Barcode: uomConversion.Ean,
-
-					Quantity: item.Quantity,
-
-					RcvLocation: "",
-
-					QaStatus: "A",
-
-					Location: "",
-
-					Status: "draft",
-
-					RecDate: item.InboundDate,
-
-					Uom: detailUOM,
-
+					ItemCode:      product.ItemCode,
+					Barcode:       uomConversion.Ean,
+					Quantity:      item.Quantity,
+					RcvLocation:   "",
+					QaStatus:      "A",
+					Location:      "",
+					Status:        "draft",
+					RecDate:       item.InboundDate,
+					Uom:           detailUOM,
 					RefId: int(
 						inboundReference.ID,
 					),
-
-					RefNo: inboundReference.RefNo,
-
-					IsSerial: product.HasSerial,
-
-					HandlingId: handlingID,
-
+					RefNo:        inboundReference.RefNo,
+					IsSerial:     product.HasSerial,
+					HandlingId:   handlingID,
 					HandlingUsed: "",
-
 					// PartCode Excel -> Remarks.
 					Remarks: item.PartCode,
-
 					// Bundle reference.
-					BundleProductID: bundleProductID,
-
+					BundleProductID:   bundleProductID,
 					BundleProductCode: bundleProductCode,
-
-					BundleQuantity: bundleQuantity,
-
-					CreatedBy: currentUserID,
-
-					UpdatedBy: currentUserID,
+					BundleQuantity:    bundleQuantity,
+					CreatedBy:         currentUserID,
+					UpdatedBy:         currentUserID,
 				}
 
 			// ================================================================

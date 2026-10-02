@@ -1084,6 +1084,30 @@ func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
 		})
 	}
 
+	var deliveTo models.Customer
+
+	if err := tx.
+		Debug().
+		First(&deliveTo, "customer_code = ?", payload.DelivTo).
+		Error; err != nil {
+
+		tx.Rollback()
+
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"success": false,
+				"message": "Customer not found",
+				"error":   "Customer not found",
+			})
+		}
+
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to get customer",
+			"error":   err.Error(),
+		})
+	}
+
 	// =========================================================
 	// UPDATE OUTBOUND HEADER
 	// =========================================================
@@ -1091,6 +1115,8 @@ func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
 	outboundHeader.OutboundDate = payload.OutboundDate
 	outboundHeader.ShipmentID = payload.ShipmentID
 	outboundHeader.CustomerCode = customer.CustomerCode
+	outboundHeader.CustAddress = customer.CustAddr1
+	outboundHeader.CustCity = customer.CustCity
 	outboundHeader.WhsCode = payload.WhsCode
 	outboundHeader.OwnerCode = payload.OwnerCode
 	outboundHeader.Remarks = payload.Remarks
@@ -1114,9 +1140,9 @@ func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
 	outboundHeader.StartPickTime = payload.StartPickTime
 	outboundHeader.EndPickTime = payload.EndPickTime
 
-	outboundHeader.DelivTo = payload.DelivTo
-	outboundHeader.DelivAddress = payload.DelivAddress
-	outboundHeader.DelivCity = payload.DelivCity
+	outboundHeader.DelivTo = deliveTo.CustomerCode
+	outboundHeader.DelivAddress = deliveTo.CustAddr1
+	outboundHeader.DelivCity = deliveTo.CustCity
 
 	outboundHeader.Driver = payload.Driver
 
