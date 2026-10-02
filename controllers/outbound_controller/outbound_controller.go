@@ -712,27 +712,44 @@ func (c *OutboundController) GetOutboundByID(ctx *fiber.Ctx) error {
 	// ["SN001", "SN002", "SN003"]
 	//
 
+	// type DetailResponse struct {
+	// 	models.OutboundDetail
+
+	// 	SerialNumbers string `json:"serial_numbers"`
+	// }
+
 	type DetailResponse struct {
 		models.OutboundDetail
 
-		SerialNumbers string `json:"serial_numbers"`
+		SerialNumbers []string `json:"serial_numbers"`
 	}
 
 	details := make([]DetailResponse, 0, len(outboundHeader.OutboundDetails))
 
 	for _, detail := range outboundHeader.OutboundDetails {
 
+		// serialNumbers := serialsByDetail[detail.ID]
+
+		// serialNumbersString := ""
+
+		// if len(serialNumbers) > 0 {
+		// 	serialNumbersString = strings.Join(serialNumbers, ",")
+		// }
+
+		// details = append(details, DetailResponse{
+		// 	OutboundDetail: detail,
+		// 	SerialNumbers:  serialNumbersString,
+		// })
+
 		serialNumbers := serialsByDetail[detail.ID]
 
-		serialNumbersString := ""
-
-		if len(serialNumbers) > 0 {
-			serialNumbersString = strings.Join(serialNumbers, ",")
+		if serialNumbers == nil {
+			serialNumbers = []string{}
 		}
 
 		details = append(details, DetailResponse{
 			OutboundDetail: detail,
-			SerialNumbers:  serialNumbersString,
+			SerialNumbers:  serialNumbers,
 		})
 	}
 
