@@ -19,6 +19,23 @@ func SetupInboundRoutes(app *fiber.App) {
 	api.Post("/confirm-putaway", inboundController.ConfirmPutawayByInboundNo)
 	api.Post("/putaway-bulk", inboundController.PutawayBulk)
 
+	api.Get(
+		"/checking/options",
+		inboundController.GetCheckingInboundOptions,
+	)
+
+	// Download checking template
+	api.Get(
+		"/:inbound_no/checking/download",
+		inboundController.DownloadCheckingTemplate,
+	)
+
+	// Upload checking result
+	api.Post(
+		"/:inbound_no/checking/upload",
+		inboundController.UploadCheckingExcel,
+	)
+
 	api.Post("/upload-excel", inboundController.CreateInboundFromExcelFile)
 	api.Post("/upload-furuno-excel", inboundController.CreateInboundFromFurunoExcelFile)
 	api.Post("/", inboundController.CreateInbound)

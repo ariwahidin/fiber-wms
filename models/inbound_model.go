@@ -120,21 +120,6 @@ type InboundSerial struct {
 	DeletedBy int
 }
 
-type InboundDetailHandling struct {
-	gorm.Model
-	InboundDetailId   int `gorm:"foreignKey:InboundDetailId" json:"inbound_detail_id"`
-	HandlingCombineId int
-	HandlingId        int
-	HandlingUsed      string
-	OriginHandlingId  int
-	OriginHandling    string
-	RateId            int
-	RateIdr           int
-	CreatedBy         int
-	UpdatedBy         int
-	DeletedBy         int
-}
-
 type InboundBarcode struct {
 	ID              types.SnowflakeID `gorm:"primaryKey" json:"ID"`
 	CreatedAt       time.Time
@@ -172,6 +157,21 @@ type InboundBarcode struct {
 	DeletedBy       int
 	PutawayBy       int       `json:"putaway_by" gorm:"default:null"`
 	PutawayAt       time.Time `json:"putaway_at" gorm:"default:null"`
+}
+
+type InboundDetailHandling struct {
+	gorm.Model
+	InboundDetailId   int `gorm:"foreignKey:InboundDetailId" json:"inbound_detail_id"`
+	HandlingCombineId int
+	HandlingId        int
+	HandlingUsed      string
+	OriginHandlingId  int
+	OriginHandling    string
+	RateId            int
+	RateIdr           int
+	CreatedBy         int
+	UpdatedBy         int
+	DeletedBy         int
 }
 
 type FormItemInbound struct {
