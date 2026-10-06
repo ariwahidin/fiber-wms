@@ -149,6 +149,8 @@ type OutboundPicking struct {
 	Uom              string  `json:"uom"`
 	Reason           string  `json:"reason"`
 	QtyDisplay       float64 `json:"qty_display"`
+	QtyInOrigin      float64 `json:"qty_in_origin"`
+	QtyPerCarton     float64 `json:"qty_per_carton"`
 	UomDisplay       string  `json:"uom_display"`
 	EanDisplay       string  `json:"ean_display"`
 	CreatedBy        int

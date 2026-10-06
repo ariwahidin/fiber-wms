@@ -1473,40 +1473,25 @@ func (c *InboundController) CreateInboundFromFurunoExcelFile(
 		// =====================================================================
 
 		inboundHeader := models.InboundHeader{
-
-			InboundNo: inboundNo,
-
-			OwnerCode: ownerCode,
-
-			WhsCode: whsCode,
-
-			ReceiptID: receiptID,
-
-			SupplierId: int(supplier.ID),
-			Supplier:   supplier.SupplierCode,
-
-			Status: "open",
-
-			RawStatus: "DRAFT",
-
-			DraftTime: now,
-
+			InboundNo:   inboundNo,
+			OwnerCode:   ownerCode,
+			WhsCode:     whsCode,
+			ReceiptID:   receiptID,
+			SupplierId:  int(supplier.ID),
+			Supplier:    supplier.SupplierCode,
+			Status:      "open",
+			RawStatus:   "DRAFT",
+			DraftTime:   now,
 			InboundDate: firstItem.InboundDate,
-
-			Type: "FURUNO",
-
+			Type:        "NORMAL",
 			Remarks: fmt.Sprintf(
 				"FURUNO | Receive No: %s",
 				receiptID,
 			),
-
 			Integration: false,
-
 			ArrivalTime: nowTime,
-
-			CreatedBy: currentUserID,
-
-			UpdatedBy: currentUserID,
+			CreatedBy:   currentUserID,
+			UpdatedBy:   currentUserID,
 		}
 
 		// =====================================================================
@@ -1853,32 +1838,24 @@ func (c *InboundController) CreateInboundFromFurunoExcelFile(
 			// ================================================================
 
 			for _, serialNumber := range serialNumbers {
-
 				serialNumber =
 					strings.TrimSpace(
 						serialNumber,
 					)
-
 				if serialNumber == "" {
 					continue
 				}
-
 				inboundSerial :=
 					models.InboundSerial{
-
 						InboundId: int(
 							inboundHeader.ID,
 						),
-
 						InboundDetailId: int(
 							inboundDetail.ID,
 						),
-
 						SerialNumber: serialNumber,
-
-						CreatedBy: currentUserID,
-
-						UpdatedBy: currentUserID,
+						CreatedBy:    currentUserID,
+						UpdatedBy:    currentUserID,
 					}
 
 				if err := tx.
@@ -1983,21 +1960,13 @@ func (c *InboundController) CreateInboundFromFurunoExcelFile(
 		fiber.StatusOK,
 	).JSON(
 		FurunoInboundUploadResponse{
-
-			Success: true,
-
-			Message: message,
-
-			TotalRows: len(rows) - 1,
-
-			ProcessedRows: len(inboundRows),
-
-			SuccessCount: totalSuccessItems,
-
-			FailedCount: len(skippedReceipts),
-
-			InboundNumbers: inboundNumbers,
-
+			Success:         true,
+			Message:         message,
+			TotalRows:       len(rows) - 1,
+			ProcessedRows:   len(inboundRows),
+			SuccessCount:    totalSuccessItems,
+			FailedCount:     len(skippedReceipts),
+			InboundNumbers:  inboundNumbers,
 			SkippedReceipts: skippedReceipts,
 		},
 	)
@@ -2114,25 +2083,19 @@ func parseFurunoInboundRows(
 ) {
 
 	var result []FurunoInboundRow
-
 	var errs []FurunoInboundValidationError
 
 	// Row 0 = header.
 
 	for i := 1; i < len(rows); i++ {
-
 		row := rows[i]
-
 		rowNum := i + 1
-
 		// =====================================================================
 		// EMPTY ROW
 		// =====================================================================
-
 		if furunoInboundRowIsEmpty(row) {
 			continue
 		}
-
 		// =====================================================================
 		// RECEIVE NO
 		// =====================================================================

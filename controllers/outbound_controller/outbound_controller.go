@@ -2904,11 +2904,12 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 
 					QaStatus: inventory.QaStatus,
 
-					UomDisplay: outboundDetail.Uom,
-					QtyDisplay: 1 / uomConversion.Rate,
-					EanDisplay: uomConversion.Ean,
-
-					CreatedBy: int(ctx.Locals("userID").(float64)),
+					UomDisplay:   outboundDetail.Uom,
+					QtyDisplay:   1 / uomConversion.Rate,
+					EanDisplay:   uomConversion.Ean,
+					QtyInOrigin:  inventory.QtyOrigin,
+					QtyPerCarton: float64(product.QtyPerCarton),
+					CreatedBy:    int(ctx.Locals("userID").(float64)),
 				}
 
 				if err := tx.Create(&pickingSheet).Error; err != nil {
@@ -3229,6 +3230,9 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 					UomDisplay: outboundDetail.Uom,
 					QtyDisplay: 1 / uomConversion.Rate,
 					EanDisplay: uomConversion.Ean,
+
+					QtyInOrigin:  inventory.QtyOrigin,
+					QtyPerCarton: float64(product.QtyPerCarton),
 
 					CreatedBy: int(ctx.Locals("userID").(float64)),
 				}
@@ -3575,9 +3579,11 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 				ProdDate: inventory.ProdDate,
 				QaStatus: inventory.QaStatus,
 
-				UomDisplay: outboundDetail.Uom,
-				QtyDisplay: qtyPick / uomConversion.Rate,
-				EanDisplay: uomConversion.Ean,
+				UomDisplay:   outboundDetail.Uom,
+				QtyDisplay:   qtyPick / uomConversion.Rate,
+				QtyInOrigin:  inventory.QtyOrigin,
+				QtyPerCarton: float64(product.QtyPerCarton),
+				EanDisplay:   uomConversion.Ean,
 
 				CreatedBy: int(ctx.Locals("userID").(float64)),
 			}
@@ -7632,114 +7638,3 @@ func (c *OutboundController) expandOutboundItems(
 
 	return expanded, nil
 }
-
-// func (c *OutboundController) expandOutboundItems(
-// 	tx *gorm.DB,
-// 	items []OutboundItem,
-// ) ([]OutboundItem, error) {
-
-// 	bundleService := services.NewProductBundleService(tx)
-
-// 	expandedItems := make([]OutboundItem, 0)
-
-// 	for _, item := range items {
-
-// 		var product models.Product
-
-// 		if err := tx.
-// 			Where("item_code = ?", item.ItemCode).
-// 			First(&product).Error; err != nil {
-
-// 			if errors.Is(err, gorm.ErrRecordNotFound) {
-// 				return nil, fmt.Errorf(
-// 					"product %s not found",
-// 					item.ItemCode,
-// 				)
-// 			}
-
-// 			return nil, fmt.Errorf(
-// 				"failed to get product %s: %w",
-// 				item.ItemCode,
-// 				err,
-// 			)
-// 		}
-
-// 		// =====================================================
-// 		// NORMAL PRODUCT
-// 		// =====================================================
-
-// 		if product.IsBundle != "Y" {
-// 			expandedItems = append(
-// 				expandedItems,
-// 				item,
-// 			)
-
-// 			continue
-// 		}
-
-// 		// =====================================================
-// 		// BUNDLE PRODUCT
-// 		// =====================================================
-
-// 		components, err := bundleService.ExpandBundle(
-// 			tx,
-// 			product.ID,
-// 			item.Quantity,
-// 		)
-
-// 		if err != nil {
-// 			return nil, fmt.Errorf(
-// 				"failed to expand bundle %s: %w",
-// 				product.ItemCode,
-// 				err,
-// 			)
-// 		}
-
-// 		for _, component := range components {
-
-// 			// Copy original outbound item
-// 			// supaya field seperti VAS,
-// 			// DivisionCode, Remarks, dll
-// 			// tetap bisa dibawa.
-// 			componentItem := item
-
-// 			componentItem.ItemCode = component.ItemCode
-// 			componentItem.Quantity = component.Qty
-
-// 			// Component menggunakan UOM miliknya sendiri.
-// 			if component.UOM != "" {
-// 				componentItem.UOM = component.UOM
-// 			}
-
-// 			// =================================================
-// 			// Bundle-level inventory attributes
-// 			// jangan diwariskan ke component.
-// 			//
-// 			// Lot / Exp / Location nantinya ditentukan
-// 			// dari inventory saat allocation/picking.
-// 			// =================================================
-
-// 			componentItem.LotNumber = ""
-// 			componentItem.ExpDate = ""
-// 			componentItem.CartonNumber = ""
-// 			componentItem.CaseNumber = ""
-// 			componentItem.Location = ""
-// 			componentItem.SerialNumber = ""
-
-// 			// Serial component belum ditentukan
-// 			// pada saat Create Outbound.
-// 			componentItem.SerialNumbers = nil
-
-// 			// ID harus 0 karena ini merupakan
-// 			// OutboundDetail baru.
-// 			componentItem.ID = 0
-
-// 			expandedItems = append(
-// 				expandedItems,
-// 				componentItem,
-// 			)
-// 		}
-// 	}
-
-// 	return expandedItems, nil
-// }
