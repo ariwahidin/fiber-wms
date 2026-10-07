@@ -936,9 +936,6 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 	// ============================================================
 	// VALIDATE FILE EXTENSION
 	// ============================================================
-	//
-	// Template yang kita generate adalah XLSX.
-	//
 
 	filename := strings.ToLower(
 		fileHeader.Filename,
@@ -1150,8 +1147,10 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 
 	for _, detail := range inboundDetails {
 
-		// Karena detail.ID adalah uint,
-		// serialMap juga menggunakan uint.
+		// ========================================================
+		// GET SERIALS
+		// ========================================================
+
 		serials := serialMap[detail.ID]
 
 		// ========================================================
@@ -1246,7 +1245,10 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 		Location string
 	}
 
-	uploadRows := make([]uploadRow, 0)
+	uploadRows := make(
+		[]uploadRow,
+		0,
+	)
 
 	// ============================================================
 	// HELPER GET COLUMN
@@ -1303,13 +1305,17 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 	// TRACK TOTAL RECEIVED PER DETAIL
 	// ============================================================
 
-	receivedByDetail := make(map[uint]float64)
+	receivedByDetail := make(
+		map[uint]float64,
+	)
 
 	// ============================================================
 	// TRACK SERIAL RECEIVED
 	// ============================================================
 
-	serialReceived := make(map[string]float64)
+	serialReceived := make(
+		map[string]float64,
+	)
 
 	// ============================================================
 	// PARSE EXCEL ROWS
@@ -1328,16 +1334,16 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 		// Excelize GetRows() dapat menghilangkan trailing
 		// empty cells.
 		//
-		// Jadi jangan paksa len(row) == 11.
-		//
 		// Minimal A-G harus ada.
 		//
-		// H-K boleh kosong secara fisik.
+		// H-K boleh kosong.
 		//
 
 		if len(row) < 7 {
 
-			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			return ctx.Status(
+				fiber.StatusBadRequest,
+			).JSON(fiber.Map{
 				"success": false,
 				"error": fmt.Sprintf(
 					"Row %d is missing required template columns",
@@ -1371,7 +1377,9 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 
 		if noText == "" {
 
-			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			return ctx.Status(
+				fiber.StatusBadRequest,
+			).JSON(fiber.Map{
 				"success": false,
 				"error": fmt.Sprintf(
 					"Row %d: No is required",
@@ -1384,7 +1392,9 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 
 		if err != nil {
 
-			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			return ctx.Status(
+				fiber.StatusBadRequest,
+			).JSON(fiber.Map{
 				"success": false,
 				"error": fmt.Sprintf(
 					"Row %d: No must be a number",
@@ -1395,7 +1405,9 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 
 		if no != expected.No {
 
-			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			return ctx.Status(
+				fiber.StatusBadRequest,
+			).JSON(fiber.Map{
 				"success": false,
 				"error": fmt.Sprintf(
 					"Row %d: invalid No. Expected %d, got %d",
@@ -1412,7 +1424,9 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 
 		if itemCode == "" {
 
-			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			return ctx.Status(
+				fiber.StatusBadRequest,
+			).JSON(fiber.Map{
 				"success": false,
 				"error": fmt.Sprintf(
 					"Row %d: Item Code is required",
@@ -1423,7 +1437,9 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 
 		if itemCode != expected.Detail.ItemCode {
 
-			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			return ctx.Status(
+				fiber.StatusBadRequest,
+			).JSON(fiber.Map{
 				"success": false,
 				"error": fmt.Sprintf(
 					"Row %d: Item Code does not match inbound detail. Expected '%s', got '%s'",
@@ -1435,7 +1451,7 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 		}
 
 		// ========================================================
-		// ITEM NAME
+		// GET PRODUCT
 		// ========================================================
 
 		var product models.Product
@@ -1449,9 +1465,14 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 					expected.Detail.ItemId,
 				).Error; err != nil {
 
-				if errors.Is(err, gorm.ErrRecordNotFound) {
+				if errors.Is(
+					err,
+					gorm.ErrRecordNotFound,
+				) {
 
-					return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+					return ctx.Status(
+						fiber.StatusBadRequest,
+					).JSON(fiber.Map{
 						"success": false,
 						"error": fmt.Sprintf(
 							"Row %d: Product for Item Code '%s' not found",
@@ -1461,16 +1482,26 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 					})
 				}
 
-				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				return ctx.Status(
+					fiber.StatusInternalServerError,
+				).JSON(fiber.Map{
 					"success": false,
 					"error":   err.Error(),
 				})
 			}
 		}
 
-		if itemName != strings.TrimSpace(product.ItemName) {
+		// ========================================================
+		// ITEM NAME
+		// ========================================================
 
-			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+		if itemName != strings.TrimSpace(
+			product.ItemName,
+		) {
+
+			return ctx.Status(
+				fiber.StatusBadRequest,
+			).JSON(fiber.Map{
 				"success": false,
 				"error": fmt.Sprintf(
 					"Row %d: Item Name does not match master product",
@@ -1483,9 +1514,13 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 		// UNIT MODEL
 		// ========================================================
 
-		if unitModel != strings.TrimSpace(product.UnitModel) {
+		if unitModel != strings.TrimSpace(
+			product.UnitModel,
+		) {
 
-			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			return ctx.Status(
+				fiber.StatusBadRequest,
+			).JSON(fiber.Map{
 				"success": false,
 				"error": fmt.Sprintf(
 					"Row %d: Unit Model does not match master product",
@@ -1502,7 +1537,9 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 			expected.Detail.Barcode,
 		) {
 
-			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			return ctx.Status(
+				fiber.StatusBadRequest,
+			).JSON(fiber.Map{
 				"success": false,
 				"error": fmt.Sprintf(
 					"Row %d: Barcode does not match inbound detail. Expected '%s', got '%s'",
@@ -1519,7 +1556,9 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 
 		if serialNumber != expected.SerialNumber {
 
-			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			return ctx.Status(
+				fiber.StatusBadRequest,
+			).JSON(fiber.Map{
 				"success": false,
 				"error": fmt.Sprintf(
 					"Row %d: Serial Number does not match inbound serial. Expected '%s', got '%s'",
@@ -1536,7 +1575,9 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 
 		if qtyPlanText == "" {
 
-			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			return ctx.Status(
+				fiber.StatusBadRequest,
+			).JSON(fiber.Map{
 				"success": false,
 				"error": fmt.Sprintf(
 					"Row %d: Qty Plan is required",
@@ -1545,11 +1586,15 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 			})
 		}
 
-		qtyPlan, err := parseFloat(qtyPlanText)
+		qtyPlan, err := parseFloat(
+			qtyPlanText,
+		)
 
 		if err != nil {
 
-			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			return ctx.Status(
+				fiber.StatusBadRequest,
+			).JSON(fiber.Map{
 				"success": false,
 				"error": fmt.Sprintf(
 					"Row %d: invalid Qty Plan '%s'",
@@ -1561,7 +1606,9 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 
 		if qtyPlan != expected.QtyPlan {
 
-			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			return ctx.Status(
+				fiber.StatusBadRequest,
+			).JSON(fiber.Map{
 				"success": false,
 				"error": fmt.Sprintf(
 					"Row %d: Qty Plan cannot be changed. Expected %.2f, got %.2f",
@@ -1575,32 +1622,45 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 		// ========================================================
 		// QTY RECEIVED
 		// ========================================================
+		//
+		// PARTIAL RECEIVING:
+		//
+		// Qty Received kosong = 0
+		//
+		// Jadi Qty Received TIDAK wajib diisi.
+		//
+		// Contoh:
+		//
+		// Qty Plan = 100
+		// Qty Received = kosong
+		//
+		// dianggap:
+		//
+		// Qty Received = 0
+		//
+		// ========================================================
 
-		if qtyReceivedText == "" {
+		qtyReceived := float64(0)
 
-			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"success": false,
-				"error": fmt.Sprintf(
-					"Row %d: Qty Received is required",
-					excelRowNumber,
-				),
-			})
-		}
+		if qtyReceivedText != "" {
 
-		qtyReceived, err := parseFloat(
-			qtyReceivedText,
-		)
+			qtyReceived, err = parseFloat(
+				qtyReceivedText,
+			)
 
-		if err != nil {
+			if err != nil {
 
-			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"success": false,
-				"error": fmt.Sprintf(
-					"Row %d: invalid Qty Received '%s'",
-					excelRowNumber,
-					qtyReceivedText,
-				),
-			})
+				return ctx.Status(
+					fiber.StatusBadRequest,
+				).JSON(fiber.Map{
+					"success": false,
+					"error": fmt.Sprintf(
+						"Row %d: invalid Qty Received '%s'",
+						excelRowNumber,
+						qtyReceivedText,
+					),
+				})
+			}
 		}
 
 		// ========================================================
@@ -1609,7 +1669,9 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 
 		if qtyReceived < 0 {
 
-			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			return ctx.Status(
+				fiber.StatusBadRequest,
+			).JSON(fiber.Map{
 				"success": false,
 				"error": fmt.Sprintf(
 					"Row %d: Qty Received cannot be negative",
@@ -1624,7 +1686,9 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 
 		if qtyReceived > qtyPlan {
 
-			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			return ctx.Status(
+				fiber.StatusBadRequest,
+			).JSON(fiber.Map{
 				"success": false,
 				"error": fmt.Sprintf(
 					"Row %d: Qty Received %.2f exceeds Qty Plan %.2f",
@@ -1641,10 +1705,15 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 
 		if expected.SerialNumber != "" {
 
-			// Qty Plan serial harus 1
+			// ----------------------------------------------------
+			// SERIAL QTY PLAN
+			// ----------------------------------------------------
+
 			if expected.QtyPlan != 1 {
 
-				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				return ctx.Status(
+					fiber.StatusBadRequest,
+				).JSON(fiber.Map{
 					"success": false,
 					"error": fmt.Sprintf(
 						"Row %d: Invalid serial Qty Plan. Expected 1",
@@ -1653,10 +1722,21 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 				})
 			}
 
-			// Qty Received hanya boleh 0 atau 1
+			// ----------------------------------------------------
+			// SERIAL QTY RECEIVED
+			// ----------------------------------------------------
+			//
+			// Serial hanya boleh:
+			//
+			// 0 = belum diterima
+			// 1 = diterima
+			//
+
 			if qtyReceived != 0 && qtyReceived != 1 {
 
-				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				return ctx.Status(
+					fiber.StatusBadRequest,
+				).JSON(fiber.Map{
 					"success": false,
 					"error": fmt.Sprintf(
 						"Row %d: Serial item Qty Received must be 0 or 1",
@@ -1665,9 +1745,9 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 				})
 			}
 
-			// ====================================================
+			// ----------------------------------------------------
 			// DUPLICATE SERIAL RECEIVED
-			// ====================================================
+			// ----------------------------------------------------
 
 			if qtyReceived > 0 {
 
@@ -1681,7 +1761,9 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 
 				if serialReceived[serialKey] > 1 {
 
-					return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+					return ctx.Status(
+						fiber.StatusBadRequest,
+					).JSON(fiber.Map{
 						"success": false,
 						"error": fmt.Sprintf(
 							"Row %d: Serial Number '%s' is received more than once",
@@ -1694,14 +1776,13 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 		}
 
 		// ========================================================
-		// TOTAL QTY PER INBOUND DETAIL
+		// TOTAL QTY RECEIVED PER DETAIL
 		// ========================================================
 		//
 		// Untuk non-serial:
 		//
-		// InboundDetail.Quantity = 100
+		// Qty Plan = 100
 		//
-		// Excel:
 		// Row 1 = 40
 		// Row 2 = 30
 		// Row 3 = 30
@@ -1709,15 +1790,13 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 		// Total = 100 -> OK
 		//
 		// Kalau:
+		//
 		// Row 1 = 40
 		// Row 2 = 70
 		//
 		// Total = 110 -> ERROR
 		//
-		// Untuk serial:
-		// masing-masing detail biasanya hanya punya Qty Plan = 1
-		// sehingga tetap aman.
-		//
+		// ========================================================
 
 		detailID := expected.Detail.ID
 
@@ -1741,25 +1820,26 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 		}
 
 		// ========================================================
-		// USER INPUT
+		// USER INPUT VALIDATION
+		// ========================================================
+		//
+		// PARTIAL RECEIVING:
+		//
+		// Qty Received = 0
+		// ----------------
+		// Case No    -> optional
+		// Carton No  -> optional
+		// Location   -> optional
+		//
+		// Qty Received > 0
+		// ----------------
+		// Case No    -> REQUIRED
+		// Carton No  -> REQUIRED
+		// Location   -> REQUIRED
+		//
 		// ========================================================
 
 		if qtyReceived > 0 {
-
-			// ----------------------------------------------------
-			// LOCATION
-			// ----------------------------------------------------
-
-			if location == "" {
-
-				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-					"success": false,
-					"error": fmt.Sprintf(
-						"Row %d: Location is required when Qty Received > 0",
-						excelRowNumber,
-					),
-				})
-			}
 
 			// ----------------------------------------------------
 			// CASE NO
@@ -1767,7 +1847,9 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 
 			if caseNumber == "" {
 
-				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				return ctx.Status(
+					fiber.StatusBadRequest,
+				).JSON(fiber.Map{
 					"success": false,
 					"error": fmt.Sprintf(
 						"Row %d: Case No is required when Qty Received > 0",
@@ -1782,10 +1864,29 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 
 			if cartonNumber == "" {
 
-				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				return ctx.Status(
+					fiber.StatusBadRequest,
+				).JSON(fiber.Map{
 					"success": false,
 					"error": fmt.Sprintf(
 						"Row %d: Carton No is required when Qty Received > 0",
+						excelRowNumber,
+					),
+				})
+			}
+
+			// ----------------------------------------------------
+			// LOCATION
+			// ----------------------------------------------------
+
+			if location == "" {
+
+				return ctx.Status(
+					fiber.StatusBadRequest,
+				).JSON(fiber.Map{
+					"success": false,
+					"error": fmt.Sprintf(
+						"Row %d: Location is required when Qty Received > 0",
 						excelRowNumber,
 					),
 				})
@@ -1827,8 +1928,15 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 	// ============================================================
 	// CHECK LOCATION
 	// ============================================================
+	//
+	// Hanya cek location apabila Qty Received > 0.
+	//
+	// Location kosong pada Qty Received = 0 tidak masalah.
+	//
 
-	locationMap := make(map[string]models.Location)
+	locationMap := make(
+		map[string]models.Location,
+	)
 
 	for _, row := range uploadRows {
 
@@ -1839,6 +1947,23 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 		locationCode := strings.TrimSpace(
 			row.Location,
 		)
+
+		// Safety validation.
+		// Seharusnya sudah dicek sebelumnya,
+		// tetapi tetap dipertahankan agar aman.
+
+		if locationCode == "" {
+
+			return ctx.Status(
+				fiber.StatusBadRequest,
+			).JSON(fiber.Map{
+				"success": false,
+				"error": fmt.Sprintf(
+					"Row %d: Location is required when Qty Received > 0",
+					row.RowNumber,
+				),
+			})
+		}
 
 		if _, exists := locationMap[locationCode]; exists {
 			continue
@@ -1878,7 +2003,10 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 			})
 		}
 
-		// Optional: hanya location aktif yang boleh digunakan
+		// ========================================================
+		// LOCATION MUST BE ACTIVE
+		// ========================================================
+
 		if !location.IsActive {
 
 			return ctx.Status(
@@ -1930,6 +2058,7 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 	)
 
 	if err != nil {
+
 		return ctx.Status(
 			fiber.StatusInternalServerError,
 		).JSON(fiber.Map{
@@ -2005,11 +2134,9 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 		//
 		// IMPORTANT:
 		//
-		// Jangan delete:
-		// status = in stock
-		// status = lainnya
+		// Hanya data pending yang dihapus.
 		//
-		// Hanya pending.
+		// in stock / status lain tidak disentuh.
 		//
 
 		if err := tx.Unscoped().
@@ -2036,8 +2163,9 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 			// ZERO RECEIVED
 			// ====================================================
 			//
-			// Kalau Qty Received = 0:
-			// tidak dibuat InboundBarcode.
+			// Qty Received kosong akan menjadi 0.
+			//
+			// Tidak dibuat InboundBarcode.
 			//
 
 			if row.QtyReceived <= 0 {
@@ -2046,7 +2174,28 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 
 			detail := row.Detail
 
-			location := locationMap[strings.TrimSpace(row.Location)]
+			// ====================================================
+			// GET LOCATION
+			// ====================================================
+
+			locationCode := strings.TrimSpace(
+				row.Location,
+			)
+
+			location, exists := locationMap[locationCode]
+
+			if !exists {
+
+				return fmt.Errorf(
+					"location '%s' for Excel row %d was not found",
+					locationCode,
+					row.RowNumber,
+				)
+			}
+
+			// ====================================================
+			// CREATE INBOUND BARCODE
+			// ====================================================
 
 			newInboundBarcode := models.InboundBarcode{
 
@@ -2082,7 +2231,7 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 				SerialNumber: row.SerialNumber,
 
 				// ------------------------------------------------
-				// RECEIVING
+				// RECEIVING LOCATION
 				// ------------------------------------------------
 
 				Pallet: location.LocationCode,
@@ -2148,9 +2297,9 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 				UpdatedBy: userID,
 			}
 
-			// ----------------------------------------------------
+			// ====================================================
 			// INSERT
-			// ----------------------------------------------------
+			// ====================================================
 
 			if err := tx.
 				Create(&newInboundBarcode).
@@ -2211,15 +2360,10 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 	return ctx.Status(
 		fiber.StatusOK,
 	).JSON(fiber.Map{
-
-		"success": true,
-
-		"message": "Receiving Excel uploaded successfully",
-
+		"success":    true,
+		"message":    "Receiving Excel uploaded successfully",
 		"inbound_no": inboundHeader.InboundNo,
-
-		"pallet": palletID,
-
-		"items": inboundBarcodes,
+		"pallet":     palletID,
+		"items":      inboundBarcodes,
 	})
 }
