@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -872,12 +873,17 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 		strings.TrimSpace(inboundHeader.Status),
 	)
 
-	if headerStatus != "checking" {
+	inboundStatusAllowed := []string{
+		"checking",
+		"partially received",
+	}
+
+	if !slices.Contains(inboundStatusAllowed, headerStatus) {
 
 		return ctx.Status(fiber.StatusForbidden).JSON(fiber.Map{
 			"success": false,
 			"error": fmt.Sprintf(
-				"Cannot upload checking Excel. Inbound %s has status '%s'. Only inbound with status 'checking' can be uploaded.",
+				"Cannot upload checking Excel. Inbound %s has status '%s'. Only inbound with status 'checking' or 'partially received' can be uploaded.",
 				inboundHeader.InboundNo,
 				inboundHeader.Status,
 			),
@@ -911,17 +917,17 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 		})
 	}
 
-	if inStockCount > 0 {
+	// if inStockCount > 0 {
 
-		return ctx.Status(fiber.StatusForbidden).JSON(fiber.Map{
-			"success": false,
-			"error": fmt.Sprintf(
-				"Cannot upload checking Excel. Inbound %s already has %d item(s) with status 'in stock'. The receiving has already been putaway.",
-				inboundHeader.InboundNo,
-				inStockCount,
-			),
-		})
-	}
+	// 	return ctx.Status(fiber.StatusForbidden).JSON(fiber.Map{
+	// 		"success": false,
+	// 		"error": fmt.Sprintf(
+	// 			"Cannot upload checking Excel. Inbound %s already has %d item(s) with status 'in stock'. The receiving has already been putaway.",
+	// 			inboundHeader.InboundNo,
+	// 			inStockCount,
+	// 		),
+	// 	})
+	// }
 
 	// ============================================================
 	// GET FILE
@@ -2095,10 +2101,15 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 			),
 		)
 
-		if currentStatus != "checking" {
+		currentInboundStatusAllowed := []string{
+			"checking",
+			"partially received",
+		}
+
+		if !slices.Contains(currentInboundStatusAllowed, currentStatus) {
 
 			return fmt.Errorf(
-				"cannot upload checking Excel. Inbound %s has status '%s'. Only status 'checking' is allowed",
+				"cannot upload checking Excel. Inbound %s has status '%s'. Only statuses 'checking' and 'partially received' are allowed",
 				currentInbound.InboundNo,
 				currentInbound.Status,
 			)
@@ -2122,14 +2133,14 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 			return err
 		}
 
-		if txInStockCount > 0 {
+		// if txInStockCount > 0 {
 
-			return fmt.Errorf(
-				"cannot upload checking Excel. Inbound %s already has %d item(s) with status 'in stock'. Receiving has already been putaway",
-				currentInbound.InboundNo,
-				txInStockCount,
-			)
-		}
+		// 	return fmt.Errorf(
+		// 		"cannot upload checking Excel. Inbound %s already has %d item(s) with status 'in stock'. Receiving has already been putaway",
+		// 		currentInbound.InboundNo,
+		// 		txInStockCount,
+		// 	)
+		// }
 
 		// ========================================================
 		// DELETE ONLY PENDING
@@ -2197,6 +2208,42 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 			}
 
 			// ====================================================
+			// CHECK EXISTING IN STOCK
+			// ====================================================
+			//
+			// Jika InboundDetail ini sudah memiliki InboundBarcode
+			// dengan status "in stock", jangan insert ulang.
+			//
+			// Karena data tersebut sudah pernah diproses/putaway.
+			// ====================================================
+
+			var existingInStockCount int64
+
+			if err := tx.
+				Model(&models.InboundBarcode{}).
+				Where(
+					"inbound_detail_id = ? AND LOWER(status) = ?",
+					detail.ID,
+					"in stock",
+				).
+				Count(&existingInStockCount).Error; err != nil {
+
+				return fmt.Errorf(
+					"failed to check existing in stock for Excel row %d: %w",
+					row.RowNumber,
+					err,
+				)
+			}
+
+			if existingInStockCount > 0 {
+				// Sudah ada InboundBarcode untuk detail ini
+				// dengan status in stock.
+				//
+				// Jangan insert ulang.
+				continue
+			}
+
+			// ====================================================
 			// CREATE INBOUND BARCODE
 			// ====================================================
 
@@ -2225,36 +2272,27 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 				// SCAN
 				// ------------------------------------------------
 
-				ScanType: "excel",
-
-				ScanData: detail.Barcode,
-
-				Barcode: detail.Barcode,
-
+				ScanType:     "excel",
+				ScanData:     detail.Barcode,
+				Barcode:      detail.Barcode,
 				SerialNumber: row.SerialNumber,
 
 				// ------------------------------------------------
 				// RECEIVING LOCATION
 				// ------------------------------------------------
 
-				Pallet: location.LocationCode,
-
-				Location: location.LocationCode,
-
+				Pallet:          location.LocationCode,
+				Location:        location.LocationCode,
 				PutawayLocation: "",
-
-				PutawayQty: 0,
+				PutawayQty:      0,
 
 				// ------------------------------------------------
 				// DATE / LOT
 				// ------------------------------------------------
 
-				RecDate: detail.RecDate,
-
-				ProdDate: detail.ProdDate,
-
-				ExpDate: detail.ExpDate,
-
+				RecDate:   detail.RecDate,
+				ProdDate:  detail.ProdDate,
+				ExpDate:   detail.ExpDate,
 				LotNumber: detail.LotNumber,
 
 				// ------------------------------------------------
@@ -2262,28 +2300,23 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 				// ------------------------------------------------
 
 				CartonNumber: row.CartonNumber,
-
-				CaseNumber: row.CaseNumber,
+				CaseNumber:   row.CaseNumber,
 
 				// ------------------------------------------------
 				// QTY
 				// ------------------------------------------------
 
 				Quantity: row.QtyReceived,
-
-				Uom: detail.Uom,
+				Uom:      detail.Uom,
 
 				// ------------------------------------------------
 				// WAREHOUSE
 				// ------------------------------------------------
 
-				WhsCode: detail.WhsCode,
-
-				OwnerCode: detail.OwnerCode,
-
+				WhsCode:      detail.WhsCode,
+				OwnerCode:    detail.OwnerCode,
 				DivisionCode: detail.DivisionCode,
-
-				QaStatus: detail.QaStatus,
+				QaStatus:     detail.QaStatus,
 
 				// ------------------------------------------------
 				// STATUS
@@ -2296,7 +2329,6 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 				// ------------------------------------------------
 
 				CreatedBy: userID,
-
 				UpdatedBy: userID,
 			}
 
