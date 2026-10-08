@@ -1554,20 +1554,20 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 		// SERIAL NUMBER
 		// ========================================================
 
-		if serialNumber != expected.SerialNumber {
+		// if serialNumber != expected.SerialNumber {
 
-			return ctx.Status(
-				fiber.StatusBadRequest,
-			).JSON(fiber.Map{
-				"success": false,
-				"error": fmt.Sprintf(
-					"Row %d: Serial Number does not match inbound serial. Expected '%s', got '%s'",
-					excelRowNumber,
-					expected.SerialNumber,
-					serialNumber,
-				),
-			})
-		}
+		// 	return ctx.Status(
+		// 		fiber.StatusBadRequest,
+		// 	).JSON(fiber.Map{
+		// 		"success": false,
+		// 		"error": fmt.Sprintf(
+		// 			"Row %d: Serial Number does not match inbound serial. Expected '%s', got '%s'",
+		// 			excelRowNumber,
+		// 			expected.SerialNumber,
+		// 			serialNumber,
+		// 		),
+		// 	})
+		// }
 
 		// ========================================================
 		// QTY PLAN

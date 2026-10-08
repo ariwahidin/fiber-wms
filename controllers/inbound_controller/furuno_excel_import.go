@@ -487,9 +487,9 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 			item.LotNumber = header.InboundNo
 		}
 		qty := item.Quantity
-		if len(item.SerialNumbers) > 0 {
-			qty = float64(len(item.SerialNumbers))
-		}
+		// if len(item.SerialNumbers) > 0 {
+		// 	qty = float64(len(item.SerialNumbers))
+		// }
 		// Scanned quantity may never be reduced.
 		if b, ok := barcodeMap[d.ID]; ok && b.TotalScan > int(qty) {
 			tx.Rollback()
@@ -543,14 +543,14 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
 		if len(item.SerialNumbers) > 0 {
-			if int(item.Quantity) != len(item.SerialNumbers) {
-				tx.Rollback()
-				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Jumlah serial number tidak sesuai quantity untuk item " + item.ItemCode})
-			}
+			// if int(item.Quantity) != len(item.SerialNumbers) {
+			// 	tx.Rollback()
+			// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Total serial number not match with quantity for item " + item.ItemCode})
+			// }
 			seenSN := map[string]bool{}
 			for _, sn := range item.SerialNumbers {
 				sn = strings.TrimSpace(sn)
-				if sn == "" || seenSN[sn] {
+				if seenSN[sn] {
 					tx.Rollback()
 					return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid or duplicate serial number: " + sn})
 				}
@@ -569,14 +569,16 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 				// 	return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": e.Error()})
 				// }
 			}
-			if err := tx.Where("inbound_detail_id = ?", d.ID).Delete(&models.InboundSerial{}).Error; err != nil {
+			if err := tx.Unscoped().Where("inbound_detail_id = ?", d.ID).Delete(&models.InboundSerial{}).Error; err != nil {
 				tx.Rollback()
 				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 			}
 			for _, sn := range item.SerialNumbers {
-				if err := tx.Create(&models.InboundSerial{InboundId: int(header.ID), InboundDetailId: int(d.ID), SerialNumber: strings.TrimSpace(sn), CreatedBy: userID, UpdatedBy: userID}).Error; err != nil {
-					tx.Rollback()
-					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+				if strings.TrimSpace(sn) != "" {
+					if err := tx.Create(&models.InboundSerial{InboundId: int(header.ID), InboundDetailId: int(d.ID), SerialNumber: strings.TrimSpace(sn), CreatedBy: userID, UpdatedBy: userID}).Error; err != nil {
+						tx.Rollback()
+						return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+					}
 				}
 			}
 		}
@@ -597,7 +599,7 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 					tx.Rollback()
 					return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Bundle " + d.BundleProductCode + " contains putaway item and cannot remove component " + d.ItemCode})
 				}
-				if err := tx.Where("inbound_detail_id = ?", d.ID).Delete(&models.InboundSerial{}).Error; err != nil {
+				if err := tx.Unscoped().Where("inbound_detail_id = ?", d.ID).Delete(&models.InboundSerial{}).Error; err != nil {
 					tx.Rollback()
 					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 				}
@@ -616,7 +618,7 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 				tx.Rollback()
 				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Item " + d.ItemCode + " is already putaway and cannot be deleted"})
 			}
-			if err := tx.Where("inbound_detail_id = ?", d.ID).Delete(&models.InboundSerial{}).Error; err != nil {
+			if err := tx.Unscoped().Where("inbound_detail_id = ?", d.ID).Delete(&models.InboundSerial{}).Error; err != nil {
 				tx.Rollback()
 				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 			}
