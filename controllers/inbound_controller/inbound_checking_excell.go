@@ -817,14 +817,11 @@ func (c *InboundController) DownloadCheckingTemplate(ctx *fiber.Ctx) error {
 }
 
 func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
-
 	// ============================================================
 	// GET INBOUND NO
 	// ============================================================
 
-	inboundNo := strings.TrimSpace(
-		ctx.Params("inbound_no"),
-	)
+	inboundNo := strings.TrimSpace(ctx.Params("inbound_no"))
 
 	if inboundNo == "" {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
@@ -841,7 +838,8 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 
 	if err := c.DB.
 		Where("inbound_no = ?", inboundNo).
-		First(&inboundHeader).Error; err != nil {
+		First(&inboundHeader).
+		Error; err != nil {
 
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
@@ -857,29 +855,19 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 	}
 
 	// ============================================================
-	// VALIDATE INBOUND HEADER STATUS
+	// VALIDATE INBOUND STATUS
 	// ============================================================
-	//
-	// Hanya inbound dengan status CHECKING yang boleh
-	// melakukan upload checking Excel.
-	//
-	// open      -> reject
-	// draft     -> reject
-	// complete  -> reject
-	// checking  -> allow
-	//
 
 	headerStatus := strings.ToLower(
 		strings.TrimSpace(inboundHeader.Status),
 	)
 
-	inboundStatusAllowed := []string{
+	allowedStatuses := []string{
 		"checking",
 		"partially received",
 	}
 
-	if !slices.Contains(inboundStatusAllowed, headerStatus) {
-
+	if !slices.Contains(allowedStatuses, headerStatus) {
 		return ctx.Status(fiber.StatusForbidden).JSON(fiber.Map{
 			"success": false,
 			"error": fmt.Sprintf(
@@ -889,45 +877,6 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 			),
 		})
 	}
-
-	// ============================================================
-	// CHECK EXISTING INBOUND BARCODE
-	// ============================================================
-	//
-	// Kalau sudah ada "in stock", berarti receiving tersebut
-	// sudah putaway.
-	//
-	// Upload Excel TIDAK BOLEH dilakukan lagi.
-	//
-
-	var inStockCount int64
-
-	if err := c.DB.
-		Model(&models.InboundBarcode{}).
-		Where(
-			"inbound_id = ? AND LOWER(status) = ?",
-			inboundHeader.ID,
-			"in stock",
-		).
-		Count(&inStockCount).Error; err != nil {
-
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"success": false,
-			"error":   err.Error(),
-		})
-	}
-
-	// if inStockCount > 0 {
-
-	// 	return ctx.Status(fiber.StatusForbidden).JSON(fiber.Map{
-	// 		"success": false,
-	// 		"error": fmt.Sprintf(
-	// 			"Cannot upload checking Excel. Inbound %s already has %d item(s) with status 'in stock'. The receiving has already been putaway.",
-	// 			inboundHeader.InboundNo,
-	// 			inStockCount,
-	// 		),
-	// 	})
-	// }
 
 	// ============================================================
 	// GET FILE
@@ -942,25 +891,14 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 		})
 	}
 
-	// ============================================================
-	// VALIDATE FILE EXTENSION
-	// ============================================================
-
-	filename := strings.ToLower(
-		fileHeader.Filename,
-	)
+	filename := strings.ToLower(fileHeader.Filename)
 
 	if !strings.HasSuffix(filename, ".xlsx") {
-
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"success": false,
 			"error":   "Only .xlsx Excel files are allowed",
 		})
 	}
-
-	// ============================================================
-	// OPEN FILE
-	// ============================================================
 
 	file, err := fileHeader.Open()
 
@@ -972,10 +910,6 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 	}
 
 	defer file.Close()
-
-	// ============================================================
-	// READ FILE
-	// ============================================================
 
 	fileBytes, err := io.ReadAll(file)
 
@@ -1004,7 +938,7 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 	defer excel.Close()
 
 	// ============================================================
-	// GET SHEET
+	// READ CHECKING SHEET
 	// ============================================================
 
 	sheetName := "Checking"
@@ -1052,21 +986,17 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 		})
 	}
 
-	for i, expected := range expectedHeaders {
+	for i, expectedHeader := range expectedHeaders {
+		actualHeader := strings.TrimSpace(header[i])
 
-		actual := strings.TrimSpace(
-			header[i],
-		)
-
-		if actual != expected {
-
+		if actualHeader != expectedHeader {
 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 				"success": false,
 				"error": fmt.Sprintf(
 					"Invalid Excel template at column %d. Expected '%s', got '%s'",
 					i+1,
-					expected,
-					actual,
+					expectedHeader,
+					actualHeader,
 				),
 			})
 		}
@@ -1081,7 +1011,8 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 	if err := c.DB.
 		Where("inbound_id = ?", inboundHeader.ID).
 		Order("id ASC").
-		Find(&inboundDetails).Error; err != nil {
+		Find(&inboundDetails).
+		Error; err != nil {
 
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"success": false,
@@ -1097,7 +1028,7 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 	}
 
 	// ============================================================
-	// GET ALL SERIALS
+	// GET INBOUND SERIALS
 	// ============================================================
 
 	var inboundSerials []models.InboundSerial
@@ -1105,27 +1036,23 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 	if err := c.DB.
 		Where("inbound_id = ?", inboundHeader.ID).
 		Order("id ASC").
-		Find(&inboundSerials).Error; err != nil {
+		Find(&inboundSerials).
+		Error; err != nil {
 
-		return ctx.Status(
-			fiber.StatusInternalServerError,
-		).JSON(fiber.Map{
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"success": false,
 			"error":   err.Error(),
 		})
 	}
 
 	// ============================================================
-	// GROUP SERIAL BY INBOUND DETAIL
+	// GROUP SERIAL BY DETAIL
 	// ============================================================
 
 	serialMap := make(map[uint][]models.InboundSerial)
 
 	for _, serial := range inboundSerials {
-
-		detailID := uint(
-			serial.InboundDetailId,
-		)
+		detailID := uint(serial.InboundDetailId)
 
 		serialMap[detailID] = append(
 			serialMap[detailID],
@@ -1134,17 +1061,73 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 	}
 
 	// ============================================================
-	// EXPECTED ROW STRUCT
+	// GET EXISTING IN-STOCK BARCODE
+	// ============================================================
+
+	var inStockBarcodes []models.InboundBarcode
+
+	if err := c.DB.
+		Where(
+			"inbound_id = ? AND LOWER(status) = ?",
+			inboundHeader.ID,
+			"in stock",
+		).
+		Order("id ASC").
+		Find(&inStockBarcodes).
+		Error; err != nil {
+
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"error":   err.Error(),
+		})
+	}
+
+	// ============================================================
+	// EXISTING IN-STOCK QTY BY DETAIL
+	// ============================================================
+
+	inStockQtyByDetail := make(map[uint]float64)
+
+	// ============================================================
+	// EXISTING IN-STOCK SERIAL BY DETAIL
+	// ============================================================
+
+	inStockSerialsByDetail := make(
+		map[uint]map[string]bool,
+	)
+
+	for _, barcode := range inStockBarcodes {
+		detailID := barcode.InboundDetailId
+
+		inStockQtyByDetail[detailID] += float64(
+			barcode.Quantity,
+		)
+
+		serialNumber := strings.TrimSpace(
+			barcode.SerialNumber,
+		)
+
+		if serialNumber == "" {
+			continue
+		}
+
+		if _, exists := inStockSerialsByDetail[detailID]; !exists {
+			inStockSerialsByDetail[detailID] = make(
+				map[string]bool,
+			)
+		}
+
+		inStockSerialsByDetail[detailID][strings.ToLower(serialNumber)] = true
+	}
+
+	// ============================================================
+	// EXPECTED ROW
 	// ============================================================
 
 	type expectedRow struct {
-		No int
-
-		Detail models.InboundDetail
-
+		Detail       models.InboundDetail
 		SerialNumber string
-
-		QtyPlan float64
+		QtyPlan      float64
 	}
 
 	expectedRows := make(
@@ -1152,64 +1135,61 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 		0,
 	)
 
-	rowNo := 1
+	// ============================================================
+	// BUILD EXPECTED ROWS
+	// ============================================================
 
 	for _, detail := range inboundDetails {
-
-		// ========================================================
-		// GET SERIALS
-		// ========================================================
-
 		serials := serialMap[detail.ID]
 
-		// ========================================================
-		// SERIAL ITEM
-		// ========================================================
-
 		if len(serials) > 0 {
-
 			for _, serial := range serials {
-
 				expectedRows = append(
 					expectedRows,
 					expectedRow{
-						No: rowNo,
-
-						Detail: detail,
-
-						SerialNumber: strings.TrimSpace(
-							serial.SerialNumber,
-						),
-
-						QtyPlan: 1,
+						Detail:       detail,
+						SerialNumber: strings.TrimSpace(serial.SerialNumber),
+						QtyPlan:      1,
 					},
 				)
-
-				rowNo++
 			}
 
 			continue
 		}
 
-		// ========================================================
-		// NON SERIAL ITEM
-		// ========================================================
-
 		expectedRows = append(
 			expectedRows,
 			expectedRow{
-				No:           rowNo,
 				Detail:       detail,
 				SerialNumber: "",
 				QtyPlan:      detail.Quantity,
 			},
 		)
-
-		rowNo++
 	}
 
 	// ============================================================
-	// EXCEL DATA ROWS
+	// MAP EXPECTED BY ITEM CODE
+	// ============================================================
+
+	expectedByItemCode := make(
+		map[string][]expectedRow,
+	)
+
+	for _, expected := range expectedRows {
+		itemCodeKey := strings.ToUpper(
+			strings.TrimSpace(
+				expected.Detail.ItemCode,
+			),
+		)
+
+		expectedByItemCode[itemCodeKey] = append(
+			expectedByItemCode[itemCodeKey],
+			expected,
+		)
+	}
+
+	// ============================================================
+	// EXCEL DATA
 	// ============================================================
 
 	excelDataRows := rows[1:]
@@ -1222,87 +1202,43 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 	}
 
 	// ============================================================
-	// MAP EXPECTED ROW BY NO
-	// ============================================================
-	//
-	// No menunjukkan InboundDetail asal.
-	//
-	// Untuk NON-SERIAL:
-	// No yang sama boleh muncul beberapa kali
-	// karena satu Qty Plan boleh di-split menjadi beberapa row.
-	//
-	// Contoh:
-	// No 1 Qty Plan 2
-	//
-	// menjadi:
-	//
-	// No 1 Qty Plan 1
-	// No 1 Qty Plan 1
-	//
-	// Untuk SERIAL:
-	// No harus tetap unique.
-	// ============================================================
-
-	expectedByNo := make(map[int]expectedRow)
-
-	for _, expected := range expectedRows {
-		expectedByNo[expected.No] = expected
-	}
-
-	// ============================================================
-	// UPLOAD ROW STRUCT
+	// UPLOAD ROW
 	// ============================================================
 
 	type uploadRow struct {
-		RowNumber int
-
-		No int
-
-		Detail models.InboundDetail
-
-		ItemCode string
-
-		Barcode string
-
+		RowNumber    int
+		No           int
+		Detail       models.InboundDetail
+		ItemCode     string
+		Barcode      string
 		SerialNumber string
-
-		QtyPlan float64
-
-		QtyReceived float64
-
-		CaseNumber string
-
+		QtyPlan      float64
+		QtyReceived  float64
+		CaseNumber   string
 		CartonNumber string
-
-		Location string
+		Location     string
 	}
 
 	uploadRows := make(
 		[]uploadRow,
 		0,
+		len(excelDataRows),
 	)
 
 	// ============================================================
-	// HELPER GET COLUMN
+	// HELPERS
 	// ============================================================
 
 	getColumn := func(
 		row []string,
 		index int,
 	) string {
-
 		if len(row) <= index {
 			return ""
 		}
 
-		return strings.TrimSpace(
-			row[index],
-		)
+		return strings.TrimSpace(row[index])
 	}
-
-	// ============================================================
-	// HELPER PARSE FLOAT
-	// ============================================================
 
 	parseFloat := func(
 		value string,
@@ -1313,13 +1249,6 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 		if value == "" {
 			return 0, fmt.Errorf("empty value")
 		}
-
-		// Support:
-		//
-		// 10
-		// 10.5
-		// 10,5
-		//
 
 		value = strings.ReplaceAll(
 			value,
@@ -1334,29 +1263,18 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 	}
 
 	// ============================================================
-	// TRACK TOTAL RECEIVED PER DETAIL
+	// TRACK TOTAL QTY PLAN
 	// ============================================================
 
-	receivedByDetail := make(
+	plannedByDetail := make(
 		map[uint]float64,
 	)
 
 	// ============================================================
-	// TRACK TOTAL QTY PLAN PER DETAIL
-	// ============================================================
-	//
-	// Dipakai supaya:
-	// Qty Plan 2
-	//
-	// boleh menjadi:
-	//
-	// Row 1 = 1
-	// Row 2 = 1
-	//
-	// Total tetap 2.
+	// TRACK TOTAL QTY RECEIVED
 	// ============================================================
 
-	plannedByDetail := make(
+	receivedByDetail := make(
 		map[uint]float64,
 	)
 
@@ -1369,30 +1287,13 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 	)
 
 	// ============================================================
-	// PARSE EXCEL ROWS
+	// PARSE EXCEL
 	// ============================================================
 
 	for index, row := range excelDataRows {
-
 		excelRowNumber := index + 2
 
-		// expected akan dicari berdasarkan No di Excel
-		var expected expectedRow
-
-		// ========================================================
-		// IMPORTANT
-		// ========================================================
-		//
-		// Excelize GetRows() dapat menghilangkan trailing
-		// empty cells.
-		//
-		// Minimal A-G harus ada.
-		//
-		// H-K boleh kosong.
-		//
-
 		if len(row) < 7 {
-
 			return ctx.Status(
 				fiber.StatusBadRequest,
 			).JSON(fiber.Map{
@@ -1404,31 +1305,25 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 			})
 		}
 
-		// ========================================================
+		// --------------------------------------------------------
 		// READ VALUES
-		// ========================================================
+		// --------------------------------------------------------
 
 		noText := getColumn(row, 0)
-
 		itemCode := getColumn(row, 1)
-		itemName := getColumn(row, 2)
-		unitModel := getColumn(row, 3)
 		barcode := getColumn(row, 4)
 		serialNumber := getColumn(row, 5)
-
 		qtyPlanText := getColumn(row, 6)
 		qtyReceivedText := getColumn(row, 7)
-
 		caseNumber := getColumn(row, 8)
 		cartonNumber := getColumn(row, 9)
 		location := getColumn(row, 10)
 
-		// ========================================================
+		// --------------------------------------------------------
 		// NO
-		// ========================================================
+		// --------------------------------------------------------
 
 		if noText == "" {
-
 			return ctx.Status(
 				fiber.StatusBadRequest,
 			).JSON(fiber.Map{
@@ -1443,7 +1338,6 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 		no, err := strconv.Atoi(noText)
 
 		if err != nil {
-
 			return ctx.Status(
 				fiber.StatusBadRequest,
 			).JSON(fiber.Map{
@@ -1455,34 +1349,23 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 			})
 		}
 
-		// ========================================================
-		// FIND EXPECTED DETAIL BY NO
-		// ========================================================
-
-		var exists bool
-
-		expected, exists = expectedByNo[no]
-
-		if !exists {
-
+		if no <= 0 {
 			return ctx.Status(
 				fiber.StatusBadRequest,
 			).JSON(fiber.Map{
 				"success": false,
 				"error": fmt.Sprintf(
-					"Row %d: No %d does not exist in inbound template",
+					"Row %d: No must be greater than zero",
 					excelRowNumber,
-					no,
 				),
 			})
 		}
 
-		// ========================================================
+		// --------------------------------------------------------
 		// ITEM CODE
-		// ========================================================
+		// --------------------------------------------------------
 
 		if itemCode == "" {
-
 			return ctx.Status(
 				fiber.StatusBadRequest,
 			).JSON(fiber.Map{
@@ -1494,41 +1377,193 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 			})
 		}
 
-		if itemCode != expected.Detail.ItemCode {
+		// --------------------------------------------------------
+		// QTY PLAN
+		// --------------------------------------------------------
 
+		if qtyPlanText == "" {
 			return ctx.Status(
 				fiber.StatusBadRequest,
 			).JSON(fiber.Map{
 				"success": false,
 				"error": fmt.Sprintf(
-					"Row %d: Item Code does not match inbound detail. Expected '%s', got '%s'",
+					"Row %d: Qty Plan is required",
 					excelRowNumber,
-					expected.Detail.ItemCode,
+				),
+			})
+		}
+
+		qtyPlan, err := parseFloat(qtyPlanText)
+
+		if err != nil {
+			return ctx.Status(
+				fiber.StatusBadRequest,
+			).JSON(fiber.Map{
+				"success": false,
+				"error": fmt.Sprintf(
+					"Row %d: invalid Qty Plan '%s'",
+					excelRowNumber,
+					qtyPlanText,
+				),
+			})
+		}
+
+		if qtyPlan <= 0 {
+			return ctx.Status(
+				fiber.StatusBadRequest,
+			).JSON(fiber.Map{
+				"success": false,
+				"error": fmt.Sprintf(
+					"Row %d: Qty Plan must be greater than 0",
+					excelRowNumber,
+				),
+			})
+		}
+
+		// --------------------------------------------------------
+		// FIND EXPECTED DETAIL
+		// --------------------------------------------------------
+
+		itemCodeKey := strings.ToUpper(
+			strings.TrimSpace(itemCode),
+		)
+
+		candidates := expectedByItemCode[itemCodeKey]
+
+		if len(candidates) == 0 {
+			return ctx.Status(
+				fiber.StatusBadRequest,
+			).JSON(fiber.Map{
+				"success": false,
+				"error": fmt.Sprintf(
+					"Row %d: Item Code '%s' does not exist in inbound detail",
+					excelRowNumber,
 					itemCode,
 				),
 			})
 		}
 
+		var expected expectedRow
+		foundExpected := false
+
+		// --------------------------------------------------------
+		// SERIAL MATCH
+		// --------------------------------------------------------
+
+		if serialNumber != "" {
+			excelSerialKey := strings.ToLower(
+				strings.TrimSpace(serialNumber),
+			)
+
+			for _, candidate := range candidates {
+				candidateSerialKey := strings.ToLower(
+					strings.TrimSpace(
+						candidate.SerialNumber,
+					),
+				)
+
+				if candidateSerialKey == "" {
+					continue
+				}
+
+				if candidateSerialKey != excelSerialKey {
+					continue
+				}
+
+				// Serial sudah match.
+				// Barcode jangan dipakai untuk menentukan
+				// candidate detail.
+				expected = candidate
+				foundExpected = true
+				break
+			}
+		}
+
 		// ========================================================
+		// NON SERIAL / SERIAL NUMBER KOSONG DI EXCEL
+		// ========================================================
+		//
+		// Item Code + Barcode menjadi dasar matching.
+		// Serial Number di Excel boleh kosong.
+		//
+		// Ini memungkinkan:
+		//
+		// Qty Plan DB = 2
+		//
+		// Excel:
+		// Row 1 = Qty 1 + Carton A + Location A
+		// Row 2 = Qty 1 + Carton B + Location B
+		//
+		// walaupun inbound_serials memiliki serial.
+		//
+
+		if !foundExpected {
+
+			for _, candidate := range candidates {
+
+				if strings.TrimSpace(
+					candidate.Detail.Barcode,
+				) != "" &&
+					!strings.EqualFold(
+						strings.TrimSpace(
+							candidate.Detail.Barcode,
+						),
+						strings.TrimSpace(barcode),
+					) {
+					continue
+				}
+
+				usedPlan := plannedByDetail[candidate.Detail.ID]
+
+				if usedPlan >= candidate.Detail.Quantity {
+					continue
+				}
+
+				// Jangan ambil SerialNumber dari database
+				// kalau Excel memang kosong.
+				expected = expectedRow{
+					Detail:       candidate.Detail,
+					SerialNumber: "",
+					QtyPlan:      candidate.Detail.Quantity,
+				}
+
+				foundExpected = true
+				break
+			}
+		}
+
+		if !foundExpected {
+			return ctx.Status(
+				fiber.StatusBadRequest,
+			).JSON(fiber.Map{
+				"success": false,
+				"error": fmt.Sprintf(
+					"Row %d: Item Code '%s' does not match any inbound detail",
+					excelRowNumber,
+					itemCode,
+				),
+			})
+		}
+
+		// --------------------------------------------------------
 		// GET PRODUCT
-		// ========================================================
+		// --------------------------------------------------------
 
 		var product models.Product
 
 		if expected.Detail.ItemId != 0 {
-
 			if err := c.DB.
 				First(
 					&product,
 					"id = ?",
 					expected.Detail.ItemId,
-				).Error; err != nil {
+				).
+				Error; err != nil {
 
 				if errors.Is(
 					err,
 					gorm.ErrRecordNotFound,
 				) {
-
 					return ctx.Status(
 						fiber.StatusBadRequest,
 					).JSON(fiber.Map{
@@ -1550,51 +1585,21 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 			}
 		}
 
-		// ========================================================
-		// ITEM NAME
-		// ========================================================
-
-		if itemName != strings.TrimSpace(
-			product.ItemName,
-		) {
-
-			return ctx.Status(
-				fiber.StatusBadRequest,
-			).JSON(fiber.Map{
-				"success": false,
-				"error": fmt.Sprintf(
-					"Row %d: Item Name does not match master product",
-					excelRowNumber,
-				),
-			})
-		}
-
-		// ========================================================
-		// UNIT MODEL
-		// ========================================================
-
-		if unitModel != strings.TrimSpace(
-			product.UnitModel,
-		) {
-
-			return ctx.Status(
-				fiber.StatusBadRequest,
-			).JSON(fiber.Map{
-				"success": false,
-				"error": fmt.Sprintf(
-					"Row %d: Unit Model does not match master product",
-					excelRowNumber,
-				),
-			})
-		}
-
-		// ========================================================
+		// --------------------------------------------------------
 		// BARCODE
-		// ========================================================
+		// --------------------------------------------------------
 
-		if barcode != strings.TrimSpace(
+		expectedBarcode := strings.TrimSpace(
 			expected.Detail.Barcode,
-		) {
+		)
+
+		excelBarcode := strings.TrimSpace(barcode)
+
+		if expectedBarcode != "" &&
+			!strings.EqualFold(
+				expectedBarcode,
+				excelBarcode,
+			) {
 
 			return ctx.Status(
 				fiber.StatusBadRequest,
@@ -1609,118 +1614,16 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 			})
 		}
 
-		// ========================================================
-		// SERIAL NUMBER
-		// ========================================================
+		// --------------------------------------------------------
+		// TRACK QTY PLAN
+		// --------------------------------------------------------
 
-		// if serialNumber != expected.SerialNumber {
-
-		// 	return ctx.Status(
-		// 		fiber.StatusBadRequest,
-		// 	).JSON(fiber.Map{
-		// 		"success": false,
-		// 		"error": fmt.Sprintf(
-		// 			"Row %d: Serial Number does not match inbound serial. Expected '%s', got '%s'",
-		// 			excelRowNumber,
-		// 			expected.SerialNumber,
-		// 			serialNumber,
-		// 		),
-		// 	})
-		// }
-
-		// ========================================================
-		// QTY PLAN
-		// ========================================================
-
-		if qtyPlanText == "" {
-
-			return ctx.Status(
-				fiber.StatusBadRequest,
-			).JSON(fiber.Map{
-				"success": false,
-				"error": fmt.Sprintf(
-					"Row %d: Qty Plan is required",
-					excelRowNumber,
-				),
-			})
-		}
-
-		qtyPlan, err := parseFloat(
-			qtyPlanText,
-		)
-
-		if err != nil {
-
-			return ctx.Status(
-				fiber.StatusBadRequest,
-			).JSON(fiber.Map{
-				"success": false,
-				"error": fmt.Sprintf(
-					"Row %d: invalid Qty Plan '%s'",
-					excelRowNumber,
-					qtyPlanText,
-				),
-			})
-		}
-
-		// ========================================================
-		// QTY PLAN
-		// ========================================================
-		//
-		// NON-SERIAL:
-		//
-		// Original:
-		// Qty Plan = 2
-		//
-		// Valid:
-		// Row 1 = 1
-		// Row 2 = 1
-		//
-		// Total = 2
-		//
-		// Jadi Qty Plan per row boleh dipecah.
-		// Yang wajib sama adalah TOTAL Qty Plan per InboundDetail.
-		// ========================================================
-
-		if qtyPlan <= 0 {
-
-			return ctx.Status(
-				fiber.StatusBadRequest,
-			).JSON(fiber.Map{
-				"success": false,
-				"error": fmt.Sprintf(
-					"Row %d: Qty Plan must be greater than 0",
-					excelRowNumber,
-				),
-			})
-		}
-
-		// SERIAL ITEM
-		if expected.SerialNumber != "" {
-
-			if qtyPlan != 1 {
-
-				return ctx.Status(
-					fiber.StatusBadRequest,
-				).JSON(fiber.Map{
-					"success": false,
-					"error": fmt.Sprintf(
-						"Row %d: Serial item Qty Plan must be 1",
-						excelRowNumber,
-					),
-				})
-			}
-		}
-
-		// TRACK TOTAL QTY PLAN
 		detailID := expected.Detail.ID
 
 		plannedByDetail[detailID] += qtyPlan
 
-		// Jangan sampai total Qty Plan melebihi
-		// Qty pada inbound_detail.
-
-		if plannedByDetail[detailID] > expected.Detail.Quantity {
+		if plannedByDetail[detailID] >
+			expected.Detail.Quantity {
 
 			return ctx.Status(
 				fiber.StatusBadRequest,
@@ -1736,37 +1639,36 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 			})
 		}
 
-		// ========================================================
+		// --------------------------------------------------------
+		// SERIAL QTY PLAN
+		// --------------------------------------------------------
+
+		if expected.SerialNumber != "" &&
+			qtyPlan != 1 {
+
+			return ctx.Status(
+				fiber.StatusBadRequest,
+			).JSON(fiber.Map{
+				"success": false,
+				"error": fmt.Sprintf(
+					"Row %d: Serial item Qty Plan must be 1",
+					excelRowNumber,
+				),
+			})
+		}
+
+		// --------------------------------------------------------
 		// QTY RECEIVED
-		// ========================================================
-		//
-		// PARTIAL RECEIVING:
-		//
-		// Qty Received kosong = 0
-		//
-		// Jadi Qty Received TIDAK wajib diisi.
-		//
-		// Contoh:
-		//
-		// Qty Plan = 100
-		// Qty Received = kosong
-		//
-		// dianggap:
-		//
-		// Qty Received = 0
-		//
-		// ========================================================
+		// --------------------------------------------------------
 
 		qtyReceived := float64(0)
 
 		if qtyReceivedText != "" {
-
 			qtyReceived, err = parseFloat(
 				qtyReceivedText,
 			)
 
 			if err != nil {
-
 				return ctx.Status(
 					fiber.StatusBadRequest,
 				).JSON(fiber.Map{
@@ -1780,12 +1682,7 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 			}
 		}
 
-		// ========================================================
-		// QTY NEGATIVE
-		// ========================================================
-
 		if qtyReceived < 0 {
-
 			return ctx.Status(
 				fiber.StatusBadRequest,
 			).JSON(fiber.Map{
@@ -1797,12 +1694,7 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 			})
 		}
 
-		// ========================================================
-		// QTY RECEIVED > QTY PLAN
-		// ========================================================
-
 		if qtyReceived > qtyPlan {
-
 			return ctx.Status(
 				fiber.StatusBadRequest,
 			).JSON(fiber.Map{
@@ -1816,41 +1708,12 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 			})
 		}
 
-		// ========================================================
+		// --------------------------------------------------------
 		// SERIAL VALIDATION
-		// ========================================================
+		// --------------------------------------------------------
 
 		if expected.SerialNumber != "" {
-
-			// ----------------------------------------------------
-			// SERIAL QTY PLAN
-			// ----------------------------------------------------
-
-			if expected.QtyPlan != 1 {
-
-				return ctx.Status(
-					fiber.StatusBadRequest,
-				).JSON(fiber.Map{
-					"success": false,
-					"error": fmt.Sprintf(
-						"Row %d: Invalid serial Qty Plan. Expected 1",
-						excelRowNumber,
-					),
-				})
-			}
-
-			// ----------------------------------------------------
-			// SERIAL QTY RECEIVED
-			// ----------------------------------------------------
-			//
-			// Serial hanya boleh:
-			//
-			// 0 = belum diterima
-			// 1 = diterima
-			//
-
 			if qtyReceived != 0 && qtyReceived != 1 {
-
 				return ctx.Status(
 					fiber.StatusBadRequest,
 				).JSON(fiber.Map{
@@ -1862,12 +1725,7 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 				})
 			}
 
-			// ----------------------------------------------------
-			// DUPLICATE SERIAL RECEIVED
-			// ----------------------------------------------------
-
 			if qtyReceived > 0 {
-
 				serialKey := strings.ToLower(
 					strings.TrimSpace(
 						expected.SerialNumber,
@@ -1877,7 +1735,6 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 				serialReceived[serialKey] += qtyReceived
 
 				if serialReceived[serialKey] > 1 {
-
 					return ctx.Status(
 						fiber.StatusBadRequest,
 					).JSON(fiber.Map{
@@ -1892,30 +1749,9 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 			}
 		}
 
-		// ========================================================
-		// TOTAL QTY RECEIVED PER DETAIL
-		// ========================================================
-		//
-		// Untuk non-serial:
-		//
-		// Qty Plan = 100
-		//
-		// Row 1 = 40
-		// Row 2 = 30
-		// Row 3 = 30
-		//
-		// Total = 100 -> OK
-		//
-		// Kalau:
-		//
-		// Row 1 = 40
-		// Row 2 = 70
-		//
-		// Total = 110 -> ERROR
-		//
-		// ========================================================
-
-		// detailID := expected.Detail.ID
+		// --------------------------------------------------------
+		// TRACK TOTAL QTY RECEIVED
+		// --------------------------------------------------------
 
 		receivedByDetail[detailID] += qtyReceived
 
@@ -1936,34 +1772,12 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 			})
 		}
 
-		// ========================================================
+		// --------------------------------------------------------
 		// USER INPUT VALIDATION
-		// ========================================================
-		//
-		// PARTIAL RECEIVING:
-		//
-		// Qty Received = 0
-		// ----------------
-		// Case No    -> optional
-		// Carton No  -> optional
-		// Location   -> optional
-		//
-		// Qty Received > 0
-		// ----------------
-		// Case No    -> REQUIRED
-		// Carton No  -> REQUIRED
-		// Location   -> REQUIRED
-		//
-		// ========================================================
+		// --------------------------------------------------------
 
 		if qtyReceived > 0 {
-
-			// ----------------------------------------------------
-			// CASE NO
-			// ----------------------------------------------------
-
 			if caseNumber == "" {
-
 				return ctx.Status(
 					fiber.StatusBadRequest,
 				).JSON(fiber.Map{
@@ -1975,12 +1789,7 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 				})
 			}
 
-			// ----------------------------------------------------
-			// CARTON NO
-			// ----------------------------------------------------
-
 			if cartonNumber == "" {
-
 				return ctx.Status(
 					fiber.StatusBadRequest,
 				).JSON(fiber.Map{
@@ -1992,12 +1801,7 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 				})
 			}
 
-			// ----------------------------------------------------
-			// LOCATION
-			// ----------------------------------------------------
-
 			if location == "" {
-
 				return ctx.Status(
 					fiber.StatusBadRequest,
 				).JSON(fiber.Map{
@@ -2010,66 +1814,39 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 			}
 		}
 
-		// ========================================================
+		// --------------------------------------------------------
 		// APPEND UPLOAD ROW
-		// ========================================================
+		// --------------------------------------------------------
 
 		uploadRows = append(
 			uploadRows,
 			uploadRow{
-				RowNumber: excelRowNumber,
-
-				No: no,
-
-				Detail: expected.Detail,
-
-				ItemCode: itemCode,
-
-				Barcode: barcode,
-
+				RowNumber:    excelRowNumber,
+				No:           no,
+				Detail:       expected.Detail,
+				ItemCode:     itemCode,
+				Barcode:      barcode,
 				SerialNumber: serialNumber,
-
-				QtyPlan: qtyPlan,
-
-				QtyReceived: qtyReceived,
-
-				CaseNumber: caseNumber,
-
+				QtyPlan:      qtyPlan,
+				QtyReceived:  qtyReceived,
+				CaseNumber:   caseNumber,
 				CartonNumber: cartonNumber,
-
-				Location: location,
+				Location:     location,
 			},
 		)
+
+		_ = product
 	}
 
 	// ============================================================
-	// VALIDATE TOTAL QTY PLAN PER DETAIL
-	// ============================================================
-	//
-	// Setiap InboundDetail harus tetap memiliki total Qty Plan
-	// sesuai Qty pada inbound_detail.
-	//
-	// Contoh:
-	//
-	// Original Qty = 2
-	//
-	// Valid:
-	// 1 + 1 = 2
-	//
-	// Valid:
-	// 2 = 2
-	//
-	// Tidak valid:
-	// 1 = 1
-	//
-	// Tidak valid:
-	// 1 + 2 = 3
+	// VALIDATE TOTAL QTY PLAN
 	// ============================================================
 
-	validatedDetails := make(map[uint]bool)
+	validatedDetails := make(
+		map[uint]bool,
+	)
 
 	for _, expected := range expectedRows {
-
 		detailID := expected.Detail.ID
 
 		if validatedDetails[detailID] {
@@ -2078,11 +1855,10 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 
 		validatedDetails[detailID] = true
 
-		expectedQty := expected.Detail.Quantity
-		actualQty := plannedByDetail[detailID]
+		expectedQtyPlan := expected.Detail.Quantity
+		actualQtyPlan := plannedByDetail[detailID]
 
-		if actualQty != expectedQty {
-
+		if actualQtyPlan != expectedQtyPlan {
 			return ctx.Status(
 				fiber.StatusBadRequest,
 			).JSON(fiber.Map{
@@ -2090,28 +1866,43 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 				"error": fmt.Sprintf(
 					"Total Qty Plan for Item '%s' must be %.2f, got %.2f",
 					expected.Detail.ItemCode,
-					expectedQty,
-					actualQty,
+					expectedQtyPlan,
+					actualQtyPlan,
+				),
+			})
+		}
+
+		// --------------------------------------------------------
+		// QTY RECEIVED CANNOT BE LESS THAN EXISTING IN STOCK
+		// --------------------------------------------------------
+
+		totalReceived := receivedByDetail[detailID]
+		existingInStock := inStockQtyByDetail[detailID]
+
+		if totalReceived < existingInStock {
+			return ctx.Status(
+				fiber.StatusBadRequest,
+			).JSON(fiber.Map{
+				"success": false,
+				"error": fmt.Sprintf(
+					"Total Qty Received %.2f for Item '%s' cannot be less than existing in-stock Qty %.2f",
+					totalReceived,
+					expected.Detail.ItemCode,
+					existingInStock,
 				),
 			})
 		}
 	}
 
 	// ============================================================
-	// CHECK LOCATION
+	// VALIDATE LOCATION
 	// ============================================================
-	//
-	// Hanya cek location apabila Qty Received > 0.
-	//
-	// Location kosong pada Qty Received = 0 tidak masalah.
-	//
 
 	locationMap := make(
 		map[string]models.Location,
 	)
 
 	for _, row := range uploadRows {
-
 		if row.QtyReceived <= 0 {
 			continue
 		}
@@ -2120,12 +1911,7 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 			row.Location,
 		)
 
-		// Safety validation.
-		// Seharusnya sudah dicek sebelumnya,
-		// tetapi tetap dipertahankan agar aman.
-
 		if locationCode == "" {
-
 			return ctx.Status(
 				fiber.StatusBadRequest,
 			).JSON(fiber.Map{
@@ -2148,13 +1934,13 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 				"location_code = ?",
 				locationCode,
 			).
-			First(&location).Error; err != nil {
+			First(&location).
+			Error; err != nil {
 
 			if errors.Is(
 				err,
 				gorm.ErrRecordNotFound,
 			) {
-
 				return ctx.Status(
 					fiber.StatusBadRequest,
 				).JSON(fiber.Map{
@@ -2175,12 +1961,7 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 			})
 		}
 
-		// ========================================================
-		// LOCATION MUST BE ACTIVE
-		// ========================================================
-
 		if !location.IsActive {
-
 			return ctx.Status(
 				fiber.StatusBadRequest,
 			).JSON(fiber.Map{
@@ -2203,15 +1984,11 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 	userID := 0
 
 	if value := ctx.Locals("userID"); value != nil {
-
 		switch v := value.(type) {
-
 		case float64:
 			userID = int(v)
-
 		case int:
 			userID = v
-
 		case int64:
 			userID = int(v)
 		}
@@ -2230,7 +2007,6 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 	)
 
 	if err != nil {
-
 		return ctx.Status(
 			fiber.StatusInternalServerError,
 		).JSON(fiber.Map{
@@ -2244,17 +2020,16 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 	// ============================================================
 
 	err = c.DB.Transaction(func(tx *gorm.DB) error {
-
-		// ========================================================
-		// RE-CHECK HEADER STATUS INSIDE TRANSACTION
-		// ========================================================
+		// --------------------------------------------------------
+		// RE-CHECK HEADER STATUS
+		// --------------------------------------------------------
 
 		var currentInbound models.InboundHeader
 
 		if err := tx.
 			Where("id = ?", inboundHeader.ID).
-			First(&currentInbound).Error; err != nil {
-
+			First(&currentInbound).
+			Error; err != nil {
 			return err
 		}
 
@@ -2264,13 +2039,10 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 			),
 		)
 
-		currentInboundStatusAllowed := []string{
-			"checking",
-			"partially received",
-		}
-
-		if !slices.Contains(currentInboundStatusAllowed, currentStatus) {
-
+		if !slices.Contains(
+			allowedStatuses,
+			currentStatus,
+		) {
 			return fmt.Errorf(
 				"cannot upload checking Excel. Inbound %s has status '%s'. Only statuses 'checking' and 'partially received' are allowed",
 				currentInbound.InboundNo,
@@ -2278,45 +2050,89 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 			)
 		}
 
-		// ========================================================
-		// RE-CHECK IN STOCK INSIDE TRANSACTION
-		// ========================================================
+		// --------------------------------------------------------
+		// GET CURRENT IN-STOCK BARCODE
+		// --------------------------------------------------------
 
-		var txInStockCount int64
+		var currentInStockBarcodes []models.InboundBarcode
 
 		if err := tx.
-			Model(&models.InboundBarcode{}).
 			Where(
 				"inbound_id = ? AND LOWER(status) = ?",
 				currentInbound.ID,
 				"in stock",
 			).
-			Count(&txInStockCount).Error; err != nil {
-
+			Order("id ASC").
+			Find(&currentInStockBarcodes).
+			Error; err != nil {
 			return err
 		}
 
-		// if txInStockCount > 0 {
+		// --------------------------------------------------------
+		// CURRENT IN-STOCK QTY BY DETAIL
+		// --------------------------------------------------------
 
-		// 	return fmt.Errorf(
-		// 		"cannot upload checking Excel. Inbound %s already has %d item(s) with status 'in stock'. Receiving has already been putaway",
-		// 		currentInbound.InboundNo,
-		// 		txInStockCount,
-		// 	)
-		// }
+		currentInStockQtyByDetail := make(
+			map[uint]float64,
+		)
 
-		// ========================================================
+		// --------------------------------------------------------
+		// CURRENT IN-STOCK SERIAL BY DETAIL
+		// --------------------------------------------------------
+
+		currentInStockSerialsByDetail := make(
+			map[uint]map[string]bool,
+		)
+
+		for _, barcode := range currentInStockBarcodes {
+			detailID := barcode.InboundDetailId
+
+			currentInStockQtyByDetail[detailID] +=
+				float64(barcode.Quantity)
+
+			serialNumber := strings.TrimSpace(
+				barcode.SerialNumber,
+			)
+
+			if serialNumber == "" {
+				continue
+			}
+
+			if _, exists :=
+				currentInStockSerialsByDetail[detailID]; !exists {
+				currentInStockSerialsByDetail[detailID] =
+					make(map[string]bool)
+			}
+
+			currentInStockSerialsByDetail[detailID][strings.ToLower(serialNumber)] = true
+		}
+
+		// --------------------------------------------------------
+		// RE-CHECK QTY RECEIVED AGAINST CURRENT STOCK
+		// --------------------------------------------------------
+
+		for _, expected := range expectedRows {
+			detailID := expected.Detail.ID
+
+			totalReceived := receivedByDetail[detailID]
+			currentInStockQty := currentInStockQtyByDetail[detailID]
+
+			if totalReceived < currentInStockQty {
+				return fmt.Errorf(
+					"Item %s Qty Received %.2f is less than current in-stock Qty %.2f",
+					expected.Detail.ItemCode,
+					totalReceived,
+					currentInStockQty,
+				)
+			}
+		}
+
+		// --------------------------------------------------------
 		// DELETE ONLY PENDING
-		// ========================================================
-		//
-		// IMPORTANT:
-		//
-		// Hanya data pending yang dihapus.
-		//
-		// in stock / status lain tidak disentuh.
-		//
+		// --------------------------------------------------------
 
-		if err := tx.Unscoped().
+		if err := tx.
+			Unscoped().
 			Where(
 				"inbound_id = ? AND LOWER(status) = ?",
 				currentInbound.ID,
@@ -2326,34 +2142,79 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 				&models.InboundBarcode{},
 			).
 			Error; err != nil {
-
 			return err
 		}
 
-		// ========================================================
-		// INSERT NEW RECEIVING RESULT
-		// ========================================================
+		// --------------------------------------------------------
+		// CALCULATE PENDING QTY TO INSERT
+		// --------------------------------------------------------
+
+		pendingQtyByDetail := make(
+			map[uint]float64,
+		)
+
+		for _, expected := range expectedRows {
+			detailID := expected.Detail.ID
+
+			if _, exists :=
+				pendingQtyByDetail[detailID]; exists {
+				continue
+			}
+
+			totalReceived := receivedByDetail[detailID]
+			currentInStockQty := currentInStockQtyByDetail[detailID]
+
+			pendingQty := totalReceived -
+				currentInStockQty
+
+			if pendingQty > 0 {
+				pendingQtyByDetail[detailID] =
+					pendingQty
+			}
+		}
+
+		// --------------------------------------------------------
+		// INSERT PENDING RECEIVING RESULT
+		// --------------------------------------------------------
 
 		for _, row := range uploadRows {
-
-			// ====================================================
-			// ZERO RECEIVED
-			// ====================================================
-			//
-			// Qty Received kosong akan menjadi 0.
-			//
-			// Tidak dibuat InboundBarcode.
-			//
-
 			if row.QtyReceived <= 0 {
 				continue
 			}
 
 			detail := row.Detail
+			detailID := detail.ID
 
-			// ====================================================
+			remainingPendingQty :=
+				pendingQtyByDetail[detailID]
+
+			if remainingPendingQty <= 0 {
+				continue
+			}
+
+			// ----------------------------------------------------
+			// SERIAL
+			// ----------------------------------------------------
+
+			if strings.TrimSpace(
+				row.SerialNumber,
+			) != "" {
+
+				serialKey := strings.ToLower(
+					strings.TrimSpace(
+						row.SerialNumber,
+					),
+				)
+
+				if currentInStockSerialsByDetail[detailID] != nil &&
+					currentInStockSerialsByDetail[detailID][serialKey] {
+					continue
+				}
+			}
+
+			// ----------------------------------------------------
 			// GET LOCATION
-			// ====================================================
+			// ----------------------------------------------------
 
 			locationCode := strings.TrimSpace(
 				row.Location,
@@ -2362,7 +2223,6 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 			location, exists := locationMap[locationCode]
 
 			if !exists {
-
 				return fmt.Errorf(
 					"location '%s' for Excel row %d was not found",
 					locationCode,
@@ -2370,145 +2230,77 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 				)
 			}
 
-			// ====================================================
-			// CHECK EXISTING IN STOCK
-			// ====================================================
-			//
-			// Jika InboundDetail ini sudah memiliki InboundBarcode
-			// dengan status "in stock", jangan insert ulang.
-			//
-			// Karena data tersebut sudah pernah diproses/putaway.
-			// ====================================================
+			// ----------------------------------------------------
+			// DETERMINE INSERT QTY
+			// ----------------------------------------------------
 
-			var existingInStockCount int64
+			insertQty := row.QtyReceived
 
-			if err := tx.
-				Model(&models.InboundBarcode{}).
-				Where(
-					"inbound_detail_id = ? AND LOWER(status) = ?",
-					detail.ID,
-					"in stock",
-				).
-				Count(&existingInStockCount).Error; err != nil {
-
-				return fmt.Errorf(
-					"failed to check existing in stock for Excel row %d: %w",
-					row.RowNumber,
-					err,
-				)
+			if insertQty > remainingPendingQty {
+				insertQty = remainingPendingQty
 			}
 
-			if existingInStockCount > 0 {
-				// Sudah ada InboundBarcode untuk detail ini
-				// dengan status in stock.
-				//
-				// Jangan insert ulang.
+			if insertQty <= 0 {
 				continue
 			}
 
-			// ====================================================
+			// ----------------------------------------------------
 			// CREATE INBOUND BARCODE
-			// ====================================================
+			// ----------------------------------------------------
 
 			newInboundBarcode := models.InboundBarcode{
-
-				// ------------------------------------------------
-				// RELATION
-				// ------------------------------------------------
-
 				InboundId: int(
 					currentInbound.ID,
 				),
 
-				InboundDetailId: uint(
-					detail.ID,
-				),
-
-				// ------------------------------------------------
-				// PRODUCT
-				// ------------------------------------------------
+				InboundDetailId: detailID,
 
 				ItemID:   detail.ItemId,
 				ItemCode: detail.ItemCode,
-
-				// ------------------------------------------------
-				// SCAN
-				// ------------------------------------------------
 
 				ScanType:     "excel",
 				ScanData:     detail.Barcode,
 				Barcode:      detail.Barcode,
 				SerialNumber: row.SerialNumber,
 
-				// ------------------------------------------------
-				// RECEIVING LOCATION
-				// ------------------------------------------------
-
 				Pallet:          location.LocationCode,
 				Location:        location.LocationCode,
 				PutawayLocation: "",
 				PutawayQty:      0,
-
-				// ------------------------------------------------
-				// DATE / LOT
-				// ------------------------------------------------
 
 				RecDate:   detail.RecDate,
 				ProdDate:  detail.ProdDate,
 				ExpDate:   detail.ExpDate,
 				LotNumber: detail.LotNumber,
 
-				// ------------------------------------------------
-				// CASE / CARTON
-				// ------------------------------------------------
-
 				CartonNumber: row.CartonNumber,
 				CaseNumber:   row.CaseNumber,
 
-				// ------------------------------------------------
-				// QTY
-				// ------------------------------------------------
-
-				Quantity: row.QtyReceived,
+				Quantity: insertQty,
 				Uom:      detail.Uom,
-
-				// ------------------------------------------------
-				// WAREHOUSE
-				// ------------------------------------------------
 
 				WhsCode:      detail.WhsCode,
 				OwnerCode:    detail.OwnerCode,
 				DivisionCode: detail.DivisionCode,
 				QaStatus:     detail.QaStatus,
 
-				// ------------------------------------------------
-				// STATUS
-				// ------------------------------------------------
-
 				Status: "pending",
-
-				// ------------------------------------------------
-				// AUDIT
-				// ------------------------------------------------
 
 				CreatedBy: userID,
 				UpdatedBy: userID,
 			}
 
-			// ====================================================
-			// INSERT
-			// ====================================================
-
 			if err := tx.
 				Create(&newInboundBarcode).
 				Error; err != nil {
-
 				return fmt.Errorf(
 					"failed to insert InboundBarcode for Excel row %d: %w",
 					row.RowNumber,
 					err,
 				)
 			}
+
+			pendingQtyByDetail[detailID] -= insertQty
 		}
 
 		return nil
@@ -2519,7 +2311,6 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 	// ============================================================
 
 	if err != nil {
-
 		return ctx.Status(
 			fiber.StatusInternalServerError,
 		).JSON(fiber.Map{
@@ -2541,7 +2332,8 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 			"pending",
 		).
 		Order("id ASC").
-		Find(&inboundBarcodes).Error; err != nil {
+		Find(&inboundBarcodes).
+		Error; err != nil {
 
 		return ctx.Status(
 			fiber.StatusInternalServerError,
@@ -2555,9 +2347,7 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 	// RESPONSE
 	// ============================================================
 
-	return ctx.Status(
-		fiber.StatusOK,
-	).JSON(fiber.Map{
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
 		"success":    true,
 		"message":    "Receiving Excel uploaded successfully",
 		"inbound_no": inboundHeader.InboundNo,
@@ -2565,3 +2355,1902 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 		"items":      inboundBarcodes,
 	})
 }
+
+// func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
+
+// 	// ============================================================
+// 	// GET INBOUND NO
+// 	// ============================================================
+
+// 	inboundNo := strings.TrimSpace(
+// 		ctx.Params("inbound_no"),
+// 	)
+
+// 	if inboundNo == "" {
+// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+// 			"success": false,
+// 			"error":   "Inbound No is required",
+// 		})
+// 	}
+
+// 	// ============================================================
+// 	// GET INBOUND HEADER
+// 	// ============================================================
+
+// 	var inboundHeader models.InboundHeader
+
+// 	if err := c.DB.
+// 		Where("inbound_no = ?", inboundNo).
+// 		First(&inboundHeader).Error; err != nil {
+
+// 		if errors.Is(err, gorm.ErrRecordNotFound) {
+// 			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
+// 				"success": false,
+// 				"error":   "Inbound not found",
+// 			})
+// 		}
+
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+// 			"success": false,
+// 			"error":   err.Error(),
+// 		})
+// 	}
+
+// 	// ============================================================
+// 	// VALIDATE INBOUND HEADER STATUS
+// 	// ============================================================
+// 	//
+// 	// Hanya inbound dengan status CHECKING yang boleh
+// 	// melakukan upload checking Excel.
+// 	//
+// 	// open      -> reject
+// 	// draft     -> reject
+// 	// complete  -> reject
+// 	// checking  -> allow
+// 	//
+
+// 	headerStatus := strings.ToLower(
+// 		strings.TrimSpace(inboundHeader.Status),
+// 	)
+
+// 	inboundStatusAllowed := []string{
+// 		"checking",
+// 		"partially received",
+// 	}
+
+// 	if !slices.Contains(inboundStatusAllowed, headerStatus) {
+
+// 		return ctx.Status(fiber.StatusForbidden).JSON(fiber.Map{
+// 			"success": false,
+// 			"error": fmt.Sprintf(
+// 				"Cannot upload checking Excel. Inbound %s has status '%s'. Only inbound with status 'checking' or 'partially received' can be uploaded.",
+// 				inboundHeader.InboundNo,
+// 				inboundHeader.Status,
+// 			),
+// 		})
+// 	}
+
+// 	// ============================================================
+// 	// CHECK EXISTING INBOUND BARCODE
+// 	// ============================================================
+// 	//
+// 	// Kalau sudah ada "in stock", berarti receiving tersebut
+// 	// sudah putaway.
+// 	//
+// 	// Upload Excel TIDAK BOLEH dilakukan lagi.
+// 	//
+
+// 	var inStockCount int64
+
+// 	if err := c.DB.
+// 		Model(&models.InboundBarcode{}).
+// 		Where(
+// 			"inbound_id = ? AND LOWER(status) = ?",
+// 			inboundHeader.ID,
+// 			"in stock",
+// 		).
+// 		Count(&inStockCount).Error; err != nil {
+
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+// 			"success": false,
+// 			"error":   err.Error(),
+// 		})
+// 	}
+
+// 	// if inStockCount > 0 {
+
+// 	// 	return ctx.Status(fiber.StatusForbidden).JSON(fiber.Map{
+// 	// 		"success": false,
+// 	// 		"error": fmt.Sprintf(
+// 	// 			"Cannot upload checking Excel. Inbound %s already has %d item(s) with status 'in stock'. The receiving has already been putaway.",
+// 	// 			inboundHeader.InboundNo,
+// 	// 			inStockCount,
+// 	// 		),
+// 	// 	})
+// 	// }
+
+// 	// ============================================================
+// 	// GET FILE
+// 	// ============================================================
+
+// 	fileHeader, err := ctx.FormFile("file")
+
+// 	if err != nil {
+// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+// 			"success": false,
+// 			"error":   "Excel file is required",
+// 		})
+// 	}
+
+// 	// ============================================================
+// 	// VALIDATE FILE EXTENSION
+// 	// ============================================================
+
+// 	filename := strings.ToLower(
+// 		fileHeader.Filename,
+// 	)
+
+// 	if !strings.HasSuffix(filename, ".xlsx") {
+
+// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+// 			"success": false,
+// 			"error":   "Only .xlsx Excel files are allowed",
+// 		})
+// 	}
+
+// 	// ============================================================
+// 	// OPEN FILE
+// 	// ============================================================
+
+// 	file, err := fileHeader.Open()
+
+// 	if err != nil {
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+// 			"success": false,
+// 			"error":   "Failed to open uploaded file",
+// 		})
+// 	}
+
+// 	defer file.Close()
+
+// 	// ============================================================
+// 	// READ FILE
+// 	// ============================================================
+
+// 	fileBytes, err := io.ReadAll(file)
+
+// 	if err != nil {
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+// 			"success": false,
+// 			"error":   "Failed to read uploaded file",
+// 		})
+// 	}
+
+// 	// ============================================================
+// 	// OPEN EXCEL
+// 	// ============================================================
+
+// 	excel, err := excelize.OpenReader(
+// 		bytes.NewReader(fileBytes),
+// 	)
+
+// 	if err != nil {
+// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+// 			"success": false,
+// 			"error":   "Invalid Excel file: " + err.Error(),
+// 		})
+// 	}
+
+// 	defer excel.Close()
+
+// 	// ============================================================
+// 	// GET SHEET
+// 	// ============================================================
+
+// 	sheetName := "Checking"
+
+// 	rows, err := excel.GetRows(sheetName)
+
+// 	if err != nil {
+// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+// 			"success": false,
+// 			"error":   "Sheet 'Checking' not found",
+// 		})
+// 	}
+
+// 	if len(rows) <= 1 {
+// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+// 			"success": false,
+// 			"error":   "Excel does not contain checking data",
+// 		})
+// 	}
+
+// 	// ============================================================
+// 	// VALIDATE HEADER
+// 	// ============================================================
+
+// 	expectedHeaders := []string{
+// 		"No",
+// 		"Item Code",
+// 		"Item Name",
+// 		"Unit Model",
+// 		"Barcode",
+// 		"Serial Number",
+// 		"Qty Plan",
+// 		"Qty Received",
+// 		"Case No",
+// 		"Carton No",
+// 		"Location",
+// 	}
+
+// 	header := rows[0]
+
+// 	if len(header) < len(expectedHeaders) {
+// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+// 			"success": false,
+// 			"error":   "Invalid Excel template. Missing columns.",
+// 		})
+// 	}
+
+// 	for i, expected := range expectedHeaders {
+
+// 		actual := strings.TrimSpace(
+// 			header[i],
+// 		)
+
+// 		if actual != expected {
+
+// 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+// 				"success": false,
+// 				"error": fmt.Sprintf(
+// 					"Invalid Excel template at column %d. Expected '%s', got '%s'",
+// 					i+1,
+// 					expected,
+// 					actual,
+// 				),
+// 			})
+// 		}
+// 	}
+
+// 	// ============================================================
+// 	// GET INBOUND DETAILS
+// 	// ============================================================
+
+// 	var inboundDetails []models.InboundDetail
+
+// 	if err := c.DB.
+// 		Where("inbound_id = ?", inboundHeader.ID).
+// 		Order("id ASC").
+// 		Find(&inboundDetails).Error; err != nil {
+
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+// 			"success": false,
+// 			"error":   err.Error(),
+// 		})
+// 	}
+
+// 	if len(inboundDetails) == 0 {
+// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+// 			"success": false,
+// 			"error":   "Inbound detail not found",
+// 		})
+// 	}
+
+// 	// ============================================================
+// 	// GET ALL SERIALS
+// 	// ============================================================
+
+// 	var inboundSerials []models.InboundSerial
+
+// 	if err := c.DB.
+// 		Where("inbound_id = ?", inboundHeader.ID).
+// 		Order("id ASC").
+// 		Find(&inboundSerials).Error; err != nil {
+
+// 		return ctx.Status(
+// 			fiber.StatusInternalServerError,
+// 		).JSON(fiber.Map{
+// 			"success": false,
+// 			"error":   err.Error(),
+// 		})
+// 	}
+
+// 	// ============================================================
+// 	// GROUP SERIAL BY INBOUND DETAIL
+// 	// ============================================================
+
+// 	serialMap := make(map[uint][]models.InboundSerial)
+
+// 	for _, serial := range inboundSerials {
+
+// 		detailID := uint(
+// 			serial.InboundDetailId,
+// 		)
+
+// 		serialMap[detailID] = append(
+// 			serialMap[detailID],
+// 			serial,
+// 		)
+// 	}
+
+// 	// ============================================================
+// 	// EXPECTED ROW STRUCT
+// 	// ============================================================
+
+// 	type expectedRow struct {
+// 		No int
+
+// 		Detail models.InboundDetail
+
+// 		SerialNumber string
+
+// 		QtyPlan float64
+// 	}
+
+// 	expectedRows := make(
+// 		[]expectedRow,
+// 		0,
+// 	)
+
+// 	rowNo := 1
+
+// 	for _, detail := range inboundDetails {
+
+// 		// ========================================================
+// 		// GET SERIALS
+// 		// ========================================================
+
+// 		serials := serialMap[detail.ID]
+
+// 		// ========================================================
+// 		// SERIAL ITEM
+// 		// ========================================================
+
+// 		if len(serials) > 0 {
+
+// 			for _, serial := range serials {
+
+// 				expectedRows = append(
+// 					expectedRows,
+// 					expectedRow{
+// 						No: rowNo,
+
+// 						Detail: detail,
+
+// 						SerialNumber: strings.TrimSpace(
+// 							serial.SerialNumber,
+// 						),
+
+// 						QtyPlan: 1,
+// 					},
+// 				)
+
+// 				rowNo++
+// 			}
+
+// 			continue
+// 		}
+
+// 		// ========================================================
+// 		// NON SERIAL ITEM
+// 		// ========================================================
+
+// 		expectedRows = append(
+// 			expectedRows,
+// 			expectedRow{
+// 				No:           rowNo,
+// 				Detail:       detail,
+// 				SerialNumber: "",
+// 				QtyPlan:      detail.Quantity,
+// 			},
+// 		)
+
+// 		rowNo++
+// 	}
+
+// 	// ============================================================
+// 	// MAP EXPECTED ROW BY ITEM CODE
+// 	// ============================================================
+
+// 	expectedByItemCode := make(map[string][]expectedRow)
+
+// 	for _, expected := range expectedRows {
+
+// 		key := strings.TrimSpace(
+// 			expected.Detail.ItemCode,
+// 		)
+
+// 		expectedByItemCode[key] = append(
+// 			expectedByItemCode[key],
+// 			expected,
+// 		)
+// 	}
+
+// 	// ============================================================
+// 	// EXCEL DATA ROWS
+// 	// ============================================================
+
+// 	excelDataRows := rows[1:]
+
+// 	if len(excelDataRows) == 0 {
+// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+// 			"success": false,
+// 			"error":   "Excel does not contain checking data",
+// 		})
+// 	}
+
+// 	// ============================================================
+// 	// MAP EXPECTED ROW BY NO
+// 	// ============================================================
+// 	//
+// 	// No menunjukkan InboundDetail asal.
+// 	//
+// 	// Untuk NON-SERIAL:
+// 	// No yang sama boleh muncul beberapa kali
+// 	// karena satu Qty Plan boleh di-split menjadi beberapa row.
+// 	//
+// 	// Contoh:
+// 	// No 1 Qty Plan 2
+// 	//
+// 	// menjadi:
+// 	//
+// 	// No 1 Qty Plan 1
+// 	// No 1 Qty Plan 1
+// 	//
+// 	// Untuk SERIAL:
+// 	// No harus tetap unique.
+// 	// ============================================================
+
+// 	expectedByNo := make(map[int]expectedRow)
+
+// 	for _, expected := range expectedRows {
+// 		expectedByNo[expected.No] = expected
+// 	}
+
+// 	// ============================================================
+// 	// UPLOAD ROW STRUCT
+// 	// ============================================================
+
+// 	type uploadRow struct {
+// 		RowNumber int
+
+// 		No int
+
+// 		Detail models.InboundDetail
+
+// 		ItemCode string
+
+// 		Barcode string
+
+// 		SerialNumber string
+
+// 		QtyPlan float64
+
+// 		QtyReceived float64
+
+// 		CaseNumber string
+
+// 		CartonNumber string
+
+// 		Location string
+// 	}
+
+// 	uploadRows := make(
+// 		[]uploadRow,
+// 		0,
+// 	)
+
+// 	// ============================================================
+// 	// HELPER GET COLUMN
+// 	// ============================================================
+
+// 	getColumn := func(
+// 		row []string,
+// 		index int,
+// 	) string {
+
+// 		if len(row) <= index {
+// 			return ""
+// 		}
+
+// 		return strings.TrimSpace(
+// 			row[index],
+// 		)
+// 	}
+
+// 	// ============================================================
+// 	// HELPER PARSE FLOAT
+// 	// ============================================================
+
+// 	parseFloat := func(
+// 		value string,
+// 	) (float64, error) {
+
+// 		value = strings.TrimSpace(value)
+
+// 		if value == "" {
+// 			return 0, fmt.Errorf("empty value")
+// 		}
+
+// 		// Support:
+// 		//
+// 		// 10
+// 		// 10.5
+// 		// 10,5
+// 		//
+
+// 		value = strings.ReplaceAll(
+// 			value,
+// 			",",
+// 			".",
+// 		)
+
+// 		return strconv.ParseFloat(
+// 			value,
+// 			64,
+// 		)
+// 	}
+
+// 	// ============================================================
+// 	// TRACK TOTAL RECEIVED PER DETAIL
+// 	// ============================================================
+
+// 	receivedByDetail := make(
+// 		map[uint]float64,
+// 	)
+
+// 	// ============================================================
+// 	// TRACK TOTAL QTY PLAN PER DETAIL
+// 	// ============================================================
+// 	//
+// 	// Dipakai supaya:
+// 	// Qty Plan 2
+// 	//
+// 	// boleh menjadi:
+// 	//
+// 	// Row 1 = 1
+// 	// Row 2 = 1
+// 	//
+// 	// Total tetap 2.
+// 	// ============================================================
+
+// 	plannedByDetail := make(
+// 		map[uint]float64,
+// 	)
+
+// 	// ============================================================
+// 	// TRACK SERIAL RECEIVED
+// 	// ============================================================
+
+// 	serialReceived := make(
+// 		map[string]float64,
+// 	)
+
+// 	// ============================================================
+// 	// PARSE EXCEL ROWS
+// 	// ============================================================
+
+// 	for index, row := range excelDataRows {
+
+// 		excelRowNumber := index + 2
+
+// 		// expected akan dicari berdasarkan No di Excel
+// 		var expected expectedRow
+
+// 		// ========================================================
+// 		// IMPORTANT
+// 		// ========================================================
+// 		//
+// 		// Excelize GetRows() dapat menghilangkan trailing
+// 		// empty cells.
+// 		//
+// 		// Minimal A-G harus ada.
+// 		//
+// 		// H-K boleh kosong.
+// 		//
+
+// 		if len(row) < 7 {
+
+// 			return ctx.Status(
+// 				fiber.StatusBadRequest,
+// 			).JSON(fiber.Map{
+// 				"success": false,
+// 				"error": fmt.Sprintf(
+// 					"Row %d is missing required template columns",
+// 					excelRowNumber,
+// 				),
+// 			})
+// 		}
+
+// 		// ========================================================
+// 		// READ VALUES
+// 		// ========================================================
+
+// 		noText := getColumn(row, 0)
+
+// 		itemCode := getColumn(row, 1)
+// 		// itemName := getColumn(row, 2)
+// 		// unitModel := getColumn(row, 3)
+// 		barcode := getColumn(row, 4)
+// 		serialNumber := getColumn(row, 5)
+
+// 		qtyPlanText := getColumn(row, 6)
+// 		qtyReceivedText := getColumn(row, 7)
+
+// 		caseNumber := getColumn(row, 8)
+// 		cartonNumber := getColumn(row, 9)
+// 		location := getColumn(row, 10)
+
+// 		// ========================================================
+// 		// NO
+// 		// ========================================================
+
+// 		if noText == "" {
+
+// 			return ctx.Status(
+// 				fiber.StatusBadRequest,
+// 			).JSON(fiber.Map{
+// 				"success": false,
+// 				"error": fmt.Sprintf(
+// 					"Row %d: No is required",
+// 					excelRowNumber,
+// 				),
+// 			})
+// 		}
+
+// 		no, err := strconv.Atoi(noText)
+
+// 		if err != nil {
+
+// 			return ctx.Status(
+// 				fiber.StatusBadRequest,
+// 			).JSON(fiber.Map{
+// 				"success": false,
+// 				"error": fmt.Sprintf(
+// 					"Row %d: No must be a number",
+// 					excelRowNumber,
+// 				),
+// 			})
+// 		}
+
+// 		// var expectedRows []expectedRow
+
+// 		// expectedByItemCode := make(map[string][]expectedRow)
+
+// 		// for _, expected := range expectedRows {
+// 		// 	key := strings.TrimSpace(expected.Detail.ItemCode)
+
+// 		// 	expectedByItemCode[key] = append(
+// 		// 		expectedByItemCode[key],
+// 		// 		expected,
+// 		// 	)
+// 		// }
+
+// 		// ========================================================
+// 		// FIND EXPECTED DETAIL BY NO
+// 		// ========================================================
+
+// 		// var exists bool
+
+// 		// expected, exists = expectedByNo[no]
+
+// 		// if !exists {
+
+// 		// 	return ctx.Status(
+// 		// 		fiber.StatusBadRequest,
+// 		// 	).JSON(fiber.Map{
+// 		// 		"success": false,
+// 		// 		"error": fmt.Sprintf(
+// 		// 			"Row %d: No %d does not exist in inbound template",
+// 		// 			excelRowNumber,
+// 		// 			no,
+// 		// 		),
+// 		// 	})
+// 		// }
+
+// 		// ========================================================
+// 		// ITEM CODE
+// 		// ========================================================
+
+// 		if itemCode == "" {
+
+// 			return ctx.Status(
+// 				fiber.StatusBadRequest,
+// 			).JSON(fiber.Map{
+// 				"success": false,
+// 				"error": fmt.Sprintf(
+// 					"Row %d: Item Code is required",
+// 					excelRowNumber,
+// 				),
+// 			})
+// 		}
+
+// 		// ========================================================
+// 		// FIND EXPECTED DETAIL
+// 		// ========================================================
+// 		//
+// 		// Jangan gunakan index Excel untuk mencari detail.
+// 		// Karena non-serial Qty 2 boleh dipecah menjadi:
+// 		//
+// 		// Row 1 -> Qty Plan 1
+// 		// Row 2 -> Qty Plan 1
+// 		//
+// 		// Maka Excel row tidak lagi 1:1 dengan expectedRows.
+// 		//
+
+// 		itemCodeKey := strings.TrimSpace(itemCode)
+
+// 		candidates := expectedByItemCode[itemCodeKey]
+
+// 		if len(candidates) == 0 {
+
+// 			return ctx.Status(
+// 				fiber.StatusBadRequest,
+// 			).JSON(fiber.Map{
+// 				"success": false,
+// 				"error": fmt.Sprintf(
+// 					"Row %d: Item Code '%s' does not exist in inbound detail",
+// 					excelRowNumber,
+// 					itemCode,
+// 				),
+// 			})
+// 		}
+
+// 		foundExpected := false
+
+// 		// ========================================================
+// 		// SERIAL ITEM
+// 		// ========================================================
+// 		//
+// 		// Kalau Serial Number di Excel ada,
+// 		// cari berdasarkan ItemCode + SerialNumber.
+// 		//
+
+// 		if serialNumber != "" {
+
+// 			excelSerial := strings.ToLower(
+// 				strings.TrimSpace(serialNumber),
+// 			)
+
+// 			for _, candidate := range candidates {
+
+// 				if strings.TrimSpace(candidate.SerialNumber) == "" {
+// 					continue
+// 				}
+
+// 				candidateSerial := strings.ToLower(
+// 					strings.TrimSpace(candidate.SerialNumber),
+// 				)
+
+// 				if candidateSerial != excelSerial {
+// 					continue
+// 				}
+
+// 				// Barcode kalau tersedia harus match juga.
+// 				if strings.TrimSpace(candidate.Detail.Barcode) != "" &&
+// 					strings.TrimSpace(candidate.Detail.Barcode) !=
+// 						strings.TrimSpace(barcode) {
+// 					continue
+// 				}
+
+// 				expected = candidate
+// 				foundExpected = true
+// 				break
+// 			}
+// 		}
+
+// 		// ========================================================
+// 		// NON-SERIAL ITEM
+// 		// ========================================================
+// 		//
+// 		// Kalau tidak ada Serial Number,
+// 		// cari candidate non-serial dengan Item Code + Barcode.
+// 		//
+
+// 		if !foundExpected {
+
+// 			for _, candidate := range candidates {
+
+// 				// Candidate serial jangan dipakai untuk
+// 				// row non-serial.
+// 				if strings.TrimSpace(candidate.SerialNumber) != "" {
+// 					continue
+// 				}
+
+// 				// Barcode harus cocok.
+// 				if strings.TrimSpace(candidate.Detail.Barcode) != "" &&
+// 					strings.TrimSpace(candidate.Detail.Barcode) !=
+// 						strings.TrimSpace(barcode) {
+// 					continue
+// 				}
+
+// 				// Detail ini masih punya Qty yang bisa dipakai.
+// 				usedQty := plannedByDetail[candidate.Detail.ID]
+
+// 				if usedQty >= candidate.Detail.Quantity {
+// 					continue
+// 				}
+
+// 				expected = candidate
+// 				foundExpected = true
+// 				break
+// 			}
+// 		}
+
+// 		// if !foundExpected {
+
+// 		// 	return ctx.Status(
+// 		// 		fiber.StatusBadRequest,
+// 		// 	).JSON(fiber.Map{
+// 		// 		"success": false,
+// 		// 		"error": fmt.Sprintf(
+// 		// 			"Row %d: Item Code '%s' does not match any inbound detail",
+// 		// 			excelRowNumber,
+// 		// 			itemCode,
+// 		// 		),
+// 		// 	})
+// 		// }
+
+// 		// ========================================================
+// 		// GET PRODUCT
+// 		// ========================================================
+
+// 		var product models.Product
+
+// 		if expected.Detail.ItemId != 0 {
+
+// 			if err := c.DB.
+// 				First(
+// 					&product,
+// 					"id = ?",
+// 					expected.Detail.ItemId,
+// 				).Error; err != nil {
+
+// 				if errors.Is(
+// 					err,
+// 					gorm.ErrRecordNotFound,
+// 				) {
+
+// 					return ctx.Status(
+// 						fiber.StatusBadRequest,
+// 					).JSON(fiber.Map{
+// 						"success": false,
+// 						"error": fmt.Sprintf(
+// 							"Row %d: Product for Item Code '%s' not found",
+// 							excelRowNumber,
+// 							itemCode,
+// 						),
+// 					})
+// 				}
+
+// 				return ctx.Status(
+// 					fiber.StatusInternalServerError,
+// 				).JSON(fiber.Map{
+// 					"success": false,
+// 					"error":   err.Error(),
+// 				})
+// 			}
+// 		}
+
+// 		// ========================================================
+// 		// ITEM NAME
+// 		// ========================================================
+
+// 		// if itemName != strings.TrimSpace(
+// 		// 	product.ItemName,
+// 		// ) {
+
+// 		// 	return ctx.Status(
+// 		// 		fiber.StatusBadRequest,
+// 		// 	).JSON(fiber.Map{
+// 		// 		"success": false,
+// 		// 		"error": fmt.Sprintf(
+// 		// 			"Row %d: Item Name does not match master product",
+// 		// 			excelRowNumber,
+// 		// 		),
+// 		// 	})
+// 		// }
+
+// 		// ========================================================
+// 		// UNIT MODEL
+// 		// ========================================================
+
+// 		// if unitModel != strings.TrimSpace(
+// 		// 	product.UnitModel,
+// 		// ) {
+
+// 		// 	return ctx.Status(
+// 		// 		fiber.StatusBadRequest,
+// 		// 	).JSON(fiber.Map{
+// 		// 		"success": false,
+// 		// 		"error": fmt.Sprintf(
+// 		// 			"Row %d: Unit Model does not match master product",
+// 		// 			excelRowNumber,
+// 		// 		),
+// 		// 	})
+// 		// }
+
+// 		// ========================================================
+// 		// BARCODE
+// 		// ========================================================
+
+// 		// if barcode != strings.TrimSpace(
+// 		// 	expected.Detail.Barcode,
+// 		// ) {
+
+// 		// 	return ctx.Status(
+// 		// 		fiber.StatusBadRequest,
+// 		// 	).JSON(fiber.Map{
+// 		// 		"success": false,
+// 		// 		"error": fmt.Sprintf(
+// 		// 			"Row %d: Barcode does not match inbound detail. Expected '%s', got '%s'",
+// 		// 			excelRowNumber,
+// 		// 			expected.Detail.Barcode,
+// 		// 			barcode,
+// 		// 		),
+// 		// 	})
+// 		// }
+
+// 		// ========================================================
+// 		// SERIAL NUMBER
+// 		// ========================================================
+
+// 		// if serialNumber != expected.SerialNumber {
+
+// 		// 	return ctx.Status(
+// 		// 		fiber.StatusBadRequest,
+// 		// 	).JSON(fiber.Map{
+// 		// 		"success": false,
+// 		// 		"error": fmt.Sprintf(
+// 		// 			"Row %d: Serial Number does not match inbound serial. Expected '%s', got '%s'",
+// 		// 			excelRowNumber,
+// 		// 			expected.SerialNumber,
+// 		// 			serialNumber,
+// 		// 		),
+// 		// 	})
+// 		// }
+
+// 		// ========================================================
+// 		// QTY PLAN
+// 		// ========================================================
+
+// 		if qtyPlanText == "" {
+
+// 			return ctx.Status(
+// 				fiber.StatusBadRequest,
+// 			).JSON(fiber.Map{
+// 				"success": false,
+// 				"error": fmt.Sprintf(
+// 					"Row %d: Qty Plan is required",
+// 					excelRowNumber,
+// 				),
+// 			})
+// 		}
+
+// 		qtyPlan, err := parseFloat(
+// 			qtyPlanText,
+// 		)
+
+// 		if err != nil {
+
+// 			return ctx.Status(
+// 				fiber.StatusBadRequest,
+// 			).JSON(fiber.Map{
+// 				"success": false,
+// 				"error": fmt.Sprintf(
+// 					"Row %d: invalid Qty Plan '%s'",
+// 					excelRowNumber,
+// 					qtyPlanText,
+// 				),
+// 			})
+// 		}
+
+// 		// ========================================================
+// 		// QTY PLAN
+// 		// ========================================================
+// 		//
+// 		// NON-SERIAL:
+// 		//
+// 		// Original:
+// 		// Qty Plan = 2
+// 		//
+// 		// Valid:
+// 		// Row 1 = 1
+// 		// Row 2 = 1
+// 		//
+// 		// Total = 2
+// 		//
+// 		// Jadi Qty Plan per row boleh dipecah.
+// 		// Yang wajib sama adalah TOTAL Qty Plan per InboundDetail.
+// 		// ========================================================
+
+// 		if qtyPlan <= 0 {
+
+// 			return ctx.Status(
+// 				fiber.StatusBadRequest,
+// 			).JSON(fiber.Map{
+// 				"success": false,
+// 				"error": fmt.Sprintf(
+// 					"Row %d: Qty Plan must be greater than 0",
+// 					excelRowNumber,
+// 				),
+// 			})
+// 		}
+
+// 		// SERIAL ITEM
+// 		if expected.SerialNumber != "" {
+
+// 			if qtyPlan != 1 {
+
+// 				return ctx.Status(
+// 					fiber.StatusBadRequest,
+// 				).JSON(fiber.Map{
+// 					"success": false,
+// 					"error": fmt.Sprintf(
+// 						"Row %d: Serial item Qty Plan must be 1",
+// 						excelRowNumber,
+// 					),
+// 				})
+// 			}
+// 		}
+
+// 		// TRACK TOTAL QTY PLAN
+// 		detailID := expected.Detail.ID
+
+// 		plannedByDetail[detailID] += qtyPlan
+
+// 		fmt.Printf(
+// 			"Row %d: PlannedByDetail[%d] = %.2f\n",
+// 			excelRowNumber,
+// 			detailID,
+// 			plannedByDetail[detailID],
+// 		)
+
+// 		// Jangan sampai total Qty Plan melebihi
+// 		// Qty pada inbound_detail.
+
+// 		// if plannedByDetail[detailID] > expected.Detail.Quantity {
+
+// 		// 	return ctx.Status(
+// 		// 		fiber.StatusBadRequest,
+// 		// 	).JSON(fiber.Map{
+// 		// 		"success": false,
+// 		// 		"error": fmt.Sprintf(
+// 		// 			"Row %d: Total Qty Plan %.2f for Item '%s' exceeds Inbound Detail Qty %.2f",
+// 		// 			excelRowNumber,
+// 		// 			plannedByDetail[detailID],
+// 		// 			expected.Detail.ItemCode,
+// 		// 			expected.Detail.Quantity,
+// 		// 		),
+// 		// 	})
+// 		// }
+
+// 		// ========================================================
+// 		// QTY RECEIVED
+// 		// ========================================================
+// 		//
+// 		// PARTIAL RECEIVING:
+// 		//
+// 		// Qty Received kosong = 0
+// 		//
+// 		// Jadi Qty Received TIDAK wajib diisi.
+// 		//
+// 		// Contoh:
+// 		//
+// 		// Qty Plan = 100
+// 		// Qty Received = kosong
+// 		//
+// 		// dianggap:
+// 		//
+// 		// Qty Received = 0
+// 		//
+// 		// ========================================================
+
+// 		qtyReceived := float64(0)
+
+// 		if qtyReceivedText != "" {
+
+// 			qtyReceived, err = parseFloat(
+// 				qtyReceivedText,
+// 			)
+
+// 			if err != nil {
+
+// 				return ctx.Status(
+// 					fiber.StatusBadRequest,
+// 				).JSON(fiber.Map{
+// 					"success": false,
+// 					"error": fmt.Sprintf(
+// 						"Row %d: invalid Qty Received '%s'",
+// 						excelRowNumber,
+// 						qtyReceivedText,
+// 					),
+// 				})
+// 			}
+// 		}
+
+// 		// ========================================================
+// 		// QTY NEGATIVE
+// 		// ========================================================
+
+// 		if qtyReceived < 0 {
+
+// 			return ctx.Status(
+// 				fiber.StatusBadRequest,
+// 			).JSON(fiber.Map{
+// 				"success": false,
+// 				"error": fmt.Sprintf(
+// 					"Row %d: Qty Received cannot be negative",
+// 					excelRowNumber,
+// 				),
+// 			})
+// 		}
+
+// 		// ========================================================
+// 		// QTY RECEIVED > QTY PLAN
+// 		// ========================================================
+
+// 		if qtyReceived > qtyPlan {
+
+// 			return ctx.Status(
+// 				fiber.StatusBadRequest,
+// 			).JSON(fiber.Map{
+// 				"success": false,
+// 				"error": fmt.Sprintf(
+// 					"Row %d: Qty Received %.2f exceeds Qty Plan %.2f",
+// 					excelRowNumber,
+// 					qtyReceived,
+// 					qtyPlan,
+// 				),
+// 			})
+// 		}
+
+// 		// ========================================================
+// 		// SERIAL VALIDATION
+// 		// ========================================================
+
+// 		if expected.SerialNumber != "" {
+
+// 			// ----------------------------------------------------
+// 			// SERIAL QTY PLAN
+// 			// ----------------------------------------------------
+
+// 			if expected.QtyPlan != 1 {
+
+// 				return ctx.Status(
+// 					fiber.StatusBadRequest,
+// 				).JSON(fiber.Map{
+// 					"success": false,
+// 					"error": fmt.Sprintf(
+// 						"Row %d: Invalid serial Qty Plan. Expected 1",
+// 						excelRowNumber,
+// 					),
+// 				})
+// 			}
+
+// 			// ----------------------------------------------------
+// 			// SERIAL QTY RECEIVED
+// 			// ----------------------------------------------------
+// 			//
+// 			// Serial hanya boleh:
+// 			//
+// 			// 0 = belum diterima
+// 			// 1 = diterima
+// 			//
+
+// 			if qtyReceived != 0 && qtyReceived != 1 {
+
+// 				return ctx.Status(
+// 					fiber.StatusBadRequest,
+// 				).JSON(fiber.Map{
+// 					"success": false,
+// 					"error": fmt.Sprintf(
+// 						"Row %d: Serial item Qty Received must be 0 or 1",
+// 						excelRowNumber,
+// 					),
+// 				})
+// 			}
+
+// 			// ----------------------------------------------------
+// 			// DUPLICATE SERIAL RECEIVED
+// 			// ----------------------------------------------------
+
+// 			if qtyReceived > 0 {
+
+// 				serialKey := strings.ToLower(
+// 					strings.TrimSpace(
+// 						expected.SerialNumber,
+// 					),
+// 				)
+
+// 				serialReceived[serialKey] += qtyReceived
+
+// 				if serialReceived[serialKey] > 1 {
+
+// 					return ctx.Status(
+// 						fiber.StatusBadRequest,
+// 					).JSON(fiber.Map{
+// 						"success": false,
+// 						"error": fmt.Sprintf(
+// 							"Row %d: Serial Number '%s' is received more than once",
+// 							excelRowNumber,
+// 							expected.SerialNumber,
+// 						),
+// 					})
+// 				}
+// 			}
+// 		}
+
+// 		// ========================================================
+// 		// TOTAL QTY RECEIVED PER DETAIL
+// 		// ========================================================
+// 		//
+// 		// Untuk non-serial:
+// 		//
+// 		// Qty Plan = 100
+// 		//
+// 		// Row 1 = 40
+// 		// Row 2 = 30
+// 		// Row 3 = 30
+// 		//
+// 		// Total = 100 -> OK
+// 		//
+// 		// Kalau:
+// 		//
+// 		// Row 1 = 40
+// 		// Row 2 = 70
+// 		//
+// 		// Total = 110 -> ERROR
+// 		//
+// 		// ========================================================
+
+// 		// detailID := expected.Detail.ID
+
+// 		receivedByDetail[detailID] += qtyReceived
+
+// 		if receivedByDetail[detailID] >
+// 			expected.Detail.Quantity {
+
+// 			return ctx.Status(
+// 				fiber.StatusBadRequest,
+// 			).JSON(fiber.Map{
+// 				"success": false,
+// 				"error": fmt.Sprintf(
+// 					"Row %d: Total Qty Received %.2f for Item '%s' exceeds Inbound Detail Qty %.2f",
+// 					excelRowNumber,
+// 					receivedByDetail[detailID],
+// 					expected.Detail.ItemCode,
+// 					expected.Detail.Quantity,
+// 				),
+// 			})
+// 		}
+
+// 		// ========================================================
+// 		// USER INPUT VALIDATION
+// 		// ========================================================
+// 		//
+// 		// PARTIAL RECEIVING:
+// 		//
+// 		// Qty Received = 0
+// 		// ----------------
+// 		// Case No    -> optional
+// 		// Carton No  -> optional
+// 		// Location   -> optional
+// 		//
+// 		// Qty Received > 0
+// 		// ----------------
+// 		// Case No    -> REQUIRED
+// 		// Carton No  -> REQUIRED
+// 		// Location   -> REQUIRED
+// 		//
+// 		// ========================================================
+
+// 		if qtyReceived > 0 {
+
+// 			// ----------------------------------------------------
+// 			// CASE NO
+// 			// ----------------------------------------------------
+
+// 			if caseNumber == "" {
+
+// 				return ctx.Status(
+// 					fiber.StatusBadRequest,
+// 				).JSON(fiber.Map{
+// 					"success": false,
+// 					"error": fmt.Sprintf(
+// 						"Row %d: Case No is required when Qty Received > 0",
+// 						excelRowNumber,
+// 					),
+// 				})
+// 			}
+
+// 			// ----------------------------------------------------
+// 			// CARTON NO
+// 			// ----------------------------------------------------
+
+// 			if cartonNumber == "" {
+
+// 				return ctx.Status(
+// 					fiber.StatusBadRequest,
+// 				).JSON(fiber.Map{
+// 					"success": false,
+// 					"error": fmt.Sprintf(
+// 						"Row %d: Carton No is required when Qty Received > 0",
+// 						excelRowNumber,
+// 					),
+// 				})
+// 			}
+
+// 			// ----------------------------------------------------
+// 			// LOCATION
+// 			// ----------------------------------------------------
+
+// 			if location == "" {
+
+// 				return ctx.Status(
+// 					fiber.StatusBadRequest,
+// 				).JSON(fiber.Map{
+// 					"success": false,
+// 					"error": fmt.Sprintf(
+// 						"Row %d: Location is required when Qty Received > 0",
+// 						excelRowNumber,
+// 					),
+// 				})
+// 			}
+// 		}
+
+// 		// ========================================================
+// 		// APPEND UPLOAD ROW
+// 		// ========================================================
+
+// 		uploadRows = append(
+// 			uploadRows,
+// 			uploadRow{
+// 				RowNumber: excelRowNumber,
+
+// 				No: no,
+
+// 				Detail: expected.Detail,
+
+// 				ItemCode: itemCode,
+
+// 				Barcode: barcode,
+
+// 				SerialNumber: serialNumber,
+
+// 				QtyPlan: qtyPlan,
+
+// 				QtyReceived: qtyReceived,
+
+// 				CaseNumber: caseNumber,
+
+// 				CartonNumber: cartonNumber,
+
+// 				Location: location,
+// 			},
+// 		)
+// 	}
+
+// 	// ============================================================
+// 	// VALIDATE TOTAL QTY PLAN PER DETAIL
+// 	// ============================================================
+// 	//
+// 	// Setiap InboundDetail harus tetap memiliki total Qty Plan
+// 	// sesuai Qty pada inbound_detail.
+// 	//
+// 	// Contoh:
+// 	//
+// 	// Original Qty = 2
+// 	//
+// 	// Valid:
+// 	// 1 + 1 = 2
+// 	//
+// 	// Valid:
+// 	// 2 = 2
+// 	//
+// 	// Tidak valid:
+// 	// 1 = 1
+// 	//
+// 	// Tidak valid:
+// 	// 1 + 2 = 3
+// 	// ============================================================
+
+// 	validatedDetails := make(map[uint]bool)
+
+// 	for _, expected := range expectedRows {
+
+// 		detailID := expected.Detail.ID
+
+// 		if validatedDetails[detailID] {
+// 			continue
+// 		}
+
+// 		validatedDetails[detailID] = true
+
+// 		expectedQty := expected.Detail.Quantity
+// 		actualQty := plannedByDetail[detailID]
+
+// 		if actualQty != expectedQty {
+
+// 			return ctx.Status(
+// 				fiber.StatusBadRequest,
+// 			).JSON(fiber.Map{
+// 				"success": false,
+// 				"error": fmt.Sprintf(
+// 					"Total Qty Plan for Item '%s' must be %.2f, got %.2f",
+// 					expected.Detail.ItemCode,
+// 					expectedQty,
+// 					actualQty,
+// 				),
+// 			})
+// 		}
+// 	}
+
+// 	// ============================================================
+// 	// CHECK LOCATION
+// 	// ============================================================
+// 	//
+// 	// Hanya cek location apabila Qty Received > 0.
+// 	//
+// 	// Location kosong pada Qty Received = 0 tidak masalah.
+// 	//
+
+// 	locationMap := make(
+// 		map[string]models.Location,
+// 	)
+
+// 	for _, row := range uploadRows {
+
+// 		if row.QtyReceived <= 0 {
+// 			continue
+// 		}
+
+// 		locationCode := strings.TrimSpace(
+// 			row.Location,
+// 		)
+
+// 		// Safety validation.
+// 		// Seharusnya sudah dicek sebelumnya,
+// 		// tetapi tetap dipertahankan agar aman.
+
+// 		if locationCode == "" {
+
+// 			return ctx.Status(
+// 				fiber.StatusBadRequest,
+// 			).JSON(fiber.Map{
+// 				"success": false,
+// 				"error": fmt.Sprintf(
+// 					"Row %d: Location is required when Qty Received > 0",
+// 					row.RowNumber,
+// 				),
+// 			})
+// 		}
+
+// 		if _, exists := locationMap[locationCode]; exists {
+// 			continue
+// 		}
+
+// 		var location models.Location
+
+// 		if err := c.DB.
+// 			Where(
+// 				"location_code = ?",
+// 				locationCode,
+// 			).
+// 			First(&location).Error; err != nil {
+
+// 			if errors.Is(
+// 				err,
+// 				gorm.ErrRecordNotFound,
+// 			) {
+
+// 				return ctx.Status(
+// 					fiber.StatusBadRequest,
+// 				).JSON(fiber.Map{
+// 					"success": false,
+// 					"error": fmt.Sprintf(
+// 						"Row %d: Location '%s' is not registered in system",
+// 						row.RowNumber,
+// 						locationCode,
+// 					),
+// 				})
+// 			}
+
+// 			return ctx.Status(
+// 				fiber.StatusInternalServerError,
+// 			).JSON(fiber.Map{
+// 				"success": false,
+// 				"error":   err.Error(),
+// 			})
+// 		}
+
+// 		// ========================================================
+// 		// LOCATION MUST BE ACTIVE
+// 		// ========================================================
+
+// 		if !location.IsActive {
+
+// 			return ctx.Status(
+// 				fiber.StatusBadRequest,
+// 			).JSON(fiber.Map{
+// 				"success": false,
+// 				"error": fmt.Sprintf(
+// 					"Row %d: Location '%s' is inactive",
+// 					row.RowNumber,
+// 					locationCode,
+// 				),
+// 			})
+// 		}
+
+// 		locationMap[locationCode] = location
+// 	}
+
+// 	// ============================================================
+// 	// GET USER ID
+// 	// ============================================================
+
+// 	userID := 0
+
+// 	if value := ctx.Locals("userID"); value != nil {
+
+// 		switch v := value.(type) {
+
+// 		case float64:
+// 			userID = int(v)
+
+// 		case int:
+// 			userID = v
+
+// 		case int64:
+// 			userID = int(v)
+// 		}
+// 	}
+
+// 	// ============================================================
+// 	// GENERATE PALLET
+// 	// ============================================================
+
+// 	inboundRepo := repositories.NewInboundRepository(
+// 		c.DB,
+// 	)
+
+// 	palletID, err := inboundRepo.GeneratePalletID(
+// 		inboundHeader.InboundNo,
+// 	)
+
+// 	if err != nil {
+
+// 		return ctx.Status(
+// 			fiber.StatusInternalServerError,
+// 		).JSON(fiber.Map{
+// 			"success": false,
+// 			"error":   err.Error(),
+// 		})
+// 	}
+
+// 	// ============================================================
+// 	// TRANSACTION
+// 	// ============================================================
+
+// 	err = c.DB.Transaction(func(tx *gorm.DB) error {
+
+// 		// ========================================================
+// 		// RE-CHECK HEADER STATUS INSIDE TRANSACTION
+// 		// ========================================================
+
+// 		var currentInbound models.InboundHeader
+
+// 		if err := tx.
+// 			Where("id = ?", inboundHeader.ID).
+// 			First(&currentInbound).Error; err != nil {
+
+// 			return err
+// 		}
+
+// 		currentStatus := strings.ToLower(
+// 			strings.TrimSpace(
+// 				currentInbound.Status,
+// 			),
+// 		)
+
+// 		currentInboundStatusAllowed := []string{
+// 			"checking",
+// 			"partially received",
+// 		}
+
+// 		if !slices.Contains(currentInboundStatusAllowed, currentStatus) {
+
+// 			return fmt.Errorf(
+// 				"cannot upload checking Excel. Inbound %s has status '%s'. Only statuses 'checking' and 'partially received' are allowed",
+// 				currentInbound.InboundNo,
+// 				currentInbound.Status,
+// 			)
+// 		}
+
+// 		// ========================================================
+// 		// RE-CHECK IN STOCK INSIDE TRANSACTION
+// 		// ========================================================
+
+// 		var txInStockCount int64
+
+// 		if err := tx.
+// 			Model(&models.InboundBarcode{}).
+// 			Where(
+// 				"inbound_id = ? AND LOWER(status) = ?",
+// 				currentInbound.ID,
+// 				"in stock",
+// 			).
+// 			Count(&txInStockCount).Error; err != nil {
+
+// 			return err
+// 		}
+
+// 		// if txInStockCount > 0 {
+
+// 		// 	return fmt.Errorf(
+// 		// 		"cannot upload checking Excel. Inbound %s already has %d item(s) with status 'in stock'. Receiving has already been putaway",
+// 		// 		currentInbound.InboundNo,
+// 		// 		txInStockCount,
+// 		// 	)
+// 		// }
+
+// 		// ========================================================
+// 		// DELETE ONLY PENDING
+// 		// ========================================================
+// 		//
+// 		// IMPORTANT:
+// 		//
+// 		// Hanya data pending yang dihapus.
+// 		//
+// 		// in stock / status lain tidak disentuh.
+// 		//
+
+// 		if err := tx.Unscoped().
+// 			Where(
+// 				"inbound_id = ? AND LOWER(status) = ?",
+// 				currentInbound.ID,
+// 				"pending",
+// 			).
+// 			Delete(
+// 				&models.InboundBarcode{},
+// 			).
+// 			Error; err != nil {
+
+// 			return err
+// 		}
+
+// 		// ========================================================
+// 		// INSERT NEW RECEIVING RESULT
+// 		// ========================================================
+
+// 		for _, row := range uploadRows {
+
+// 			// ====================================================
+// 			// ZERO RECEIVED
+// 			// ====================================================
+// 			//
+// 			// Qty Received kosong akan menjadi 0.
+// 			//
+// 			// Tidak dibuat InboundBarcode.
+// 			//
+
+// 			if row.QtyReceived <= 0 {
+// 				continue
+// 			}
+
+// 			detail := row.Detail
+
+// 			// ====================================================
+// 			// GET LOCATION
+// 			// ====================================================
+
+// 			locationCode := strings.TrimSpace(
+// 				row.Location,
+// 			)
+
+// 			location, exists := locationMap[locationCode]
+
+// 			if !exists {
+
+// 				return fmt.Errorf(
+// 					"location '%s' for Excel row %d was not found",
+// 					locationCode,
+// 					row.RowNumber,
+// 				)
+// 			}
+
+// 			// ====================================================
+// 			// CHECK EXISTING IN STOCK
+// 			// ====================================================
+// 			//
+// 			// Jika InboundDetail ini sudah memiliki InboundBarcode
+// 			// dengan status "in stock", jangan insert ulang.
+// 			//
+// 			// Karena data tersebut sudah pernah diproses/putaway.
+// 			// ====================================================
+
+// 			var existingInStockCount int64
+
+// 			if err := tx.
+// 				Model(&models.InboundBarcode{}).
+// 				Where(
+// 					"inbound_detail_id = ? AND LOWER(status) = ?",
+// 					detail.ID,
+// 					"in stock",
+// 				).
+// 				Count(&existingInStockCount).Error; err != nil {
+
+// 				return fmt.Errorf(
+// 					"failed to check existing in stock for Excel row %d: %w",
+// 					row.RowNumber,
+// 					err,
+// 				)
+// 			}
+
+// 			if existingInStockCount > 0 {
+// 				// Sudah ada InboundBarcode untuk detail ini
+// 				// dengan status in stock.
+// 				//
+// 				// Jangan insert ulang.
+// 				continue
+// 			}
+
+// 			// ====================================================
+// 			// CREATE INBOUND BARCODE
+// 			// ====================================================
+
+// 			newInboundBarcode := models.InboundBarcode{
+
+// 				// ------------------------------------------------
+// 				// RELATION
+// 				// ------------------------------------------------
+
+// 				InboundId: int(
+// 					currentInbound.ID,
+// 				),
+
+// 				InboundDetailId: uint(
+// 					detail.ID,
+// 				),
+
+// 				// ------------------------------------------------
+// 				// PRODUCT
+// 				// ------------------------------------------------
+
+// 				ItemID:   detail.ItemId,
+// 				ItemCode: detail.ItemCode,
+
+// 				// ------------------------------------------------
+// 				// SCAN
+// 				// ------------------------------------------------
+
+// 				ScanType:     "excel",
+// 				ScanData:     detail.Barcode,
+// 				Barcode:      detail.Barcode,
+// 				SerialNumber: row.SerialNumber,
+
+// 				// ------------------------------------------------
+// 				// RECEIVING LOCATION
+// 				// ------------------------------------------------
+
+// 				Pallet:          location.LocationCode,
+// 				Location:        location.LocationCode,
+// 				PutawayLocation: "",
+// 				PutawayQty:      0,
+
+// 				// ------------------------------------------------
+// 				// DATE / LOT
+// 				// ------------------------------------------------
+
+// 				RecDate:   detail.RecDate,
+// 				ProdDate:  detail.ProdDate,
+// 				ExpDate:   detail.ExpDate,
+// 				LotNumber: detail.LotNumber,
+
+// 				// ------------------------------------------------
+// 				// CASE / CARTON
+// 				// ------------------------------------------------
+
+// 				CartonNumber: row.CartonNumber,
+// 				CaseNumber:   row.CaseNumber,
+
+// 				// ------------------------------------------------
+// 				// QTY
+// 				// ------------------------------------------------
+
+// 				Quantity: row.QtyReceived,
+// 				Uom:      detail.Uom,
+
+// 				// ------------------------------------------------
+// 				// WAREHOUSE
+// 				// ------------------------------------------------
+
+// 				WhsCode:      detail.WhsCode,
+// 				OwnerCode:    detail.OwnerCode,
+// 				DivisionCode: detail.DivisionCode,
+// 				QaStatus:     detail.QaStatus,
+
+// 				// ------------------------------------------------
+// 				// STATUS
+// 				// ------------------------------------------------
+
+// 				Status: "pending",
+
+// 				// ------------------------------------------------
+// 				// AUDIT
+// 				// ------------------------------------------------
+
+// 				CreatedBy: userID,
+// 				UpdatedBy: userID,
+// 			}
+
+// 			// ====================================================
+// 			// INSERT
+// 			// ====================================================
+
+// 			if err := tx.
+// 				Create(&newInboundBarcode).
+// 				Error; err != nil {
+
+// 				return fmt.Errorf(
+// 					"failed to insert InboundBarcode for Excel row %d: %w",
+// 					row.RowNumber,
+// 					err,
+// 				)
+// 			}
+// 		}
+
+// 		return nil
+// 	})
+
+// 	// ============================================================
+// 	// TRANSACTION ERROR
+// 	// ============================================================
+
+// 	if err != nil {
+
+// 		return ctx.Status(
+// 			fiber.StatusInternalServerError,
+// 		).JSON(fiber.Map{
+// 			"success": false,
+// 			"error":   err.Error(),
+// 		})
+// 	}
+
+// 	// ============================================================
+// 	// GET NEW PENDING RESULT
+// 	// ============================================================
+
+// 	var inboundBarcodes []models.InboundBarcode
+
+// 	if err := c.DB.
+// 		Where(
+// 			"inbound_id = ? AND LOWER(status) = ?",
+// 			inboundHeader.ID,
+// 			"pending",
+// 		).
+// 		Order("id ASC").
+// 		Find(&inboundBarcodes).Error; err != nil {
+
+// 		return ctx.Status(
+// 			fiber.StatusInternalServerError,
+// 		).JSON(fiber.Map{
+// 			"success": false,
+// 			"error":   err.Error(),
+// 		})
+// 	}
+
+// 	// ============================================================
+// 	// RESPONSE
+// 	// ============================================================
+
+// 	return ctx.Status(
+// 		fiber.StatusOK,
+// 	).JSON(fiber.Map{
+// 		"success":    true,
+// 		"message":    "Receiving Excel uploaded successfully",
+// 		"inbound_no": inboundHeader.InboundNo,
+// 		"pallet":     palletID,
+// 		"items":      inboundBarcodes,
+// 	})
+// }
