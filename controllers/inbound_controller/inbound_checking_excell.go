@@ -1209,21 +1209,44 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 	}
 
 	// ============================================================
-	// VALIDATE ROW COUNT
+	// EXCEL DATA ROWS
 	// ============================================================
 
 	excelDataRows := rows[1:]
 
-	if len(excelDataRows) != len(expectedRows) {
-
+	if len(excelDataRows) == 0 {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"success": false,
-			"error": fmt.Sprintf(
-				"Excel row count does not match template. Expected %d rows, got %d rows",
-				len(expectedRows),
-				len(excelDataRows),
-			),
+			"error":   "Excel does not contain checking data",
 		})
+	}
+
+	// ============================================================
+	// MAP EXPECTED ROW BY NO
+	// ============================================================
+	//
+	// No menunjukkan InboundDetail asal.
+	//
+	// Untuk NON-SERIAL:
+	// No yang sama boleh muncul beberapa kali
+	// karena satu Qty Plan boleh di-split menjadi beberapa row.
+	//
+	// Contoh:
+	// No 1 Qty Plan 2
+	//
+	// menjadi:
+	//
+	// No 1 Qty Plan 1
+	// No 1 Qty Plan 1
+	//
+	// Untuk SERIAL:
+	// No harus tetap unique.
+	// ============================================================
+
+	expectedByNo := make(map[int]expectedRow)
+
+	for _, expected := range expectedRows {
+		expectedByNo[expected.No] = expected
 	}
 
 	// ============================================================
@@ -1319,6 +1342,25 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 	)
 
 	// ============================================================
+	// TRACK TOTAL QTY PLAN PER DETAIL
+	// ============================================================
+	//
+	// Dipakai supaya:
+	// Qty Plan 2
+	//
+	// boleh menjadi:
+	//
+	// Row 1 = 1
+	// Row 2 = 1
+	//
+	// Total tetap 2.
+	// ============================================================
+
+	plannedByDetail := make(
+		map[uint]float64,
+	)
+
+	// ============================================================
 	// TRACK SERIAL RECEIVED
 	// ============================================================
 
@@ -1334,7 +1376,8 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 
 		excelRowNumber := index + 2
 
-		expected := expectedRows[index]
+		// expected akan dicari berdasarkan No di Excel
+		var expected expectedRow
 
 		// ========================================================
 		// IMPORTANT
@@ -1412,16 +1455,23 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 			})
 		}
 
-		if no != expected.No {
+		// ========================================================
+		// FIND EXPECTED DETAIL BY NO
+		// ========================================================
+
+		var exists bool
+
+		expected, exists = expectedByNo[no]
+
+		if !exists {
 
 			return ctx.Status(
 				fiber.StatusBadRequest,
 			).JSON(fiber.Map{
 				"success": false,
 				"error": fmt.Sprintf(
-					"Row %d: invalid No. Expected %d, got %d",
+					"Row %d: No %d does not exist in inbound template",
 					excelRowNumber,
-					expected.No,
 					no,
 				),
 			})
@@ -1613,17 +1663,75 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 			})
 		}
 
-		if qtyPlan != expected.QtyPlan {
+		// ========================================================
+		// QTY PLAN
+		// ========================================================
+		//
+		// NON-SERIAL:
+		//
+		// Original:
+		// Qty Plan = 2
+		//
+		// Valid:
+		// Row 1 = 1
+		// Row 2 = 1
+		//
+		// Total = 2
+		//
+		// Jadi Qty Plan per row boleh dipecah.
+		// Yang wajib sama adalah TOTAL Qty Plan per InboundDetail.
+		// ========================================================
+
+		if qtyPlan <= 0 {
 
 			return ctx.Status(
 				fiber.StatusBadRequest,
 			).JSON(fiber.Map{
 				"success": false,
 				"error": fmt.Sprintf(
-					"Row %d: Qty Plan cannot be changed. Expected %.2f, got %.2f",
+					"Row %d: Qty Plan must be greater than 0",
 					excelRowNumber,
-					expected.QtyPlan,
-					qtyPlan,
+				),
+			})
+		}
+
+		// SERIAL ITEM
+		if expected.SerialNumber != "" {
+
+			if qtyPlan != 1 {
+
+				return ctx.Status(
+					fiber.StatusBadRequest,
+				).JSON(fiber.Map{
+					"success": false,
+					"error": fmt.Sprintf(
+						"Row %d: Serial item Qty Plan must be 1",
+						excelRowNumber,
+					),
+				})
+			}
+		}
+
+		// TRACK TOTAL QTY PLAN
+		detailID := expected.Detail.ID
+
+		plannedByDetail[detailID] += qtyPlan
+
+		// Jangan sampai total Qty Plan melebihi
+		// Qty pada inbound_detail.
+
+		if plannedByDetail[detailID] > expected.Detail.Quantity {
+
+			return ctx.Status(
+				fiber.StatusBadRequest,
+			).JSON(fiber.Map{
+				"success": false,
+				"error": fmt.Sprintf(
+					"Row %d: Total Qty Plan %.2f for Item '%s' exceeds Inbound Detail Qty %.2f",
+					excelRowNumber,
+					plannedByDetail[detailID],
+					expected.Detail.ItemCode,
+					expected.Detail.Quantity,
 				),
 			})
 		}
@@ -1807,7 +1915,7 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 		//
 		// ========================================================
 
-		detailID := expected.Detail.ID
+		// detailID := expected.Detail.ID
 
 		receivedByDetail[detailID] += qtyReceived
 
@@ -1932,6 +2040,61 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 				Location: location,
 			},
 		)
+	}
+
+	// ============================================================
+	// VALIDATE TOTAL QTY PLAN PER DETAIL
+	// ============================================================
+	//
+	// Setiap InboundDetail harus tetap memiliki total Qty Plan
+	// sesuai Qty pada inbound_detail.
+	//
+	// Contoh:
+	//
+	// Original Qty = 2
+	//
+	// Valid:
+	// 1 + 1 = 2
+	//
+	// Valid:
+	// 2 = 2
+	//
+	// Tidak valid:
+	// 1 = 1
+	//
+	// Tidak valid:
+	// 1 + 2 = 3
+	// ============================================================
+
+	validatedDetails := make(map[uint]bool)
+
+	for _, expected := range expectedRows {
+
+		detailID := expected.Detail.ID
+
+		if validatedDetails[detailID] {
+			continue
+		}
+
+		validatedDetails[detailID] = true
+
+		expectedQty := expected.Detail.Quantity
+		actualQty := plannedByDetail[detailID]
+
+		if actualQty != expectedQty {
+
+			return ctx.Status(
+				fiber.StatusBadRequest,
+			).JSON(fiber.Map{
+				"success": false,
+				"error": fmt.Sprintf(
+					"Total Qty Plan for Item '%s' must be %.2f, got %.2f",
+					expected.Detail.ItemCode,
+					expectedQty,
+					actualQty,
+				),
+			})
+		}
 	}
 
 	// ============================================================
