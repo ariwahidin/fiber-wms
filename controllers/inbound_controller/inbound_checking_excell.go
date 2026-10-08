@@ -49,8 +49,11 @@ func (c *InboundController) GetCheckingInboundOptions(ctx *fiber.Ctx) error {
 	query := c.DB.
 		Model(&models.InboundHeader{}).
 		Where(
-			"LOWER(status) = ?",
-			"checking",
+			"LOWER(status) IN ?",
+			[]string{
+				"checking",
+				"partially received",
+			},
 		)
 
 	// ============================================================
