@@ -139,16 +139,20 @@ type InventoryMovement struct {
 	// no FromOwnerCode/ToOwnerCode split needed like FromDivision/ToDivision.
 	OwnerCode string `gorm:"size:50" json:"owner_code"`
 
-	FromWhsCode   string `gorm:"size:20"`
-	ToWhsCode     string `gorm:"size:20"`
-	FromLocation  string `gorm:"size:100"`
-	ToLocation    string `gorm:"size:100"`
-	OldQaStatus   string `gorm:"size:50"`
-	NewQaStatus   string `gorm:"size:50"`
-	FromDivision  string `gorm:"size:50"`
-	ToDivision    string `gorm:"size:50"`
-	FromPallet    string `gorm:"size:100"`
-	ToPallet      string `gorm:"size:100"`
+	FromWhsCode  string `gorm:"size:20"`
+	ToWhsCode    string `gorm:"size:20"`
+	FromLocation string `gorm:"size:100"`
+	ToLocation   string `gorm:"size:100"`
+	OldQaStatus  string `gorm:"size:50"`
+	NewQaStatus  string `gorm:"size:50"`
+	FromDivision string `gorm:"size:50"`
+	ToDivision   string `gorm:"size:50"`
+	FromPallet   string `gorm:"size:100"`
+	ToPallet     string `gorm:"size:100"`
+
+	FromCartonNumber string `gorm:"size:100" json:"from_carton_number"`
+	ToCartonNumber   string `gorm:"size:100" json:"to_carton_number"`
+
 	FromLotNumber string `gorm:"size:100"`
 	ToLotNumber   string `gorm:"size:100"`
 
