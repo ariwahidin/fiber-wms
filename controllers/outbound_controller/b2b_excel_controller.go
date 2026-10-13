@@ -55,7 +55,8 @@ const (
 	b2bColOrderType = 10
 	b2bColPIC       = 12
 	b2bColRemarks   = 13
-	b2bHeaderRows   = 1 // 1 header row
+	b2bColLotNumber = 15 // Kolom P, index 0-based
+	b2bHeaderRows   = 1  // 1 header row
 	b2bSheetName    = "Form Ke Yusen"
 )
 
@@ -96,6 +97,8 @@ type B2BOrderRow struct {
 	OrderType    string // "Reguler" atau "Express Urgent / Sameday"
 	PIC          string
 	Remarks      string
+
+	LotNumber string
 }
 
 // ─── Handler ─────────────────────────────────────────────────────────────────
@@ -470,6 +473,7 @@ func (c *OutboundController) CreateOutboundFromB2BExcel(ctx *fiber.Ctx) error {
 				OwnerCode:    ownerCode,
 				Remarks:      item.Goods,
 				SNCheck:      "N",
+				LotNumber:    item.LotNumber,
 				CreatedBy:    userID,
 				UpdatedBy:    userID,
 			}
@@ -604,6 +608,7 @@ func (c *OutboundController) parseB2BRows(rows [][]string) ([]B2BOrderRow, []Val
 			OrderType:    strings.TrimSpace(getCell(row, b2bColOrderType)),
 			PIC:          strings.TrimSpace(getCell(row, b2bColPIC)),
 			Remarks:      strings.TrimSpace(getCell(row, b2bColRemarks)),
+			LotNumber:    strings.TrimSpace(getCell(row, b2bColLotNumber)),
 		})
 	}
 

@@ -1413,6 +1413,7 @@ type TransferInventoryInput struct {
 	FromDivisionCode string  `json:"from_division_code" validate:"required"`
 	DivisionCode     string  `json:"division_code" validate:"required"`
 	CartonNumber     string  `json:"carton_number"`
+	CaseNumber       string  `json:"case_number"`
 }
 
 func (c *InventoryController) TransferInventory(ctx *fiber.Ctx) error {
@@ -1475,9 +1476,46 @@ func (c *InventoryController) TransferInventory(ctx *fiber.Ctx) error {
 	// practice, unlike lot_number/carton_number). Without this, two
 	// different owners sharing the same item/whs/location/division/qa_status
 	// combination could get their stock swept together.
+	// var sourceRecords []models.Inventory
+	// if err := tx.Debug().
+	// 	Where("item_code = ? AND owner_code = ? AND whs_code = ? AND location = ? AND division_code = ? AND qa_status = ? AND COALESCE(lot_number, '') = COALESCE(?, '') AND COALESCE(carton_number, '') = COALESCE(?, '') AND qty_available > 0",
+	// 		input.ItemCode,
+	// 		input.OwnerCode,
+	// 		input.FromWhsCode,
+	// 		input.FromLocation,
+	// 		input.FromDivisionCode,
+	// 		input.OldQaStatus,
+	// 		input.FromLotNumber,
+	// 		input.CartonNumber,
+	// 	).
+	// 	Order("id ASC").
+	// 	Find(&sourceRecords).Error; err != nil {
+	// 	tx.Rollback()
+	// 	return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+	// 		"success": false,
+	// 		"error":   "Failed to fetch source inventories",
+	// 	})
+	// }
+
 	var sourceRecords []models.Inventory
-	if err := tx.Debug().
-		Where("item_code = ? AND owner_code = ? AND whs_code = ? AND location = ? AND division_code = ? AND qa_status = ? AND COALESCE(lot_number, '') = COALESCE(?, '') AND COALESCE(carton_number, '') = COALESCE(?, '') AND qty_available > 0",
+
+	err := tx.
+		Where(`
+        item_code = ?
+        AND owner_code = ?
+        AND whs_code = ?
+        AND location = ?
+        AND division_code = ?
+        AND qa_status = ?
+        AND COALESCE(lot_number, '') = COALESCE(?, '')
+        AND COALESCE(carton_number, '') = COALESCE(?, '')
+        AND COALESCE(case_number, '') = COALESCE(?, '')
+        AND COALESCE(pallet, '') = COALESCE(?, '')
+        AND COALESCE(rec_date, '') = COALESCE(?, '')
+        AND COALESCE(prod_date, '') = COALESCE(?, '')
+        AND COALESCE(exp_date, '') = COALESCE(?, '')
+        AND qty_available > 0
+    `,
 			input.ItemCode,
 			input.OwnerCode,
 			input.FromWhsCode,
@@ -1486,9 +1524,16 @@ func (c *InventoryController) TransferInventory(ctx *fiber.Ctx) error {
 			input.OldQaStatus,
 			input.FromLotNumber,
 			input.CartonNumber,
+			input.CaseNumber,
+			input.Pallet,
+			input.RecDate,
+			input.ProdDate,
+			input.ExpDate,
 		).
 		Order("id ASC").
-		Find(&sourceRecords).Error; err != nil {
+		Find(&sourceRecords).Error
+
+	if err != nil {
 		tx.Rollback()
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"success": false,
