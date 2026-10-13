@@ -1,11 +1,9 @@
-version: "3.9"
-
 services:
   fiber-wms:
-    build: .
-    container_name: fiber-wms
+    image: ghcr.io/ariwahidin/fiber-wms:${WMS_IMAGE_TAG:-dev}
+    container_name: fiber-wms-local
     ports:
       - "9000:9000"
     env_file:
-      - ./.env
+      - ./.env.docker.local
     restart: unless-stopped

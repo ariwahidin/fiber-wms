@@ -45,7 +45,7 @@ jobs:
 
       - name: Build Docker image
         run: docker build -t fiber-wms:${{ github.sha }} .
-  
+
   publish:
     name: Publish Docker Image
     runs-on: ubuntu-latest
@@ -84,3 +84,81 @@ jobs:
           tags: |
             ${{ steps.image.outputs.name }}:dev
             ${{ steps.image.outputs.name }}:sha-${{ github.sha }}
+
+  deploy:
+    name: Deploy to Windows Development
+    runs-on: [self-hosted, Windows, X64]
+    needs: publish
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+
+    steps:
+      - name: Validate deployment directory
+        shell: powershell
+        run: |
+          $projectPath = 'D:\IT\Development\WMS DEV\fiber-wms'
+
+          if (-not (Test-Path "$projectPath\docker-compose.yml")) {
+            throw "docker-compose.yml not found: $projectPath"
+          }
+
+          if (-not (Test-Path "$projectPath\.env.docker.local")) {
+            throw ".env.docker.local not found"
+          }
+
+          docker info
+          if ($LASTEXITCODE -ne 0) {
+            throw "Docker Desktop is not available"
+          }
+
+      - name: Pull and deploy exact commit image
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $projectPath = 'D:\IT\Development\WMS DEV\fiber-wms'
+          Set-Location $projectPath
+
+          $env:WMS_IMAGE_TAG = "sha-${{ github.sha }}"
+
+          docker compose pull
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to pull image $env:WMS_IMAGE_TAG"
+          }
+
+          docker compose up -d --remove-orphans
+          if ($LASTEXITCODE -ne 0) {
+            throw "Docker Compose deployment failed"
+          }
+
+      - name: Verify application health
+        shell: powershell
+        run: |
+          $healthUrl = 'http://localhost:9000/api/v1/health'
+          $healthy = $false
+
+          for ($i = 1; $i -le 30; $i++) {
+            try {
+              $response = Invoke-RestMethod `
+                -Uri $healthUrl `
+                -Method Get `
+                -TimeoutSec 5
+
+              if ($response.status -eq 'ok' -and
+                  $response.services.api -eq 'ok' -and
+                  $response.services.db -eq 'ok') {
+                $healthy = $true
+                Write-Host "WMS health check passed."
+                $response | ConvertTo-Json -Depth 5
+                break
+              }
+            }
+            catch {
+              Write-Host "Health check attempt $i/30 failed."
+            }
+
+            Start-Sleep -Seconds 5
+          }
+
+          if (-not $healthy) {
+            docker logs --tail 100 fiber-wms-local
+            throw "Deployment health check failed"
+          }
