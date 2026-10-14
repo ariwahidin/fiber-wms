@@ -91,41 +91,62 @@ func (c *MobileInboundController) CheckItem(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Inbound not found", "message": "Inbound not found"})
 	}
 
+	var singleInboundDetail models.InboundDetail
+
+	if scanInbound.Barcode != "" {
+		if err := c.DB.Where("inbound_id = ? AND barcode = ?", inboundHeader.ID, scanInbound.Barcode).First(&singleInboundDetail).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Item with EAN : " + scanInbound.Barcode + " not found in inbound details", "message": "Item not found in inbound details"})
+			}
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+	}
+
+	var itemCodeSelected string
+	var barcodeSelected string
+	if scanInbound.Sku != "" {
+		itemCodeSelected = scanInbound.Sku
+		barcodeSelected = scanInbound.Barcode
+	} else {
+		itemCodeSelected = singleInboundDetail.ItemCode
+		barcodeSelected = singleInboundDetail.Barcode
+	}
+
 	var uomConversion models.UomConversion
 
 	if scanInbound.Sku != "" {
 		// Cari by item_code
-		if err := c.DB.Where("item_code = ?", scanInbound.Sku).First(&uomConversion).Error; err != nil {
+		if err := c.DB.Where("item_code = ?", itemCodeSelected).First(&uomConversion).Error; err != nil {
 			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Item not found in UOM conversion", "message": "Item not found in UOM conversion"})
 		}
 
 		// Jika ean masih pakai item_code sebagai placeholder → update ke EAN real
-		if uomConversion.Ean == scanInbound.Sku {
-			if err := c.DB.Model(&uomConversion).Update("ean", scanInbound.Barcode).Error; err != nil {
+		if uomConversion.Ean == itemCodeSelected {
+			if err := c.DB.Model(&uomConversion).Update("ean", barcodeSelected).Error; err != nil {
 				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to update EAN", "message": err.Error()})
 			}
 
 			// Update juga barcode & gmc di products
 			if err := c.DB.Model(&models.Product{}).
-				Where("item_code = ? AND barcode = ? AND gmc = ?", scanInbound.Sku, scanInbound.Sku, scanInbound.Sku).
+				Where("item_code = ? AND barcode = ? AND gmc = ?", itemCodeSelected, itemCodeSelected, itemCodeSelected).
 				Updates(map[string]interface{}{
-					"barcode": scanInbound.Barcode,
-					"gmc":     scanInbound.Barcode,
+					"barcode": barcodeSelected,
+					"gmc":     barcodeSelected,
 				}).Error; err != nil {
 				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to update product barcode", "message": err.Error()})
 			}
 
 			// Update barcode di inbound_details yang masih pakai item_code sebagai placeholder
 			if err := c.DB.Model(&models.InboundDetail{}).
-				Where("inbound_no = ? AND item_code = ? AND barcode = ?", scanInbound.InboundNo, scanInbound.Sku, scanInbound.Sku).
-				Update("barcode", scanInbound.Barcode).Error; err != nil {
+				Where("inbound_no = ? AND item_code = ? AND barcode = ?", scanInbound.InboundNo, itemCodeSelected, itemCodeSelected).
+				Update("barcode", barcodeSelected).Error; err != nil {
 				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to update inbound detail barcode", "message": err.Error()})
 			}
 		}
 
 	} else {
 		// Flow normal: cari by EAN hasil scan
-		if err := c.DB.Where("ean = ?", scanInbound.Barcode).First(&uomConversion).Error; err != nil {
+		if err := c.DB.Where("ean = ? and item_code = ?", barcodeSelected, itemCodeSelected).First(&uomConversion).Error; err != nil {
 			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Item not found in UOM conversion", "message": "Item not found in UOM conversion"})
 		}
 	}
@@ -153,7 +174,7 @@ func (c *MobileInboundController) CheckItem(ctx *fiber.Ctx) error {
 	}
 
 	if len(inboundDetail) < 1 {
-		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Item not found in inbound details", "message": "Item not found in inbound details"})
+		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Item with EAN " + barcodeSelected + " not found in inbound details", "message": "Item not found in inbound details"})
 	}
 
 	var product models.Product
@@ -166,6 +187,7 @@ func (c *MobileInboundController) CheckItem(ctx *fiber.Ctx) error {
 			"success":   true,
 			"message":   "Item checked successfully",
 			"data":      inboundDetail,
+			"length":    len(inboundDetail),
 			"is_serial": true,
 		})
 	}
@@ -181,6 +203,7 @@ func (c *MobileInboundController) CheckItem(ctx *fiber.Ctx) error {
 			"message":   "Item checked successfully",
 			"is_serial": false,
 			"is_fefo":   true,
+			"length":    len(inboundDetail),
 			"data":      inboundDetail,
 		})
 	}
@@ -189,6 +212,7 @@ func (c *MobileInboundController) CheckItem(ctx *fiber.Ctx) error {
 		"success":   true,
 		"message":   "Item checked successfully",
 		"data":      inboundDetail,
+		"length":    len(inboundDetail),
 		"is_serial": false,
 	})
 }
