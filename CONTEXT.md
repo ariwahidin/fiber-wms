@@ -1,4 +1,4 @@
-# CONTEXT.md — WMS Picking Feature
+# CONTEXT.md — WMS Enterprise V2
 
 ## Stack
 - Backend: Go + Fiber
