@@ -3434,13 +3434,25 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 			)
 		} else {
 			queryInventory = queryInventory.Order(
-				"loc_rank.min_rec_date ASC, " +
+				"i.rec_date ASC, " +
+					"i.case_number ASC, " +
+					"i.carton_number ASC, " +
+					"loc_rank.min_rec_date ASC, " +
 					"loc_rank.min_qty ASC, " +
 					"i.location ASC, " +
 					"i.qty_available ASC, " +
-					"i.rec_date ASC",
+					"i.id ASC",
 			)
 		}
+		// } else {
+		// 	queryInventory = queryInventory.Order(
+		// 		"loc_rank.min_rec_date ASC, " +
+		// 			"loc_rank.min_qty ASC, " +
+		// 			"i.location ASC, " +
+		// 			"i.qty_available ASC, " +
+		// 			"i.rec_date ASC",
+		// 	)
+		// }
 
 		if inventoryPolicy.PickingExcludeLocationsUnderCycleCount {
 			queryInventory = locationRepo.ExcludeLocationsUnderCycleCount(
