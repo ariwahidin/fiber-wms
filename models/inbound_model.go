@@ -73,6 +73,7 @@ type InboundDetail struct {
 	InboundId         int     `json:"inbound_id" gorm:"default:null"`
 	InboundNo         string  `json:"inbound_no"`
 	ItemId            uint    `json:"item_id" required:"required"`
+	Product           Product `gorm:"foreignKey:ItemId;references:ID" json:"product"`
 	ProductNumber     int     `json:"product_number"`
 	ItemCode          string  `json:"item_code" required:"required"`
 	Barcode           string  `json:"barcode"`

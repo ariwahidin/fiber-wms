@@ -147,7 +147,7 @@ func (c *MobileInboundController) CheckItem(ctx *fiber.Ctx) error {
 
 	var inboundDetail []models.InboundDetail
 
-	if errID := c.DB.Where("inbound_id = ? AND item_code = ? AND uom = ?", inboundHeader.ID, uomConversion.ItemCode, uomConversion.FromUom).
+	if errID := c.DB.Preload("Product").Where("inbound_id = ? AND item_code = ? AND uom = ?", inboundHeader.ID, uomConversion.ItemCode, uomConversion.FromUom).
 		Find(&inboundDetail).Error; errID != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": errID.Error()})
 	}
@@ -624,9 +624,10 @@ func (c *MobileInboundController) GetInboundDetail(ctx *fiber.Ctx) error {
 	// 7. Build result
 	type InboundDetailResult struct {
 		models.InboundDetail
-		ItemName string  `json:"item_name"`
-		IsSerial bool    `json:"is_serial"`
-		ScanQty  float64 `json:"scan_qty"`
+		ItemName  string  `json:"item_name"`
+		UnitModel string  `json:"unit_model"`
+		IsSerial  bool    `json:"is_serial"`
+		ScanQty   float64 `json:"scan_qty"`
 	}
 
 	result := make([]InboundDetailResult, 0, len(inboundDetails))
@@ -638,6 +639,7 @@ func (c *MobileInboundController) GetInboundDetail(ctx *fiber.Ctx) error {
 		result = append(result, InboundDetailResult{
 			InboundDetail: d,
 			ItemName:      product.ItemName,
+			UnitModel:     product.UnitModel,
 			IsSerial:      product.HasSerial == "Y",
 			ScanQty:       scanQtyMap[int(d.ID)],
 		})
