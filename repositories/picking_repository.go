@@ -28,6 +28,7 @@ type PickingSheetRow struct {
 	ItemID            uint    `json:"item_id"`
 	ItemCode          string  `json:"item_code"`
 	ItemName          string  `json:"item_name"`
+	UnitModel         string  `json:"unit_model"`
 	Barcode           string  `json:"barcode"`
 	Location          string  `json:"location"`
 	Pallet            string  `json:"pallet"`
@@ -49,6 +50,7 @@ func (r *OutboundPickingRepository) GetPickingSheet(outboundNo string) ([]Pickin
 			op.item_id,
 			op.item_code,
 			ISNULL(p.item_name, '')                      AS item_name,
+			ISNULL(p.unit_model, '')                     AS unit_model,
 			op.barcode,
 			op.location,
 			op.pallet,
@@ -68,7 +70,7 @@ func (r *OutboundPickingRepository) GetPickingSheet(outboundNo string) ([]Pickin
 		  AND op.deleted_at IS NULL
 		GROUP BY
 			op.id, op.outbound_detail_id, op.outbound_no,
-			op.item_id, op.item_code, p.item_name,
+			op.item_id, op.item_code, p.item_name, p.unit_model,
 			op.barcode, op.location, op.pallet, op.uom,
 			op.quantity, op.lot_number, op.prod_date, op.exp_date
 		ORDER BY op.id ASC`
@@ -86,6 +88,7 @@ func (r *OutboundPickingRepository) GetPickingSheet(outboundNo string) ([]Pickin
 func (r *OutboundPickingRepository) GetScans(outboundPickingID int) ([]models.OutboundPickingScan, error) {
 	var scans []models.OutboundPickingScan
 	if err := r.DB.
+		Preload("Product").
 		Where("outbound_picking_id = ? AND deleted_at IS NULL", outboundPickingID).
 		Order("id ASC").
 		Find(&scans).Error; err != nil {
@@ -151,7 +154,7 @@ func (r *OutboundPickingRepository) CreateScan(scan *models.OutboundPickingScan)
 // Soft delete satu scan record (gorm.Model sudah handle deleted_at).
 
 func (r *OutboundPickingRepository) DeleteScan(scanID uint) error {
-	result := r.DB.Delete(&models.OutboundPickingScan{}, scanID)
+	result := r.DB.Unscoped().Delete(&models.OutboundPickingScan{}, scanID)
 	if result.Error != nil {
 		return result.Error
 	}

@@ -98,6 +98,7 @@ func (c *MobileOutboundController) GetListOutboundDetail(ctx *fiber.Ctx) error {
 		Barcode          string  `json:"barcode"`
 		Quantity         int     `json:"quantity"`
 		ItemName         string  `json:"item_name"`
+		UnitModel        string  `json:"unit_model"`
 		HasSerial        string  `json:"has_serial"`
 		QtyScan          float64 `json:"scan_qty"`
 		UOM              string  `json:"uom"`
@@ -125,6 +126,7 @@ func (c *MobileOutboundController) GetListOutboundDetail(ctx *fiber.Ctx) error {
 				a.quantity, 
 				a.uom,
 				b.item_name, 
+				b.unit_model,
 				COALESCE(ob.qty_scan, 0) as qty_scan, 
 				b.has_serial, 
 				a.owner_code
@@ -142,6 +144,7 @@ func (c *MobileOutboundController) GetListOutboundDetail(ctx *fiber.Ctx) error {
 		opb.quantity,
 		opb.uom,
 		opb.item_name,
+		opb.unit_model,
 		ROUND(opb.qty_scan / oc.conversion_rate, 3) AS qty_scan,
 		opb.owner_code
 		from opb
@@ -1180,6 +1183,7 @@ type PickingScanRequest struct {
 	Location          string  `json:"location"`
 	SerialNumber      string  `json:"serial_number"`
 	CaseNumber        string  `json:"case_number"`
+	CartonNumber      string  `json:"carton_number"`
 	LotNumber         string  `json:"lot_number"`
 	ProdDate          string  `json:"prod_date"`
 }
@@ -1241,19 +1245,19 @@ func (c *MobileOutboundController) SubmitPickingScan(ctx *fiber.Ctx) error {
 	if req.OutboundPickingID == 0 {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"success": false,
-			"message": "outbound_picking_id wajib diisi",
+			"message": "outbound_picking_id is required",
 		})
 	}
 	if req.Barcode == "" {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"success": false,
-			"message": "barcode wajib diisi",
+			"message": "barcode is required",
 		})
 	}
 	if req.Quantity <= 0 {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"success": false,
-			"message": "quantity harus lebih dari 0",
+			"message": "quantity must be greater than 0",
 		})
 	}
 
@@ -1265,7 +1269,7 @@ func (c *MobileOutboundController) SubmitPickingScan(ctx *fiber.Ctx) error {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
 				"success": false,
-				"message": "Picking item tidak ditemukan",
+				"message": "OutboundPicking not found",
 			})
 		}
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
@@ -1278,7 +1282,7 @@ func (c *MobileOutboundController) SubmitPickingScan(ctx *fiber.Ctx) error {
 	if picking.OutboundNo != outboundNo {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"success": false,
-			"message": "Picking item tidak sesuai dengan outbound ini",
+			"message": "OutboundPicking does not belong to outbound_no " + outboundNo,
 		})
 	}
 
@@ -1287,7 +1291,7 @@ func (c *MobileOutboundController) SubmitPickingScan(ctx *fiber.Ctx) error {
 	if picking.Barcode != req.Barcode && picking.EanDisplay != req.Barcode {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"success": false,
-			"message": fmt.Sprintf("Barcode %s tidak sesuai dengan item yang harus dipick (%s)", req.Barcode, picking.Barcode),
+			"message": fmt.Sprintf("Invalid barcode! Expected: %s, got: %s", picking.Barcode, req.Barcode),
 		})
 	}
 
@@ -1304,7 +1308,7 @@ func (c *MobileOutboundController) SubmitPickingScan(ctx *fiber.Ctx) error {
 		remaining := picking.Quantity - qtyPicked
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"success": false,
-			"message": fmt.Sprintf("Over-pick! Qty tersisa: %.0f, scan qty: %.0f", remaining, req.Quantity),
+			"message": fmt.Sprintf("Quantity over-picked! Expected: %d, got: %d", remaining, req.Quantity),
 		})
 	}
 
@@ -1344,7 +1348,7 @@ func (c *MobileOutboundController) SubmitPickingScan(ctx *fiber.Ctx) error {
 
 	// ── Validasi lokasi jika inventory policy mengharuskan ─────────────────
 	var inventoryPolicy models.InventoryPolicy
-	if err := c.DB.Where("owner_code = ? AND whs_code = ?", picking.OwnerCode, picking.WhsCode).First(&inventoryPolicy).Error; err == nil {
+	if err := c.DB.Where("owner_code = ?", picking.OwnerCode).First(&inventoryPolicy).Error; err == nil {
 		if inventoryPolicy.RequireScanPickLocation {
 			if req.Location == "" {
 				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Location is required"})
@@ -1389,6 +1393,7 @@ func (c *MobileOutboundController) SubmitPickingScan(ctx *fiber.Ctx) error {
 		Location:          req.Location,
 		SerialNumber:      req.SerialNumber,
 		CaseNumber:        req.CaseNumber,
+		CartonNumber:      req.CartonNumber,
 		LotNumber:         req.LotNumber,
 		ProdDate:          req.ProdDate,
 		Status:            "pending",
@@ -1398,7 +1403,7 @@ func (c *MobileOutboundController) SubmitPickingScan(ctx *fiber.Ctx) error {
 	if err := repo.CreateScan(scan); err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"success": false,
-			"message": "Gagal menyimpan scan: " + err.Error(),
+			"message": "Failed to create scan: " + err.Error(),
 		})
 	}
 
@@ -1426,7 +1431,7 @@ func (c *MobileOutboundController) DeletePickingScan(ctx *fiber.Ctx) error {
 	if err != nil || scanID <= 0 {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"success": false,
-			"message": "scan_id tidak valid",
+			"message": "Invalid scan_id",
 		})
 	}
 
@@ -1434,13 +1439,13 @@ func (c *MobileOutboundController) DeletePickingScan(ctx *fiber.Ctx) error {
 	if err := repo.DeleteScan(uint(scanID)); err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"success": false,
-			"message": err.Error(),
+			"message": "Failed to delete scan: " + err.Error(),
 		})
 	}
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
 		"success": true,
-		"message": "Scan dihapus",
+		"message": "Scan deleted successfully",
 	})
 }
 
@@ -1463,7 +1468,7 @@ func (c *MobileOutboundController) ConfirmPicking(ctx *fiber.Ctx) error {
 	if !isComplete {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"success": false,
-			"message": "Belum semua item selesai dipick. Selesaikan picking terlebih dahulu.",
+			"message": "Picking is not complete. Please ensure all items are fully picked before confirming.",
 		})
 	}
 
@@ -1475,13 +1480,13 @@ func (c *MobileOutboundController) ConfirmPicking(ctx *fiber.Ctx) error {
 	if err := repo.ConfirmPicking(outboundNo, userID); err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"success": false,
-			"message": "Gagal konfirmasi picking: " + err.Error(),
+			"message": "Failed to confirm picking: " + err.Error(),
 		})
 	}
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
 		"success": true,
-		"message": fmt.Sprintf("Picking %s berhasil dikonfirmasi", outboundNo),
+		"message": fmt.Sprintf("Picking confirmed for outbound %s", outboundNo),
 	})
 }
 
@@ -1491,7 +1496,7 @@ func (c *MobileOutboundController) GetPickingScans(ctx *fiber.Ctx) error {
 	if err != nil || id <= 0 {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"success": false,
-			"message": "outbound_picking_id tidak valid",
+			"message": "Invalid outbound_picking_id",
 		})
 	}
 
@@ -1500,7 +1505,7 @@ func (c *MobileOutboundController) GetPickingScans(ctx *fiber.Ctx) error {
 	if err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"success": false,
-			"message": err.Error(),
+			"message": "Failed to retrieve scan data: " + err.Error(),
 		})
 	}
 

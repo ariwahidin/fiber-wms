@@ -133,6 +133,7 @@ type OutboundPicking struct {
 	WhsCode          string  `json:"whs_code"`
 	DivisionCode     string  `json:"division_code" gorm:"default:'REGULAR'"`
 	ItemID           uint    `json:"item_id"`
+	Product          Product `gorm:"foreignKey:ItemID;references:ID" json:"product"`
 	ItemCode         string  `json:"item_code"`
 	Barcode          string  `json:"barcode"`
 	Pallet           string  `json:"pallet"`
@@ -180,8 +181,11 @@ type OutboundPickingScan struct {
 	// Data dari QR (opsional, kosongin jika tidak ada)
 	SerialNumber string `json:"serial_number"` // dari SERIAL
 	CaseNumber   string `json:"case_number"`   // dari CARTON_SERIAL
+	CartonNumber string `json:"carton_number"` // dari CARTON
 	LotNumber    string `json:"lot_number"`    // dari BATCH
 	ProdDate     string `json:"prod_date"`     // dari MFG_DATE (yyyy-MM-dd)
+
+	Product Product `gorm:"foreignKey:ItemID;references:ID" json:"product"`
 
 	Status    string `json:"status" gorm:"default:'pending'"` // "pending" | "confirmed"
 	CreatedBy int    `json:"created_by"`
