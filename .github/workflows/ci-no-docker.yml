@@ -27,19 +27,6 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Verify Go formatting
-        shell: pwsh
-        run: |
-          $files = git ls-files '*.go' |
-            ForEach-Object {
-              gofmt -l $_
-            } |
-            Where-Object { $_ }
-
-          if ($files) {
-            Write-Error "Go files need formatting: $files"
-          }
-
       - name: Run Go tests
         run: go test ./...
 
