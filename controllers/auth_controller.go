@@ -139,31 +139,61 @@ func Login(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid credentials"})
 	}
 
-	// Check concurrent session conflict
+	// Expire stale sessions first. A JWT may expire while its DB session
+	// remains marked active, so is_active alone is not sufficient.
+	if err := db.Model(&models.UserSession{}).
+		Where("user_id = ? AND is_active = ? AND expires_at <= ?", mUser.ID, true, now).
+		Update("is_active", false).Error; err != nil {
+		fmt.Println("Failed to expire stale sessions:", err)
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to validate existing sessions",
+		})
+	}
+
+	// Only a session that is still active AND not expired should trigger conflict.
 	var active models.UserSession
-	if err := db.Where("user_id = ? AND is_active = ?", mUser.ID, true).First(&active).Error; err == nil {
+	err = db.Where(
+		"user_id = ? AND is_active = ? AND expires_at > ?",
+		mUser.ID, true, now,
+	).Order("last_activity_at DESC").First(&active).Error
+
+	if err == nil {
 		conflict := models.LoginConflict{
 			ID:        uuid.NewString(),
 			UserID:    uint64(mUser.ID),
-			ExpiresAt: now.Add(24 * time.Hour),
+			ExpiresAt: now.Add(5 * time.Minute),
 		}
-		db.Create(&conflict)
+		if createErr := db.Create(&conflict).Error; createErr != nil {
+			fmt.Println("Failed to create login conflict:", createErr)
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"success": false,
+				"message": "Failed to create login conflict",
+			})
+		}
 
+		message := fmt.Sprintf("User already logged in on another device: %s, last activity at: %s",
+			active.DeviceID, active.LastActivityAt.Format("2006-01-02 15:04:05"))
 		return ctx.Status(fiber.StatusConflict).JSON(fiber.Map{
 			"success": false,
 			"device":  device,
 			"ip":      ip,
 			"ua":      ua,
 			"cid":     conflict.ID,
-			"message": fmt.Sprintf("User already logged in on another device: %s, last activity at: %s",
-				active.DeviceID, active.LastActivityAt.Format("2006-01-02 15:04:05")),
-			"error": fmt.Sprintf("User already logged in on another device: %s, last activity at: %s",
-				active.DeviceID, active.LastActivityAt.Format("2006-01-02 15:04:05")),
+			"message": message,
+			"error":   message,
+		})
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		fmt.Println("Failed to check active sessions:", err)
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to check active sessions",
 		})
 	}
 
-	// New session
-	db.Create(&models.UserSession{
+	// No valid session exists; create a fresh session.
+	if err := db.Create(&models.UserSession{
 		UserID:         uint64(mUser.ID),
 		SessionID:      sessionID,
 		DeviceID:       device,
@@ -172,7 +202,13 @@ func Login(ctx *fiber.Ctx) error {
 		IsActive:       true,
 		LastActivityAt: now,
 		ExpiresAt:      now.Add(24 * time.Hour),
-	})
+	}).Error; err != nil {
+		fmt.Println("Failed to create user session:", err)
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to create user session",
+		})
+	}
 
 	return LoginSuccess(sessionID, mUser, ctx)
 }
@@ -200,6 +236,12 @@ func LoginConfirm(ctx *fiber.Ctx) error {
 			"message": "conflict_id not found",
 		})
 	}
+	if !conflict.ExpiresAt.After(time.Now()) {
+		return ctx.Status(fiber.StatusGone).JSON(fiber.Map{
+			"success": false,
+			"message": "Login conflict has expired. Please login again.",
+		})
+	}
 
 	var mUser models.User
 	if err := db.Where("id = ?", conflict.UserID).First(&mUser).Error; err != nil {
@@ -210,15 +252,20 @@ func LoginConfirm(ctx *fiber.Ctx) error {
 	}
 
 	// Invalidate all existing sessions
-	db.Model(&models.UserSession{}).
-		Where("user_id = ? AND is_active = 1", mUser.ID).
-		Update("is_active", false)
+	if err := db.Model(&models.UserSession{}).
+		Where("user_id = ? AND is_active = ?", mUser.ID, true).
+		Update("is_active", false).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to invalidate previous sessions",
+		})
+	}
 
 	ip, ua, _, _, device := getClientInfo(ctx)
 	now := time.Now()
 	sessionID := uuid.New().String()
 
-	db.Create(&models.UserSession{
+	if err := db.Create(&models.UserSession{
 		UserID:         uint64(mUser.ID),
 		SessionID:      sessionID,
 		IPAddress:      ip,
@@ -227,7 +274,12 @@ func LoginConfirm(ctx *fiber.Ctx) error {
 		DeviceID:       device,
 		LastActivityAt: now,
 		ExpiresAt:      now.Add(24 * time.Hour),
-	})
+	}).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to create new session",
+		})
+	}
 
 	return LoginSuccess(sessionID, mUser, ctx)
 }
@@ -256,18 +308,30 @@ func GetSessionActive(ctx *fiber.Ctx) error {
 		})
 	}
 
+	now := time.Now()
+	if err := db.Model(&models.UserSession{}).
+		Where("user_id = ? AND is_active = ? AND expires_at <= ?", conflict.UserID, true, now).
+		Update("is_active", false).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "failed to clean expired sessions",
+		})
+	}
+
 	var sessions []models.UserSession
-	if err := db.Where("user_id = ? AND is_active = ?", conflict.UserID, true).Find(&sessions).Error; err != nil {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+	if err := db.Where("user_id = ? AND is_active = ? AND expires_at > ?", conflict.UserID, true, now).
+		Order("last_activity_at DESC").Find(&sessions).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"success": false,
 			"message": "failed to fetch sessions",
 		})
 	}
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
-		"success": true,
-		"message": "Session active",
-		"data":    sessions,
+		"success":    true,
+		"message":    "Session active",
+		"expires_at": conflict.ExpiresAt,
+		"data":       sessions,
 	})
 }
 
@@ -275,7 +339,8 @@ func RefreshToken(ctx *fiber.Ctx) error {
 	tokenString := ctx.Cookies("refresh_token")
 	if tokenString == "" {
 		return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-			"message": "Unauthorized - refresh token not found",
+			"success": false,
+			"message": "Refresh token not found",
 		})
 	}
 
@@ -286,31 +351,62 @@ func RefreshToken(ctx *fiber.Ctx) error {
 		return []byte(config.JWTSecret), nil
 	})
 	if err != nil || !token.Valid {
-		return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"message": "Unauthorized"})
+		return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"success": false,
+			"message": "Refresh token is invalid or expired",
+		})
 	}
 
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok {
-		return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"message": "Unauthorized"})
+		return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"success": false, "message": "Invalid refresh token claims"})
 	}
 
-	newToken := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"userID": claims["userID"],
-		"unit":   claims["unit"],
-		"exp":    time.Now().Add(15 * time.Second).Unix(),
-	})
+	// Refresh tokens issued before session_id was added must re-login once.
+	sessionID, ok := claims["session_id"].(string)
+	if !ok || sessionID == "" {
+		return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"success": false, "message": "Refresh token has no session. Please login again."})
+	}
 
-	newTokenString, err := newToken.SignedString([]byte(config.JWTSecret))
+	db, err := database.GetDBConnection(config.DBUnit)
 	if err != nil {
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to generate token"})
+		return errInternalDB(ctx)
 	}
 
-	fmt.Println("newTokenString:", newTokenString)
+	var session models.UserSession
+	if err := db.Where("session_id = ? AND is_active = ? AND expires_at > ?", sessionID, true, time.Now()).First(&session).Error; err != nil {
+		return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"success": false, "message": "Session is no longer active. Please login again."})
+	}
+
+	var mUser models.User
+	if err := db.First(&mUser, session.UserID).Error; err != nil {
+		return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"success": false, "message": "User not found"})
+	}
+
+	permissionStrings, err := fetchPermissionStrings(db, mUser.ID)
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false, "message": "Failed to refresh permissions"})
+	}
+	var userWithRoles models.User
+	if err := db.Preload("Roles").First(&userWithRoles, mUser.ID).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false, "message": "Failed to refresh roles"})
+	}
+	roleNames := make([]string, 0, len(userWithRoles.Roles))
+	for _, role := range userWithRoles.Roles {
+		roleNames = append(roleNames, role.Name)
+	}
+
+	accessToken, refreshToken, err := generateTokenPair(mUser.ID, sessionID, permissionStrings, roleNames)
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false, "message": "Failed to generate tokens"})
+	}
+	ctx.Cookie(config.GetTokenCookie(refreshToken))
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
 		"success":      true,
 		"message":      "Token refreshed successfully",
-		"access_token": newTokenString,
+		"x_token":      accessToken,
+		"access_token": accessToken,
 	})
 }
 
@@ -510,7 +606,9 @@ func createLoginLog(db *gorm.DB, sessionID string, mUser models.User, ctx *fiber
 
 // generateTokenPair membuat access token (berisi permissions & roles) dan refresh token
 func generateTokenPair(userID interface{}, sessionID string, permissions []string, roles []string) (accessToken, refreshToken string, err error) {
-	expiry := time.Now().Add(24 * time.Hour).Unix()
+	now := time.Now()
+	accessExpiry := now.Add(15 * time.Minute).Unix()
+	refreshExpiry := now.Add(7 * 24 * time.Hour).Unix()
 	secret := []byte(config.JWTSecret)
 
 	access := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
@@ -518,16 +616,17 @@ func generateTokenPair(userID interface{}, sessionID string, permissions []strin
 		"session_id":  sessionID,
 		"permissions": permissions, // ["supplier:read", "inbound:create", ...]
 		"roles":       roles,       // ["SUPERADMIN"] — untuk bypass di middleware
-		"exp":         expiry,
+		"exp":         accessExpiry,
 		"unit":        config.DBUnit,
 		"jti":         uuid.NewString(),
 	})
 
 	refresh := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"user_id": userID,
-		"unit":    config.DBUnit,
-		"exp":     expiry,
-		"jti":     uuid.NewString(),
+		"user_id":    userID,
+		"session_id": sessionID,
+		"unit":       config.DBUnit,
+		"exp":        refreshExpiry,
+		"jti":        uuid.NewString(),
 	})
 
 	if accessToken, err = access.SignedString(secret); err != nil {
@@ -571,6 +670,8 @@ func getClientInfo(ctx *fiber.Ctx) (ip, ua, browser, os, device string) {
 	uaLower := strings.ToLower(ua)
 
 	switch {
+	case strings.Contains(uaLower, "edg/"):
+		browser = "Edge"
 	case strings.Contains(uaLower, "chrome"):
 		browser = "Chrome"
 	case strings.Contains(uaLower, "firefox"):
