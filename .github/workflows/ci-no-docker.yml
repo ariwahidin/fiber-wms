@@ -1,0 +1,55 @@
+
+name: Fiber WMS CI - Production V3
+
+on:
+  push:
+    branches:
+      - prod-v3
+  pull_request:
+    branches:
+      - prod-v3
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-build:
+    name: Test and Build Windows EXE
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Verify Go formatting
+        shell: pwsh
+        run: |
+          $files = git ls-files '*.go' |
+            ForEach-Object {
+              gofmt -l $_
+            } |
+            Where-Object { $_ }
+
+          if ($files) {
+            Write-Error "Go files need formatting: $files"
+          }
+
+      - name: Run Go tests
+        run: go test ./...
+
+      - name: Build Windows executable
+        run: go build -o app.exe .
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fiber-wms-prod-v3
+          path: app.exe
+          if-no-files-found: error
+          retention-days: 7
