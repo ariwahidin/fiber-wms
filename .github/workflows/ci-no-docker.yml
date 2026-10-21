@@ -40,3 +40,92 @@ jobs:
           path: app.exe
           if-no-files-found: error
           retention-days: 7
+  
+  deploy:
+    name: Deploy to Production Server
+    needs: test-and-build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/prod-v3'
+    runs-on: [self-hosted, Windows, X64, prod-v3]
+
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: fiber-wms-prod-v3
+          path: deploy-package
+
+      - name: Deploy app.exe
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $appDir = "E:\aplikasi\WMS_FURUNO\backend"
+          $backupDir = Join-Path $appDir "backups"
+          $targetExe = Join-Path $appDir "app.exe"
+          $newExe = Join-Path $PWD "deploy-package\app.exe"
+          $serviceName = "NSSM-WMS-BE-FURUNO"
+          $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+          $backupExe = Join-Path $backupDir "app-$timestamp.exe"
+
+          if (!(Test-Path $newExe)) {
+            throw "Artifact app.exe tidak ditemukan."
+          }
+
+          if (!(Test-Path $appDir)) {
+            throw "Folder aplikasi tidak ditemukan: $appDir"
+          }
+
+          $service = Get-Service -Name $serviceName
+          $hadPreviousExe = Test-Path $targetExe
+
+          New-Item -ItemType Directory -Force -Path $backupDir | Out-Null
+
+          if ($hadPreviousExe) {
+            Copy-Item $targetExe $backupExe
+            Write-Host "Backup dibuat: $backupExe"
+          }
+
+          try {
+            if ($service.Status -ne "Stopped") {
+              Stop-Service -Name $serviceName
+              (Get-Service $serviceName).WaitForStatus(
+                [System.ServiceProcess.ServiceControllerStatus]::Stopped,
+                [TimeSpan]::FromSeconds(30)
+              )
+            }
+
+            Copy-Item $newExe $targetExe -Force
+            Start-Service -Name $serviceName
+
+            (Get-Service $serviceName).WaitForStatus(
+              [System.ServiceProcess.ServiceControllerStatus]::Running,
+              [TimeSpan]::FromSeconds(30)
+            )
+
+            Write-Host "Deployment berhasil."
+          }
+          catch {
+            Write-Host "Deployment gagal: $($_.Exception.Message)"
+
+            try {
+              if ((Get-Service $serviceName).Status -ne "Stopped") {
+                Stop-Service -Name $serviceName -Force
+                (Get-Service $serviceName).WaitForStatus(
+                  [System.ServiceProcess.ServiceControllerStatus]::Stopped,
+                  [TimeSpan]::FromSeconds(30)
+                )
+              }
+
+              if ($hadPreviousExe -and (Test-Path $backupExe)) {
+                Copy-Item $backupExe $targetExe -Force
+                Write-Host "Executable sebelumnya dipulihkan."
+              }
+
+              Start-Service -Name $serviceName
+            }
+            catch {
+              Write-Error "Pemulihan gagal: $($_.Exception.Message)"
+            }
+
+            throw
+          }
