@@ -55,7 +55,7 @@ jobs:
           path: deploy-package
 
       - name: Deploy app.exe
-        shell: pwsh
+        shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
 
