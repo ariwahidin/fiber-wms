@@ -75,29 +75,83 @@ type OrderHeader struct {
 // 	TotalCBM    float64 `json:"total_cbm"`
 // }
 
+// type OrderDetail struct {
+// 	gorm.Model
+
+// 	OrderID uint   `json:"order_id"`
+// 	OrderNo string `json:"order_no"`
+
+// 	ShipmentID string            `json:"shipment_id" gorm:"uniqueIndex:ux_order_details_outbound_shipment"`
+// 	OutboundID types.SnowflakeID `json:"outbound_id" gorm:"uniqueIndex:ux_order_details_outbound_shipment"`
+
+// 	OutboundNo   string  `json:"outbound_no"`
+// 	QtyKoli      int     `json:"qty_koli"`
+// 	VasKoli      int     `json:"vas_koli"`
+// 	TotalItem    int     `json:"total_item"`
+// 	TotalQty     int     `json:"total_qty"`
+// 	TotalCBM     float64 `json:"total_cbm"`
+// 	DelivTo      string  `json:"deliv_to"`
+// 	DelivToName  string  `json:"deliv_to_name"`
+// 	DelivAddress string  `json:"deliv_address"`
+// 	DelivCity    string  `json:"deliv_city"`
+// 	OrderType    string  `json:"order_type"`
+// 	Status       string  `json:"status" gorm:"default:'open'"`
+// 	Remarks      string  `json:"remarks"`
+// 	CreatedBy    int     `json:"created_by"`
+// 	UpdatedBy    int     `json:"updated_by"`
+// 	DeletedBy    int     `json:"deleted_by"`
+// }
+
 type OrderDetail struct {
 	gorm.Model
-	OrderID      uint              `json:"order_id"`
-	OrderNo      string            `json:"order_no"`
-	ShipmentID   string            `json:"shipment_id"`
-	OutboundID   types.SnowflakeID `json:"outbound_id"`
-	OutboundNo   string            `json:"outbound_no"`
-	QtyKoli      int               `json:"qty_koli"`
-	VasKoli      int               `json:"vas_koli"`
-	TotalItem    int               `json:"total_item"`
-	TotalQty     int               `json:"total_qty"`
-	TotalCBM     float64           `json:"total_cbm"`
-	DelivTo      string            `json:"deliv_to"`
-	DelivToName  string            `json:"deliv_to_name"`
-	DelivAddress string            `json:"deliv_address"`
-	DelivCity    string            `json:"deliv_city"`
-	OrderType    string            `json:"order_type"`
-	Status       string            `json:"status" gorm:"default:'open'"`
-	Remarks      string            `json:"remarks"`
-	CreatedBy    int               `json:"created_by"`
-	UpdatedBy    int               `json:"updated_by"`
-	DeletedBy    int               `json:"deleted_by"`
+
+	OrderID uint   `json:"order_id"`
+	OrderNo string `json:"order_no"`
+
+	ShipmentID string            `json:"shipment_id" gorm:"type:nvarchar(100);uniqueIndex:ux_order_details_outbound_shipment"`
+	OutboundID types.SnowflakeID `json:"outbound_id" gorm:"uniqueIndex:ux_order_details_outbound_shipment"`
+
+	OutboundNo   string  `json:"outbound_no"`
+	QtyKoli      int     `json:"qty_koli"`
+	VasKoli      int     `json:"vas_koli"`
+	TotalItem    int     `json:"total_item"`
+	TotalQty     int     `json:"total_qty"`
+	TotalCBM     float64 `json:"total_cbm"`
+	DelivTo      string  `json:"deliv_to"`
+	DelivToName  string  `json:"deliv_to_name"`
+	DelivAddress string  `json:"deliv_address"`
+	DelivCity    string  `json:"deliv_city"`
+	OrderType    string  `json:"order_type"`
+	Status       string  `json:"status" gorm:"default:'open'"`
+	Remarks      string  `json:"remarks"`
+	CreatedBy    int     `json:"created_by"`
+	UpdatedBy    int     `json:"updated_by"`
+	DeletedBy    int     `json:"deleted_by"`
 }
+
+// type OrderDetail struct {
+// 	gorm.Model
+// 	OrderID      uint              `json:"order_id"`
+// 	OrderNo      string            `json:"order_no"`
+// 	ShipmentID   string            `json:"shipment_id"`
+// 	OutboundID   types.SnowflakeID `json:"outbound_id"`
+// 	OutboundNo   string            `json:"outbound_no"`
+// 	QtyKoli      int               `json:"qty_koli"`
+// 	VasKoli      int               `json:"vas_koli"`
+// 	TotalItem    int               `json:"total_item"`
+// 	TotalQty     int               `json:"total_qty"`
+// 	TotalCBM     float64           `json:"total_cbm"`
+// 	DelivTo      string            `json:"deliv_to"`
+// 	DelivToName  string            `json:"deliv_to_name"`
+// 	DelivAddress string            `json:"deliv_address"`
+// 	DelivCity    string            `json:"deliv_city"`
+// 	OrderType    string            `json:"order_type"`
+// 	Status       string            `json:"status" gorm:"default:'open'"`
+// 	Remarks      string            `json:"remarks"`
+// 	CreatedBy    int               `json:"created_by"`
+// 	UpdatedBy    int               `json:"updated_by"`
+// 	DeletedBy    int               `json:"deleted_by"`
+// }
 
 type OrderConsole struct {
 	gorm.Model
