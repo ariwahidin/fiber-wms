@@ -153,6 +153,7 @@ type InboundBarcode struct {
 	DivisionCode    string         `json:"division_code"`
 	QaStatus        string         `json:"qa_status"`
 	Status          string         `json:"status" gorm:"default:'pending'"`
+	PackingType     string         `json:"packing_type" gorm:"default:null"`
 	CreatedBy       int
 	UpdatedBy       int
 	DeletedBy       int

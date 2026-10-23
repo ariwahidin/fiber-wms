@@ -292,6 +292,7 @@ func (c *InboundController) DownloadCheckingTemplate(ctx *fiber.Ctx) error {
 		"Case No",
 		"Carton No",
 		"Location",
+		"Packing Type",
 	}
 
 	for colIndex, header := range headers {
@@ -373,7 +374,7 @@ func (c *InboundController) DownloadCheckingTemplate(ctx *fiber.Ctx) error {
 	if err := f.SetCellStyle(
 		sheetName,
 		"A1",
-		"K1",
+		"L1",
 		headerStyle,
 	); err != nil {
 
@@ -432,6 +433,7 @@ func (c *InboundController) DownloadCheckingTemplate(ctx *fiber.Ctx) error {
 	// I = Case No
 	// J = Carton No
 	// K = Location
+	// L = Packing Type
 	//
 
 	inputStyle, err := f.NewStyle(&excelize.Style{
@@ -547,6 +549,7 @@ func (c *InboundController) DownloadCheckingTemplate(ctx *fiber.Ctx) error {
 					"",
 					"",
 					"",
+					"PCS",
 				}
 
 				for colIndex, value := range values {
@@ -605,6 +608,7 @@ func (c *InboundController) DownloadCheckingTemplate(ctx *fiber.Ctx) error {
 			"",
 			"",
 			"",
+			"PCS",
 		}
 
 		for colIndex, value := range values {
@@ -649,7 +653,7 @@ func (c *InboundController) DownloadCheckingTemplate(ctx *fiber.Ctx) error {
 		if err := f.SetCellStyle(
 			sheetName,
 			"A2",
-			"K"+strconv.Itoa(lastRow),
+			"L"+strconv.Itoa(lastRow),
 			dataStyle,
 		); err != nil {
 
@@ -663,7 +667,7 @@ func (c *InboundController) DownloadCheckingTemplate(ctx *fiber.Ctx) error {
 		if err := f.SetCellStyle(
 			sheetName,
 			"H2",
-			"K"+strconv.Itoa(lastRow),
+			"L"+strconv.Itoa(lastRow),
 			inputStyle,
 		); err != nil {
 
@@ -690,6 +694,7 @@ func (c *InboundController) DownloadCheckingTemplate(ctx *fiber.Ctx) error {
 		"I": 18, // Case No
 		"J": 18, // Carton No
 		"K": 20, // Location
+		"L": 20, // Packing Type
 	}
 
 	for column, width := range columnWidths {
@@ -975,6 +980,7 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 		"Case No",
 		"Carton No",
 		"Location",
+		"Packing Type",
 	}
 
 	header := rows[0]
@@ -1217,6 +1223,7 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 		CaseNumber   string
 		CartonNumber string
 		Location     string
+		PackingType  string
 	}
 
 	uploadRows := make(
@@ -1318,6 +1325,7 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 		caseNumber := getColumn(row, 8)
 		cartonNumber := getColumn(row, 9)
 		location := getColumn(row, 10)
+		packingType := getColumn(row, 11)
 
 		// --------------------------------------------------------
 		// NO
@@ -1832,6 +1840,7 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 				CaseNumber:   caseNumber,
 				CartonNumber: cartonNumber,
 				Location:     location,
+				PackingType:  packingType,
 			},
 		)
 
@@ -2284,7 +2293,8 @@ func (c *InboundController) UploadCheckingExcel(ctx *fiber.Ctx) error {
 				DivisionCode: detail.DivisionCode,
 				QaStatus:     detail.QaStatus,
 
-				Status: "pending",
+				Status:      "pending",
+				PackingType: row.PackingType,
 
 				CreatedBy: userID,
 				UpdatedBy: userID,
