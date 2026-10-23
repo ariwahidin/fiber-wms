@@ -45,7 +45,7 @@ jobs:
     name: Deploy to Production Server
     needs: test-and-build
     if: github.event_name == 'push' && github.ref == 'refs/heads/prod-v3'
-    runs-on: [self-hosted, Windows, X64, prod-v3]
+    runs-on: [self-hosted, Windows, X64, furuno-prod-v3]
 
     steps:
       - name: Download build artifact
