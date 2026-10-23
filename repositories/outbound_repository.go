@@ -450,6 +450,8 @@ type PaperPickingSheet struct {
 	UseCartonNumber   bool    `json:"use_carton_number"`
 	UseFifo           bool    `json:"use_fifo"`
 	UseSerialNumber   bool    `json:"use_serial_number"`
+	QtyPerCarton      int     `json:"qty_per_carton"`
+	RemarksItem       string  `json:"remarks_item"`
 }
 
 func (r *OutboundRepository) GetPickingSheet(outbound_id int) ([]PaperPickingSheet, error) {
@@ -544,7 +546,9 @@ func (r *OutboundRepository) GetPickingSheet(outbound_id int) ([]PaperPickingShe
 			-- Inventory Policy
 			ips.use_carton_number,
 			ips.use_fifo,
-			ips.use_serial_number
+			ips.use_serial_number,
+			b.qty_per_carton,
+			CASE WHEN SUM(a.quantity) / uc.conversion_rate <> b.qty_per_carton AND b.qty_per_carton > 0 THEN 'unboxing' ELSE '' END AS remarks_item
 
 		FROM outbound_pickings a
 
@@ -619,6 +623,7 @@ func (r *OutboundRepository) GetPickingSheet(outbound_id int) ([]PaperPickingShe
 			b.item_name,
 			b.cbm,
 			b.unit_model,
+			b.qty_per_carton,
 
 			-- Inventory
 			c.owner_code,

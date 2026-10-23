@@ -152,6 +152,7 @@ type OutboundPicking struct {
 	QtyDisplay       float64 `json:"qty_display"`
 	QtyInOrigin      float64 `json:"qty_in_origin"`
 	QtyPerCarton     float64 `json:"qty_per_carton"`
+	IsUnboxing       bool    `json:"is_unboxing" gorm:"default:false"`
 	UomDisplay       string  `json:"uom_display"`
 	EanDisplay       string  `json:"ean_display"`
 	CreatedBy        int
