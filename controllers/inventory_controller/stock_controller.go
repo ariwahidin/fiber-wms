@@ -34,7 +34,7 @@ func parseBaseFilters(ctx *fiber.Ctx) baseFilters {
 
 // applyBaseFilters menempel WHERE ke query dasar (inventories JOIN products)
 func applyBaseFilters(db *gorm.DB, f baseFilters) *gorm.DB {
-	q := db.Where("inventories.qty_available > ?", 0)
+	q := db.Where("inventories.qty_onhand > ?", 0)
 	if f.Location != "" {
 		q = q.Where("inventories.location = ?", f.Location)
 	}
@@ -109,7 +109,7 @@ func (c *InventoryController) GetAvailableSummaryCards(ctx *fiber.Ctx) error {
 	var totalGroups int64
 	if err := base.Session(&gorm.Session{}).
 		Select(`COUNT(DISTINCT CONCAT_WS('|',
-			inventories.item_code, inventories.whs_code, inventories.location, inventories.division_code,
+			inventories.item_code, inventories.whs_code, inventories.location, inventories.division_code, inventories.case_number, inventories.carton_number, inventories.pallet,
 			inventories.qa_status, inventories.rec_date, inventories.prod_date, inventories.exp_date, inventories.lot_number
 		))`).
 		Scan(&totalGroups).Error; err != nil {
