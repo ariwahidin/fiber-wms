@@ -607,7 +607,7 @@ func createLoginLog(db *gorm.DB, sessionID string, mUser models.User, ctx *fiber
 // generateTokenPair membuat access token (berisi permissions & roles) dan refresh token
 func generateTokenPair(userID interface{}, sessionID string, permissions []string, roles []string) (accessToken, refreshToken string, err error) {
 	now := time.Now()
-	accessExpiry := now.Add(15 * time.Minute).Unix()
+	accessExpiry := now.Add(12 * time.Hour).Unix()
 	refreshExpiry := now.Add(7 * 24 * time.Hour).Unix()
 	secret := []byte(config.JWTSecret)
 
