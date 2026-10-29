@@ -28,6 +28,7 @@ import (
 	scheduler "fiber-app/shceduler"
 	"fiber-app/wms/master/owner"
 	"fmt"
+	"html/template"
 	"log"
 	_ "net/http/pprof"
 	"os"
@@ -98,7 +99,355 @@ func main() {
 
 	config.LoadConfig()
 	app := fiber.New()
-	app.Get("/docs/*", swagger.HandlerDefault)
+	// app.Get("/docs/*", swagger.HandlerDefault)
+	app.Get("/docs/*", swagger.New(swagger.Config{
+		Title:                "WMS API Portal",
+		URL:                  "/docs/doc.json",
+		DeepLinking:          true,
+		DocExpansion:         "list",
+		Filter:               swagger.FilterConfig{Enabled: true},
+		PersistAuthorization: true,
+		CustomStyle: template.CSS(`
+			:root {
+				--wms-navy: #10243a;
+				--wms-navy-light: #183651;
+				--wms-green: #15966b;
+				--wms-bg: #f3f6fa;
+				--wms-text: #25364a;
+				--wms-muted: #718096;
+				--wms-border: #e2e8f0;
+			}
+
+			* {
+				box-sizing: border-box;
+			}
+
+			body {
+				margin: 0;
+				background: var(--wms-bg);
+				color: var(--wms-text);
+				font-family: "Segoe UI", Inter, Arial, sans-serif;
+				-webkit-font-smoothing: antialiased;
+			}
+
+			/* Top navigation */
+			.swagger-ui .topbar {
+				position: sticky;
+				top: 0;
+				z-index: 100;
+				padding: 16px 0;
+				background: var(--wms-navy);
+				border-bottom: 3px solid var(--wms-green);
+				box-shadow: 0 4px 16px rgba(16, 36, 58, .15);
+			}
+
+			.swagger-ui .topbar .wrapper {
+				max-width: 1440px;
+				padding: 0 32px;
+			}
+
+			.swagger-ui .topbar-wrapper {
+				display: flex;
+				align-items: center;
+				min-height: 38px;
+			}
+
+			.swagger-ui .topbar-wrapper .link {
+				position: relative;
+				display: flex;
+				align-items: center;
+				width: 280px;
+				height: 38px;
+				visibility: hidden;
+			}
+
+			.swagger-ui .topbar-wrapper .link::after {
+				content: "WMS  /  DEVELOPER PORTAL";
+				position: absolute;
+				inset: 0;
+				display: flex;
+				align-items: center;
+				visibility: visible;
+				color: #ffffff;
+				font-size: 17px;
+				font-weight: 750;
+				letter-spacing: .7px;
+				white-space: nowrap;
+			}
+
+			.swagger-ui .topbar .download-url-wrapper {
+				display: flex;
+				align-items: center;
+				flex: 1;
+				gap: 10px;
+			}
+
+			.swagger-ui .topbar input[type=text] {
+				height: 40px;
+				padding: 0 14px;
+				border: 1px solid #40566d;
+				border-radius: 7px;
+				background: #ffffff;
+				color: var(--wms-text);
+				box-shadow: none;
+			}
+
+			.swagger-ui .topbar .download-url-button {
+				height: 40px;
+				padding: 0 22px;
+				border-radius: 7px;
+				background: var(--wms-green);
+				font-weight: 650;
+			}
+
+			/* Main content width */
+			.swagger-ui .wrapper {
+				max-width: 1440px;
+				padding-right: 32px;
+				padding-left: 32px;
+			}
+
+			/* API introduction */
+			.swagger-ui .information-container {
+				padding-top: 32px;
+			}
+
+			.swagger-ui .info {
+				margin: 0 0 26px;
+			}
+
+			.swagger-ui .info .title {
+				margin: 0 0 12px;
+				color: var(--wms-navy);
+				font-size: 32px;
+				font-weight: 750;
+				letter-spacing: -.7px;
+			}
+
+			.swagger-ui .info p,
+			.swagger-ui .info li {
+				color: #536579;
+				font-size: 14px;
+				line-height: 1.8;
+			}
+
+			.swagger-ui .info a {
+				color: var(--wms-green);
+			}
+
+			.swagger-ui .info .title small {
+				top: -4px;
+				margin-left: 8px;
+				padding: 4px 8px;
+				border-radius: 5px;
+				background: #e7f5ee;
+				color: #11734f;
+				font-size: 11px;
+				font-weight: 700;
+			}
+
+			/* Authorization panel */
+			.swagger-ui .scheme-container {
+				margin: 0 0 28px;
+				padding: 20px 24px;
+				border: 1px solid var(--wms-border);
+				border-radius: 12px;
+				background: #ffffff;
+				box-shadow: 0 3px 12px rgba(16, 36, 58, .035);
+			}
+
+			.swagger-ui .btn.authorize {
+				min-height: 40px;
+				padding: 0 20px;
+				border: 1px solid var(--wms-green);
+				border-radius: 7px;
+				background: #ffffff;
+				color: var(--wms-green);
+				font-weight: 650;
+			}
+
+			.swagger-ui .btn.authorize:hover {
+				background: #eaf7f1;
+			}
+
+			/* Tag headings */
+			.swagger-ui .opblock-tag-section {
+				margin-bottom: 24px;
+			}
+
+			.swagger-ui .opblock-tag {
+				margin: 0;
+				padding: 17px 4px;
+				border-bottom: 1px solid #dce4ed;
+				color: var(--wms-navy);
+				font-size: 19px;
+				font-weight: 750;
+				letter-spacing: -.2px;
+			}
+
+			.swagger-ui .opblock-tag small {
+				color: var(--wms-muted);
+				font-size: 12px;
+				font-weight: 400;
+			}
+
+			/* Endpoint cards */
+			.swagger-ui .opblock {
+				margin: 10px 0;
+				overflow: hidden;
+				border: 1px solid var(--wms-border);
+				border-radius: 9px;
+				background: #ffffff;
+				box-shadow: 0 2px 5px rgba(16, 36, 58, .025);
+				transition: box-shadow .15s ease, transform .15s ease;
+			}
+
+			.swagger-ui .opblock:hover {
+				box-shadow: 0 5px 14px rgba(16, 36, 58, .07);
+			}
+
+			.swagger-ui .opblock .opblock-summary {
+				padding: 5px 12px;
+			}
+
+			.swagger-ui .opblock .opblock-summary-method {
+				min-width: 76px;
+				padding: 8px 12px;
+				border-radius: 5px;
+				font-size: 11px;
+				font-weight: 750;
+				letter-spacing: .4px;
+				text-shadow: none;
+				box-shadow: none;
+			}
+
+			.swagger-ui .opblock .opblock-summary-path {
+				color: var(--wms-navy);
+				font-size: 13px;
+				font-weight: 700;
+			}
+
+			.swagger-ui .opblock .opblock-summary-description {
+				color: #66778a;
+				font-size: 12px;
+			}
+
+			.swagger-ui .opblock .opblock-section-header {
+				background: #f7f9fc;
+				box-shadow: none;
+				border-top: 1px solid var(--wms-border);
+			}
+
+			.swagger-ui .opblock-body {
+				background: #ffffff;
+			}
+
+			/* Request and response panels */
+			.swagger-ui .model-box,
+			.swagger-ui .models {
+				border-radius: 8px;
+			}
+
+			.swagger-ui section.models {
+				margin-top: 32px;
+				border: 1px solid var(--wms-border);
+				border-radius: 10px;
+				background: #ffffff;
+			}
+
+			.swagger-ui section.models h4 {
+				color: var(--wms-navy);
+				font-size: 15px;
+			}
+
+			.swagger-ui .model-title {
+				color: var(--wms-navy);
+			}
+
+			.swagger-ui table thead tr th,
+			.swagger-ui table thead tr td {
+				color: var(--wms-navy);
+				font-size: 12px;
+				font-weight: 700;
+			}
+
+			.swagger-ui .btn.execute {
+				min-height: 40px;
+				border: none;
+				border-radius: 6px;
+				background: var(--wms-green);
+				font-weight: 700;
+				box-shadow: none;
+			}
+
+			.swagger-ui .btn.execute:hover {
+				background: #107a57;
+			}
+
+			.swagger-ui input,
+			.swagger-ui select,
+			.swagger-ui textarea {
+				border: 1px solid #d7e0ea;
+				border-radius: 6px;
+				box-shadow: none;
+			}
+
+			.swagger-ui input:focus,
+			.swagger-ui select:focus,
+			.swagger-ui textarea:focus {
+				border-color: var(--wms-green);
+				outline: 2px solid rgba(21, 150, 107, .12);
+			}
+
+			.swagger-ui .response-col_status {
+				color: var(--wms-navy);
+				font-weight: 750;
+			}
+
+			/* Mobile */
+			@media (max-width: 768px) {
+				.swagger-ui .topbar .wrapper,
+				.swagger-ui .wrapper {
+					padding-right: 16px;
+					padding-left: 16px;
+				}
+
+				.swagger-ui .topbar-wrapper {
+					flex-wrap: wrap;
+					gap: 12px;
+				}
+
+				.swagger-ui .topbar-wrapper .link {
+					width: 100%;
+				}
+
+				.swagger-ui .topbar .download-url-wrapper {
+					width: 100%;
+				}
+
+				.swagger-ui .info .title {
+					font-size: 25px;
+				}
+
+				.swagger-ui .scheme-container {
+					padding: 14px;
+				}
+
+				.swagger-ui .opblock .opblock-summary {
+					padding: 5px;
+				}
+
+				.swagger-ui .opblock .opblock-summary-method {
+					min-width: 55px;
+					padding: 7px;
+				}
+
+				.swagger-ui .opblock .opblock-summary-description {
+					display: none;
+				}
+			}
+		`),
+	}))
 	config.SetupCORS(app)
 
 	// middleware logger custom
