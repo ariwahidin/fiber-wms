@@ -1,0 +1,195 @@
+definitions:
+  controllers.LoginConfirmRequest:
+    properties:
+      conflict_id:
+        example: 550e8400-e29b-41d4-a716-446655440000
+        type: string
+    type: object
+  controllers.LoginRequest:
+    properties:
+      email:
+        example: user@example.com
+        type: string
+      password:
+        example: your-password
+        type: string
+    type: object
+info:
+  contact:
+    email: support@example.com
+    name: WMS Support
+  description: API documentation for Warehouse Management System.
+  termsOfService: https://example.com/terms/
+  title: WMS API
+  version: "1.0"
+paths:
+  /api/v1/auth/login:
+    post:
+      consumes:
+      - application/json
+      description: Authenticates a user using an email address or username and password.
+        Returns a conflict if the user already has an active session on another device.
+      parameters:
+      - description: Login credentials
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/controllers.LoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Authentication successful
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid request or missing required fields
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Invalid credentials
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: User already has an active session
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Authenticate user
+      tags:
+      - Authentication
+  /api/v1/auth/login/confirm:
+    post:
+      consumes:
+      - application/json
+      description: Confirms a login conflict and invalidates existing active sessions
+        before creating a new session for the user.
+      parameters:
+      - description: Login conflict confirmation request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/controllers.LoginConfirmRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Login confirmed successfully
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid request, conflict ID not found, or user not found
+          schema:
+            additionalProperties: true
+            type: object
+        "410":
+          description: Login conflict has expired
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Failed to invalidate previous sessions or create a new session
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Confirm login on a new device
+      tags:
+      - Authentication
+  /api/v1/auth/logout:
+    get:
+      description: Ends the current user's active session, records the logout timestamp,
+        and clears the authentication cookie.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Logout successful
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Invalid or expired session
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Log out the current user
+      tags:
+      - Authentication
+  /api/v1/owners:
+    get:
+      description: Retrieves all owner records from the database.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Owners retrieved successfully
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get all owners
+      tags:
+      - Owner
+  /api/v1/owners/{id}:
+    get:
+      description: Retrieves a specific owner record by its ID.
+      parameters:
+      - description: Owner ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Owner retrieved successfully
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid owner ID
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Owner not found
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get owner by ID
+      tags:
+      - Owner
+securityDefinitions:
+  BearerAuth:
+    description: 'Enter your JWT token with the Bearer prefix. Example: Bearer eyJhbGciOi...'
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"

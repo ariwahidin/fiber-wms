@@ -40,6 +40,15 @@ func (c *AuthController) IsLoggedIn(ctx *fiber.Ctx) error {
 	})
 }
 
+// Logout godoc
+// @Summary      Log out the current user
+// @Description  Ends the current user's active session, records the logout timestamp, and clears the authentication cookie.
+// @Tags         Authentication
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200 {object} map[string]interface{} "Logout successful"
+// @Failure      401 {object} map[string]interface{} "Invalid or expired session"
+// @Router       /api/v1/auth/logout [get]
 func (c *AuthController) Logout(ctx *fiber.Ctx) error {
 	sessionID, ok := ctx.Locals("sessionID").(string)
 	if !ok || sessionID == "" {
@@ -77,11 +86,31 @@ func (c *AuthController) Logout(ctx *fiber.Ctx) error {
 	})
 }
 
+type LoginRequest struct {
+	Email    string `json:"email" example:"user@example.com"`
+	Password string `json:"password" example:"your-password"`
+}
+
+// Login godoc
+// @Summary      Authenticate user
+// @Description  Authenticates a user using an email address or username and password. Returns a conflict if the user already has an active session on another device.
+// @Tags         Authentication
+// @Accept       json
+// @Produce      json
+// @Param        request body LoginRequest true "Login credentials"
+// @Success      200 {object} map[string]interface{} "Authentication successful"
+// @Failure      400 {object} map[string]interface{} "Invalid request or missing required fields"
+// @Failure      401 {object} map[string]interface{} "Invalid credentials"
+// @Failure      409 {object} map[string]interface{} "User already has an active session"
+// @Failure      500 {object} map[string]interface{} "Internal server error"
+// @Router       /api/v1/auth/login [post]
 func Login(ctx *fiber.Ctx) error {
-	var input struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
-	}
+	// var input struct {
+	// 	Email    string `json:"email"`
+	// 	Password string `json:"password"`
+	// }
+
+	var input LoginRequest
 
 	if err := ctx.BodyParser(&input); err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Invalid request"})
@@ -213,10 +242,29 @@ func Login(ctx *fiber.Ctx) error {
 	return LoginSuccess(sessionID, mUser, ctx)
 }
 
+type LoginConfirmRequest struct {
+	ConflictID string `json:"conflict_id" example:"550e8400-e29b-41d4-a716-446655440000"`
+}
+
+// LoginConfirm godoc
+// @Summary      Confirm login on a new device
+// @Description  Confirms a login conflict and invalidates existing active sessions before creating a new session for the user.
+// @Tags         Authentication
+// @Accept       json
+// @Produce      json
+// @Param        request body LoginConfirmRequest true "Login conflict confirmation request"
+// @Success      200 {object} map[string]interface{} "Login confirmed successfully"
+// @Failure      400 {object} map[string]interface{} "Invalid request, conflict ID not found, or user not found"
+// @Failure      410 {object} map[string]interface{} "Login conflict has expired"
+// @Failure      500 {object} map[string]interface{} "Failed to invalidate previous sessions or create a new session"
+// @Router       /api/v1/auth/login/confirm [post]
 func LoginConfirm(ctx *fiber.Ctx) error {
-	var req struct {
-		ConflictID string `json:"conflict_id"`
-	}
+	// var req struct {
+	// 	ConflictID string `json:"conflict_id"`
+	// }
+
+	var req LoginConfirmRequest
+
 	if err := ctx.BodyParser(&req); err != nil || req.ConflictID == "" {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"success": false,

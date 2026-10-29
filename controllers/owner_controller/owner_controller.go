@@ -39,6 +39,15 @@ func (c *OwnerController) CreateOwner(ctx *fiber.Ctx) error {
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Owner created successfully", "data": model})
 }
 
+// GetAllOwner godoc
+// @Summary      Get all owners
+// @Description  Retrieves all owner records from the database.
+// @Tags         Owner
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200 {object} map[string]interface{} "Owners retrieved successfully"
+// @Failure      500 {object} map[string]interface{} "Internal server error"
+// @Router       /api/v1/owners [get]
 func (c *OwnerController) GetAllOwner(ctx *fiber.Ctx) error {
 	var models []models.Owner
 	if err := c.DB.Find(&models).Error; err != nil {
@@ -47,6 +56,18 @@ func (c *OwnerController) GetAllOwner(ctx *fiber.Ctx) error {
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Owner found", "data": models})
 }
 
+// GetOwnerByID godoc
+// @Summary      Get owner by ID
+// @Description  Retrieves a specific owner record by its ID.
+// @Tags         Owner
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id path int true "Owner ID"
+// @Success      200 {object} map[string]interface{} "Owner retrieved successfully"
+// @Failure      400 {object} map[string]interface{} "Invalid owner ID"
+// @Failure      404 {object} map[string]interface{} "Owner not found"
+// @Failure      500 {object} map[string]interface{} "Internal server error"
+// @Router       /api/v1/owners/{id} [get]
 func (c *OwnerController) GetOwnerByID(ctx *fiber.Ctx) error {
 	id, err := ctx.ParamsInt("id")
 	if err != nil {

@@ -42,8 +42,11 @@ import (
 	integration_service "fiber-app/services/integration_service"
 	rm_services "fiber-app/services/report_mailer"
 
+	_ "fiber-app/docs"
+
 	"github.com/gofiber/contrib/websocket"
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/swagger"
 )
 
 // struct log
@@ -62,6 +65,18 @@ type AccessLog struct {
 // channel buat log
 var logChan = make(chan AccessLog, 100)
 
+// @title           WMS API
+// @version         1.0
+// @description     API documentation for Warehouse Management System.
+// @termsOfService  https://example.com/terms/
+
+// @contact.name   WMS Support
+// @contact.email  support@example.com
+
+// @securityDefinitions.apikey BearerAuth
+// @in header
+// @name Authorization
+// @description Enter your JWT token with the Bearer prefix. Example: Bearer eyJhbGciOi...
 func main() {
 
 	// buka file log
@@ -83,6 +98,7 @@ func main() {
 
 	config.LoadConfig()
 	app := fiber.New()
+	app.Get("/docs/*", swagger.HandlerDefault)
 	config.SetupCORS(app)
 
 	// middleware logger custom

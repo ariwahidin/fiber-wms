@@ -47,10 +47,6 @@ func AuthMiddleware(ctx *fiber.Ctx) error {
 		return []byte(config.JWTSecret), nil
 	})
 
-	// fmt.Println("token: ", token)
-	// check sisa waktu token dalam string
-	// fmt.Println("token.Valid: ", token.Valid)
-
 	fmt.Println("Data token: ", token.Claims)
 
 	// Handle error saat parsing token
@@ -186,18 +182,6 @@ func (a *AuthMiddlewareStruct) CheckPermission(requiredPermission string) fiber.
 				userPermissions[perm.Name] = true
 			}
 		}
-
-		// fmt.Println("userPermissions: ", userPermissions)
-		// fmt.Println("requiredPermission: ", requiredPermission)
-		// fmt.Printf("userPermissions: %+v\n", userPermissions)
-		// fmt.Printf("requiredPermission: '%s' (length: %d)\n", requiredPermission, len(requiredPermission))
-
-		// // Cek apakah key benar-benar ada dalam map
-		// if val, exists := userPermissions[requiredPermission]; exists {
-		// 	fmt.Println("Permission found:", val)
-		// } else {
-		// 	fmt.Println("Permission NOT found!")
-		// }
 
 		// Cek apakah permission yang dibutuhkan ada dalam daftar userPermissions
 		if _, exists := userPermissions[requiredPermission]; !exists {
