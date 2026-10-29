@@ -435,6 +435,7 @@ type PaperPickingSheet struct {
 	DelivCity         string  `json:"deliv_city"`
 	QtyKoli           int     `json:"qty_koli"`
 	QtyKoliSeal       int     `json:"qty_koli_seal"`
+	RemarksHeader     string  `json:"remarks_header"`
 	Remarks           string  `json:"remarks"`
 	PickerName        string  `json:"picker_name"`
 	PlanPickupDate    string  `json:"plan_pickup_date"`
@@ -471,7 +472,6 @@ func (r *OutboundRepository) GetPickingSheet(outbound_id int) ([]PaperPickingShe
 			-- Outbound Header
 			e.qty_koli,
 			e.qty_koli_seal,
-			e.remarks,
 			e.picker_name,
 			e.plan_pickup_date,
 			e.plan_pickup_time,
@@ -548,7 +548,9 @@ func (r *OutboundRepository) GetPickingSheet(outbound_id int) ([]PaperPickingShe
 			ips.use_fifo,
 			ips.use_serial_number,
 			b.qty_per_carton,
-			CASE WHEN SUM(a.quantity) / uc.conversion_rate <> b.qty_per_carton AND b.qty_per_carton > 0 THEN 'unboxing' ELSE '' END AS remarks_item
+			e.remarks AS remarks_header,
+			od.remarks,
+			CASE WHEN SUM(a.quantity) / uc.conversion_rate <> b.qty_per_carton AND b.qty_per_carton > 0 AND c.carton_number <> '' THEN 'unboxing' ELSE '' END AS remarks_item
 
 		FROM outbound_pickings a
 
@@ -639,6 +641,7 @@ func (r *OutboundRepository) GetPickingSheet(outbound_id int) ([]PaperPickingShe
 			a.outbound_detail_id,
 			uc.conversion_rate,
 			od.uom,
+			od.remarks,
 
 			-- Customer
 			f.customer_name,

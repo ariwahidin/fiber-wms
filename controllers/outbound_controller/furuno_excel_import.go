@@ -833,6 +833,8 @@ func (c *OutboundController) CreateOutboundFromFurunoExcel(ctx *fiber.Ctx) error
 		// Insert Details
 		// ---------------------------------------------------------------------
 
+		seenSerialNumbers := make(map[string]bool)
+
 		for _, item := range expandedItems {
 
 			// ================================================================
@@ -978,7 +980,7 @@ func (c *OutboundController) CreateOutboundFromFurunoExcel(ctx *fiber.Ctx) error
 				OwnerCode:    ownerCode,
 
 				// Part Code dari Excel.
-				Remarks: item.Remarks,
+				//Remarks: item.Remarks,
 
 				// Serial disimpan di outbound_serials.
 				SerialNumber: "",
@@ -1026,13 +1028,64 @@ func (c *OutboundController) CreateOutboundFromFurunoExcel(ctx *fiber.Ctx) error
 			// Setiap serial dibuat menjadi satu outbound serial record.
 			// ================================================================
 
-			for _, sn := range item.SerialNumbers {
+			// for _, sn := range item.SerialNumbers {
 
+			// 	sn = strings.TrimSpace(sn)
+
+			// 	if sn == "" {
+			// 		continue
+			// 	}
+
+			// 	serial := models.OutboundSerial{
+			// 		OutboundId:       int(outboundHeader.ID),
+			// 		OutboundDetailId: int(outboundDetail.ID),
+			// 		SerialNumber:     sn,
+			// 		CreatedBy:        currentUserID,
+			// 		UpdatedBy:        currentUserID,
+			// 	}
+
+			// 	if err := tx.
+			// 		Create(&serial).
+			// 		Error; err != nil {
+
+			// 		tx.Rollback()
+
+			// 		return ctx.Status(
+			// 			fiber.StatusInternalServerError,
+			// 		).JSON(FurunoUploadResponse{
+			// 			Success: false,
+			// 			Message: "Failed to insert outbound serial",
+			// 			Errors: []FurunoExcelRowError{
+			// 				{
+			// 					Row:     firstItem.Row,
+			// 					Message: "Serial Insert Error",
+			// 					Detail:  err.Error(),
+			// 				},
+			// 			},
+			// 		})
+			// 	}
+			// }
+
+			// ================================================================
+			// Insert Serial Numbers (Unique)
+			// ================================================================
+
+			for _, sn := range item.SerialNumbers {
 				sn = strings.TrimSpace(sn)
 
 				if sn == "" {
 					continue
 				}
+
+				serialKey := strings.ToUpper(sn)
+
+				// Skip jika serial sudah ditemukan pada detail sebelumnya
+				if seenSerialNumbers[serialKey] {
+					continue
+				}
+
+				// Tandai sebelum insert
+				seenSerialNumbers[serialKey] = true
 
 				serial := models.OutboundSerial{
 					OutboundId:       int(outboundHeader.ID),
@@ -1042,25 +1095,21 @@ func (c *OutboundController) CreateOutboundFromFurunoExcel(ctx *fiber.Ctx) error
 					UpdatedBy:        currentUserID,
 				}
 
-				if err := tx.
-					Create(&serial).
-					Error; err != nil {
-
+				if err := tx.Create(&serial).Error; err != nil {
 					tx.Rollback()
 
-					return ctx.Status(
-						fiber.StatusInternalServerError,
-					).JSON(FurunoUploadResponse{
-						Success: false,
-						Message: "Failed to insert outbound serial",
-						Errors: []FurunoExcelRowError{
-							{
-								Row:     firstItem.Row,
-								Message: "Serial Insert Error",
-								Detail:  err.Error(),
+					return ctx.Status(fiber.StatusInternalServerError).
+						JSON(FurunoUploadResponse{
+							Success: false,
+							Message: "Failed to insert outbound serial",
+							Errors: []FurunoExcelRowError{
+								{
+									Row:     firstItem.Row,
+									Message: "Serial Insert Error",
+									Detail:  err.Error(),
+								},
 							},
-						},
-					})
+						})
 				}
 			}
 

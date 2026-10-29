@@ -923,7 +923,7 @@ func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
 		}
 
 		key := fmt.Sprintf(
-			"%s|%s|%s|%s|%s|%s|%s",
+			"%s|%s|%s|%s|%s|%s|%s|%s",
 			item.ItemCode,
 			item.UOM,
 			item.LotNumber,
@@ -931,14 +931,32 @@ func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
 			item.CartonNumber,
 			item.CaseNumber,
 			item.SerialNumber,
+			item.Remarks,
 		)
+
+		// if itemCodes[key] {
+		// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+		// 		"success": false,
+		// 		"message": "Duplicate item found: " + item.ItemCode,
+		// 		"error": fmt.Sprintf(
+		// 			"Duplicate item with code %s, uom %s, lot number %s, expiration date %s, carton number %s, case number %s, serial number %s",
+		// 			item.ItemCode,
+		// 			item.UOM,
+		// 			item.LotNumber,
+		// 			item.ExpDate,
+		// 			item.CartonNumber,
+		// 			item.CaseNumber,
+		// 			item.SerialNumber,
+		// 		),
+		// 	})
+		// }
 
 		if itemCodes[key] {
 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 				"success": false,
 				"message": "Duplicate item found: " + item.ItemCode,
 				"error": fmt.Sprintf(
-					"Duplicate item with code %s, uom %s, lot number %s, expiration date %s, carton number %s, case number %s, serial number %s",
+					"Duplicate item with code %s, uom %s, lot number %s, expiration date %s, carton number %s, case number %s, serial number %s, remarks %s",
 					item.ItemCode,
 					item.UOM,
 					item.LotNumber,
@@ -946,6 +964,7 @@ func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
 					item.CartonNumber,
 					item.CaseNumber,
 					item.SerialNumber,
+					item.Remarks,
 				),
 			})
 		}
@@ -1748,372 +1767,6 @@ func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
 		"data":    outboundHeader,
 	})
 }
-
-// func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
-// 	outbound_no := ctx.Params("outbound_no")
-
-// 	var payload Outbound
-
-// 	if err := ctx.BodyParser(&payload); err != nil {
-// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
-// 	}
-
-// 	// Validate shipment id
-// 	if payload.ShipmentID == "" {
-// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-// 			"success": false,
-// 			"message": "Shipment ID / DO Number is required",
-// 			"error":   "Shipment ID / DO Number is required",
-// 		})
-// 	}
-
-// 	var InventoryPolicy models.InventoryPolicy
-// 	if err := c.DB.Where("owner_code = ?", payload.OwnerCode).First(&InventoryPolicy).Error; err != nil {
-// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-// 			"success": false,
-// 			"message": "Failed to get inventory policy",
-// 			"error":   err.Error(),
-// 		})
-// 	}
-
-// 	// Check duplicate item code / line
-// 	itemCodes := make(map[string]bool) // gunakan map untuk cek duplikat
-// 	for _, item := range payload.Items {
-
-// 		if item.Quantity == 0 {
-// 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-// 				"success": false,
-// 				"message": "Quantity cannot be zero",
-// 				"error":   "Quantity cannot be zero",
-// 			})
-// 		}
-
-// 		if item.UOM == "" {
-// 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-// 				"success": false,
-// 				"message": "UOM cannot be empty",
-// 				"error":   "UOM cannot be empty",
-// 			})
-// 		}
-
-// 		if item.ItemCode == "" {
-// 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-// 				"success": false,
-// 				"message": "Item code cannot be empty",
-// 				"error":   "Item code cannot be empty",
-// 			})
-// 		}
-
-// 		key := fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s", item.ItemCode, item.UOM, item.LotNumber, item.ExpDate, item.CartonNumber, item.CaseNumber, item.SerialNumber)
-
-// 		if itemCodes[key] {
-// 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-// 				"success": false,
-// 				"message": "Duplicate item found: " + item.ItemCode,
-// 				"error": fmt.Sprintf("Duplicate item with code %s,  uom %s, lot number %s, expiration date %s, carton number %s, case number %s, serial number %s",
-// 					item.ItemCode, item.UOM, item.LotNumber, item.ExpDate, item.CartonNumber, item.CaseNumber, item.SerialNumber),
-// 			})
-// 		}
-
-// 		itemCodes[key] = true
-
-// 	}
-
-// 	// Mulai transaction
-// 	tx := c.DB.Begin()
-// 	defer func() {
-// 		if r := recover(); r != nil {
-// 			tx.Rollback()
-// 		}
-// 	}()
-
-// 	var invetoryPolicy models.InventoryPolicy
-// 	if err := tx.Debug().First(&invetoryPolicy, "owner_code = ?", payload.OwnerCode).Error; err != nil {
-// 		if errors.Is(err, gorm.ErrRecordNotFound) {
-// 			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
-// 				"success": false,
-// 				"message": "Inventory Policy not found",
-// 				"error":   err.Error(),
-// 			})
-// 		}
-// 		tx.Rollback()
-// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-// 			"success": false,
-// 			"message": "Failed to get inventory policy",
-// 			"error":   err.Error(),
-// 		})
-// 	}
-
-// 	if invetoryPolicy.RequireLotNumber {
-// 		for _, item := range payload.Items {
-// 			if item.LotNumber == "" {
-// 				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-// 					"success": false,
-// 					"message": "Lot number is required",
-// 					"error":   "Lot number is required",
-// 				})
-// 			}
-// 		}
-// 	}
-
-// 	userID := int(ctx.Locals("userID").(float64))
-// 	var OutboundHeader models.OutboundHeader
-// 	if err := tx.Debug().First(&OutboundHeader, "outbound_no = ?", outbound_no).Error; err != nil {
-// 		if errors.Is(err, gorm.ErrRecordNotFound) {
-// 			tx.Rollback()
-// 			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Outbound not found"})
-// 		}
-// 		tx.Rollback()
-// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-// 	}
-
-// 	var customer models.Customer
-// 	if err := tx.Debug().First(&customer, "customer_code = ?", payload.CustomerCode).Error; err != nil {
-// 		if errors.Is(err, gorm.ErrRecordNotFound) {
-// 			tx.Rollback()
-// 			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Customer not found"})
-// 		}
-// 		tx.Rollback()
-// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-// 	}
-
-// 	OutboundHeader.OutboundDate = payload.OutboundDate
-// 	OutboundHeader.ShipmentID = payload.ShipmentID
-// 	OutboundHeader.CustomerCode = payload.CustomerCode
-// 	OutboundHeader.WhsCode = payload.WhsCode
-// 	OutboundHeader.OwnerCode = payload.OwnerCode
-// 	OutboundHeader.Remarks = payload.Remarks
-// 	OutboundHeader.UpdatedBy = userID
-// 	OutboundHeader.UpdatedAt = time.Now()
-// 	OutboundHeader.TransporterCode = payload.TransporterCode
-// 	OutboundHeader.PickerName = payload.PickerName
-// 	OutboundHeader.CustAddress = payload.CustAddress
-// 	OutboundHeader.CustCity = payload.CustCity
-// 	OutboundHeader.OrderType = payload.OrderType
-// 	OutboundHeader.PlanPickupDate = payload.PlanPickupDate
-// 	OutboundHeader.PlanPickupTime = payload.PlanPickupTime
-// 	OutboundHeader.RcvDoDate = payload.RcvDoDate
-// 	OutboundHeader.RcvDoTime = payload.RcvDoTime
-// 	OutboundHeader.StartPickTime = payload.StartPickTime
-// 	OutboundHeader.EndPickTime = payload.EndPickTime
-// 	OutboundHeader.DelivTo = payload.DelivTo
-// 	OutboundHeader.DelivAddress = payload.DelivAddress
-// 	OutboundHeader.DelivCity = payload.DelivCity
-// 	OutboundHeader.Driver = payload.Driver
-// 	OutboundHeader.QtyKoli = payload.QtyKoli
-// 	OutboundHeader.QtyKoliSeal = payload.QtyKoliSeal
-// 	OutboundHeader.TruckSize = payload.TruckSize
-// 	OutboundHeader.TruckNo = payload.TruckNo
-
-// 	if err := tx.Model(&models.OutboundHeader{}).Where("id = ?", OutboundHeader.ID).Updates(OutboundHeader).Error; err != nil {
-// 		tx.Rollback()
-// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-// 	}
-
-// 	if len(payload.Items) < 1 {
-// 		tx.Rollback()
-// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-// 			"success": false,
-// 			"message": "No items found",
-// 			"error":   "No items found",
-// 		})
-// 	}
-
-// 	// update outbound detail
-// 	for _, item := range payload.Items {
-// 		var outboundDetail models.OutboundDetail
-
-// 		var product models.Product
-// 		if err := tx.Debug().First(&product, "item_code = ?", item.ItemCode).Error; err != nil {
-// 			tx.Rollback()
-// 			if errors.Is(err, gorm.ErrRecordNotFound) {
-// 				tx.Rollback()
-// 				return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Product not found"})
-// 			}
-// 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-// 		}
-
-// 		var vas models.Vas
-
-// 		if invetoryPolicy.UseVAS {
-
-// 			if err := tx.Debug().First(&vas, "id = ?", item.VasID).Error; err != nil {
-// 				if errors.Is(err, gorm.ErrRecordNotFound) {
-// 					tx.Rollback()
-// 					return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Vas not found"})
-// 				}
-
-// 				tx.Rollback()
-// 				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-// 			}
-// 		}
-
-// 		var uomConversion models.UomConversion
-// 		if err := tx.Debug().First(&uomConversion, "item_code = ? AND from_uom = ?", product.ItemCode, item.UOM).Error; err != nil {
-// 			if errors.Is(err, gorm.ErrRecordNotFound) {
-// 				tx.Rollback()
-// 				return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "UOM conversion not found"})
-// 			}
-// 			tx.Rollback()
-// 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-// 		}
-
-// 		var DivisionCode string
-// 		if item.DivisionCode == "" {
-// 			DivisionCode = "REGULAR"
-// 		} else {
-// 			DivisionCode = item.DivisionCode
-// 		}
-
-// 		// Coba cari berdasarkan ID
-// 		err := tx.Debug().First(&outboundDetail, "id = ?", item.ID).Error
-// 		if errors.Is(err, gorm.ErrRecordNotFound) {
-
-// 			if OutboundHeader.Status == "open" {
-
-// 				newDetail := models.OutboundDetail{
-// 					OutboundID:   OutboundHeader.ID,
-// 					OutboundNo:   OutboundHeader.OutboundNo,
-// 					ItemID:       int(product.ID),
-// 					ItemCode:     item.ItemCode,
-// 					Barcode:      uomConversion.Ean,
-// 					Quantity:     item.Quantity,
-// 					ExpDate:      item.ExpDate,
-// 					LotNumber:    item.LotNumber,
-// 					CartonNumber: item.CartonNumber,
-// 					CaseNumber:   item.CaseNumber,
-// 					SerialNumber: item.SerialNumber,
-// 					Location:     item.Location,
-// 					WhsCode:      OutboundHeader.WhsCode,
-// 					OwnerCode:    OutboundHeader.OwnerCode,
-// 					CustomerCode: customer.CustomerCode,
-// 					Uom:          item.UOM,
-// 					DivisionCode: DivisionCode,
-// 					QaStatus:     "A",
-// 					Remarks:      item.Remarks,
-// 					SN:           item.SN,
-// 					SNCheck:      "N",
-// 					VasID:        item.VasID,
-// 					VasName:      vas.Name,
-// 					CreatedBy:    int(ctx.Locals("userID").(float64)),
-// 				}
-// 				if err := tx.Create(&newDetail).Error; err != nil {
-// 					tx.Rollback()
-// 					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-// 						"error": err.Error(),
-// 					})
-// 				}
-
-// 				if err := createOutboundSerial(
-// 					tx,
-// 					OutboundHeader.ID,
-// 					newDetail.ID,
-// 					item.SerialNumbers,
-// 					userID,
-// 				); err != nil {
-// 					tx.Rollback()
-
-// 					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-// 						"success": false,
-// 						"message": "Failed to insert outbound serial",
-// 						"error":   err.Error(),
-// 					})
-// 				}
-
-// 			}
-
-// 		} else if err == nil {
-// 			if OutboundHeader.Status == "open" {
-// 				outboundDetail.OutboundID = OutboundHeader.ID
-// 				outboundDetail.ItemID = int(product.ID)
-// 				outboundDetail.ItemCode = item.ItemCode
-// 				outboundDetail.Barcode = uomConversion.Ean
-// 				outboundDetail.Uom = item.UOM
-// 				outboundDetail.WhsCode = OutboundHeader.WhsCode
-// 				outboundDetail.OwnerCode = OutboundHeader.OwnerCode
-// 				outboundDetail.DivisionCode = DivisionCode
-// 				outboundDetail.CustomerCode = customer.CustomerCode
-// 				outboundDetail.QaStatus = "A"
-// 				outboundDetail.ExpDate = item.ExpDate
-// 				outboundDetail.LotNumber = item.LotNumber
-// 				outboundDetail.CartonNumber = item.CartonNumber
-// 				outboundDetail.CaseNumber = item.CaseNumber
-// 				outboundDetail.SerialNumber = item.SerialNumber
-// 				outboundDetail.Quantity = item.Quantity
-// 				outboundDetail.Location = item.Location
-// 				outboundDetail.Remarks = item.Remarks
-// 				outboundDetail.SN = item.SN
-// 				outboundDetail.SNCheck = "N"
-// 				outboundDetail.VasID = item.VasID
-// 				outboundDetail.VasName = vas.Name
-// 				outboundDetail.UpdatedBy = int(ctx.Locals("userID").(float64))
-// 				outboundDetail.UpdatedAt = time.Now()
-// 			} else {
-// 				outboundDetail.VasID = item.VasID
-// 				outboundDetail.VasName = vas.Name
-// 				outboundDetail.UpdatedBy = int(ctx.Locals("userID").(float64))
-// 				outboundDetail.UpdatedAt = time.Now()
-// 			}
-
-// 			if err := tx.Save(&outboundDetail).Error; err != nil {
-// 				tx.Rollback()
-// 				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-// 			}
-
-// 			// Sync serial numbers
-// 			if OutboundHeader.Status == "open" {
-
-// 				// Hapus serial lama
-// 				if err := tx.
-// 					Where("outbound_detail_id = ?", outboundDetail.ID).
-// 					Delete(&models.OutboundSerial{}).Error; err != nil {
-
-// 					tx.Rollback()
-
-// 					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-// 						"success": false,
-// 						"message": "Failed to delete existing outbound serials",
-// 						"error":   err.Error(),
-// 					})
-// 				}
-
-// 				// Insert serial terbaru
-// 				if err := createOutboundSerial(
-// 					tx,
-// 					OutboundHeader.ID,
-// 					outboundDetail.ID,
-// 					item.SerialNumbers,
-// 					userID,
-// 				); err != nil {
-
-// 					tx.Rollback()
-
-// 					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-// 						"success": false,
-// 						"message": "Failed to insert outbound serial",
-// 						"error":   err.Error(),
-// 					})
-// 				}
-// 			}
-// 		} else {
-// 			// ❌ Error lain
-// 			tx.Rollback()
-// 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-// 		}
-// 	}
-
-// 	// Commit
-// 	if err := tx.Commit().Error; err != nil {
-// 		tx.Rollback()
-// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-// 			"success": false,
-// 			"message": "Failed to commit transaction",
-// 			"error":   err.Error(),
-// 		})
-// 	}
-
-// 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Update Outbound successfully", "data": OutboundHeader})
-// }
 
 func (c *OutboundController) SaveOutboundSerial(ctx *fiber.Ctx) error {
 	detailIDParam := ctx.Params("id")
@@ -7288,14 +6941,6 @@ func (c *OutboundController) CreateOutboundFromPdf(ctx *fiber.Ctx) error {
 			"error":   err.Error(),
 		})
 	}
-
-	// Check lot number requirement
-	// if inventoryPolicy.RequireLotNumber && payload.BatchNo == "" {
-	// 	validationErrors = append(validationErrors, ValidationError{
-	// 		Field:   "batchNo",
-	// 		Message: "Batch/Lot number is required for this vendor",
-	// 	})
-	// }
 
 	// If there are validation errors after all checks, return them
 	if len(validationErrors) > 0 {
