@@ -10,7 +10,6 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-// warna ANSI
 const (
 	reset  = "\033[0m"
 	bold   = "\033[1m"
@@ -53,63 +52,143 @@ func statusColor(s int) string {
 	}
 }
 
-// handlerName ambil nama fungsi dari reflect runtime
-func handlerName(h fiber.Handler) string {
-	full := runtime.FuncForPC(
-		reflect.ValueOf(h).Pointer(),
-	).Name()
-	// ambil bagian terakhir: "controllers.GetProducts-fm" → "GetProducts"
-	parts := strings.Split(full, ".")
-	name := parts[len(parts)-1]
-	name = strings.TrimSuffix(name, "-fm")
-	return name
+func latencyColor(d time.Duration) string {
+	switch {
+	case d < 50*time.Millisecond:
+		return green
+	case d < 500*time.Millisecond:
+		return yellow
+	default:
+		return red
+	}
+}
+
+// Get handler name and source location.
+func handlerInfo(h fiber.Handler) (string, string, int) {
+	if h == nil {
+		return "?", "?", 0
+	}
+
+	pc := reflect.ValueOf(h).Pointer()
+	fn := runtime.FuncForPC(pc)
+
+	if fn == nil {
+		return "?", "?", 0
+	}
+
+	fullName := fn.Name()
+	parts := strings.Split(fullName, ".")
+	name := strings.TrimSuffix(parts[len(parts)-1], "-fm")
+
+	file, line := fn.FileLine(pc)
+
+	return name, file, line
+}
+
+func getStringLocal(c *fiber.Ctx, key string) string {
+	value := c.Locals(key)
+
+	if value == nil {
+		return "-"
+	}
+
+	return fmt.Sprint(value)
 }
 
 func ConsoleLogger() fiber.Handler {
 	return func(c *fiber.Ctx) error {
+
 		start := time.Now()
+
 		err := c.Next()
 
-		lat := time.Since(start)
+		latency := time.Since(start)
 		status := c.Response().StatusCode()
+
 		method := c.Method()
 		path := c.Path()
 
-		// cari handler yang match route ini
-		fnName := "?"
-		for _, routes := range c.App().Stack() {
-			for _, route := range routes {
-				if route.Method == method && route.Path == c.Route().Path {
-					if len(route.Handlers) > 0 {
-						fnName = handlerName(
-							route.Handlers[len(route.Handlers)-1],
-						)
-					}
-					break
-				}
+		// User information from authentication middleware.
+		username := getStringLocal(c, "username")
+		userID := getStringLocal(c, "userID")
+
+		// Client information.
+		ip := c.IP()
+
+		// Find matched handler.
+		handler := "?"
+		sourceFile := "?"
+		sourceLine := 0
+
+		if route := c.Route(); route != nil {
+			if len(route.Handlers) > 0 {
+				handler, sourceFile, sourceLine =
+					handlerInfo(route.Handlers[len(route.Handlers)-1])
 			}
 		}
 
-		// format latency: hijau <50ms, kuning <500ms, merah >=500ms
-		latStr := fmt.Sprintf("%v", lat.Round(time.Millisecond))
-		var latColor string
-		switch {
-		case lat < 50*time.Millisecond:
-			latColor = green
-		case lat < 500*time.Millisecond:
-			latColor = yellow
-		default:
-			latColor = red
-		}
+		latencyText := latency.Round(time.Millisecond).String()
+
+		fmt.Printf("\n")
+
+		// Request header
+		fmt.Printf(
+			"%s%s%s ",
+			gray,
+			time.Now().Format("2006-01-02 15:04:05"),
+			reset,
+		)
 
 		fmt.Printf(
-			"%s%s%s %-7s%s %s%-20s%s %s%d%s %s%s%s  %s→ %s%s\n",
-			gray, time.Now().Format("15:04:05"), reset,
-			methodColor(method)+bold+method+reset, reset,
-			cyan, path, reset,
-			statusColor(status)+bold, status, reset,
-			latColor, latStr, reset,
-			gray, fnName, reset,
+			"%s%s%s ",
+			methodColor(method),
+			bold+method,
+			reset,
+		)
+
+		fmt.Printf(
+			"%s%-35s%s ",
+			cyan,
+			path,
+			reset,
+		)
+
+		fmt.Printf(
+			"%s%s%d%s ",
+			statusColor(status),
+			bold,
+			status,
+			reset,
+		)
+
+		fmt.Printf(
+			"%s%s%s ",
+			latencyColor(latency),
+			latencyText,
+			reset,
+		)
+
+		fmt.Printf(
+			"%s→ %s%s\n",
+			gray,
+			handler,
+			reset,
+		)
+
+		// User information
+		fmt.Printf("%sUSER     : %s%s\n", gray, username, reset)
+		fmt.Printf("%sUSER ID  : %s%s\n", gray, userID, reset)
+		fmt.Printf("%sIP       : %s%s\n", gray, ip, reset)
+
+		// Execution information
+		fmt.Printf("%sHANDLER  : %s%s\n", gray, handler, reset)
+		fmt.Printf("%sSOURCE   : %s:%d%s\n", gray, sourceFile, sourceLine, reset)
+		fmt.Printf("%sLATENCY  : %s%s\n", latencyColor(latency), latencyText, reset)
+
+		fmt.Printf(
+			"%s────────────────────────────────────────────────────────────────────%s\n",
+			gray,
+			reset,
 		)
 
 		return err
