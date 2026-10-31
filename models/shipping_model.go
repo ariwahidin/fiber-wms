@@ -2,6 +2,7 @@ package models
 
 import (
 	"fiber-app/types"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -37,27 +38,77 @@ type ListOrderPart struct {
 	DeletedBy        int               `json:"deleted_by"`
 }
 
+// type OrderHeader struct {
+// 	gorm.Model
+// 	OrderNo         string        `json:"order_no" gorm:"unique"`
+// 	Status          string        `json:"status" gorm:"default:'open'"`
+// 	OrderDate       string        `json:"order_date"`
+// 	DeliveryDate    string        `json:"delivery_date"`
+// 	LoadDate        string        `json:"load_date"`
+// 	OrderType       string        `json:"order_type"`
+// 	Driver          string        `json:"driver"`
+// 	TruckType       string        `json:"truck_type"`
+// 	TruckSize       string        `json:"truck_size"`
+// 	TruckNo         string        `json:"truck_no"`
+// 	TransporterCode string        `json:"transporter_code"`
+// 	TransporterName string        `json:"transporter_name"`
+// 	LoadStartTime   string        `json:"load_start_time"`
+// 	LoadEndTime     string        `json:"load_end_time"`
+// 	Remarks         string        `json:"remarks"`
+// 	CreatedBy       int           `json:"created_by"`
+// 	UpdatedBy       int           `json:"updated_by"`
+// 	DeletedBy       int           `json:"deleted_by"`
+// 	Items           []OrderDetail `json:"items" gorm:"foreignKey:OrderID;references:ID"`
+// }
+
 type OrderHeader struct {
 	gorm.Model
-	OrderNo         string        `json:"order_no" gorm:"unique"`
-	Status          string        `json:"status" gorm:"default:'open'"`
-	OrderDate       string        `json:"order_date"`
-	DeliveryDate    string        `json:"delivery_date"`
-	LoadDate        string        `json:"load_date"`
-	OrderType       string        `json:"order_type"`
-	Driver          string        `json:"driver"`
-	TruckType       string        `json:"truck_type"`
-	TruckSize       string        `json:"truck_size"`
-	TruckNo         string        `json:"truck_no"`
-	TransporterCode string        `json:"transporter_code"`
-	TransporterName string        `json:"transporter_name"`
-	LoadStartTime   string        `json:"load_start_time"`
-	LoadEndTime     string        `json:"load_end_time"`
-	Remarks         string        `json:"remarks"`
-	CreatedBy       int           `json:"created_by"`
-	UpdatedBy       int           `json:"updated_by"`
-	DeletedBy       int           `json:"deleted_by"`
-	Items           []OrderDetail `json:"items" gorm:"foreignKey:OrderID;references:ID"`
+
+	OrderNo string `json:"order_no" gorm:"unique"`
+	Status  string `json:"status" gorm:"default:'open'"`
+
+	OrderDate       string `json:"order_date"`
+	DeliveryDate    string `json:"delivery_date"`
+	LoadDate        string `json:"load_date"`
+	OrderType       string `json:"order_type"`
+	Driver          string `json:"driver"`
+	TruckType       string `json:"truck_type"`
+	TruckSize       string `json:"truck_size"`
+	TruckNo         string `json:"truck_no"`
+	TransporterCode string `json:"transporter_code"`
+	TransporterName string `json:"transporter_name"`
+	LoadStartTime   string `json:"load_start_time"`
+	LoadEndTime     string `json:"load_end_time"`
+	Remarks         string `json:"remarks"`
+
+	// Verification
+	VerifiedBy *int       `json:"verified_by"`
+	VerifiedAt *time.Time `json:"verified_at"`
+
+	CreatedBy int `json:"created_by"`
+	UpdatedBy int `json:"updated_by"`
+	DeletedBy int `json:"deleted_by"`
+
+	Items []OrderDetail `json:"items" gorm:"foreignKey:OrderID;references:ID"`
+}
+
+type OrderShipmentScan struct {
+	gorm.Model
+
+	OrderID uint `json:"order_id" gorm:"not null;uniqueIndex:ux_order_shipment_scan"`
+
+	OrderNo string `json:"order_no" gorm:"type:nvarchar(100);index"`
+
+	OrderDetailID uint `json:"order_detail_id" gorm:"not null;uniqueIndex:ux_order_shipment_scan"`
+
+	ShipmentID string `json:"shipment_id" gorm:"type:nvarchar(100);not null;index"`
+
+	ScannedBy int       `json:"scanned_by"`
+	ScannedAt time.Time `json:"scanned_at"`
+
+	Status string `json:"status" gorm:"type:varchar(20);default:'verified'"`
+
+	Remarks string `json:"remarks" gorm:"type:nvarchar(500)"`
 }
 
 // type OrderDetailItem struct {

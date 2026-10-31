@@ -311,65 +311,113 @@ func (c *MobileOutboundController) ScanPicking(ctx *fiber.Ctx) error {
 
 	// ── FIND OUTBOUND DETAIL: support multiple detail per item ──────────────
 
-	var outboundDetails []models.OutboundDetail
-
-	if scanOutbound.Sku != "" {
-
-		// 1. Jika LotNo terisi, cari berdasarkan SKU + Lot Number
-		if scanOutbound.LotNo != "" {
-
-			if err := c.DB.Debug().Where(
-				"outbound_id = ? AND item_code = ? AND lot_number = ?",
-				outboundHeader.ID,
-				scanOutbound.Sku,
-				scanOutbound.LotNo,
-			).Find(&outboundDetails).Error; err != nil {
-				return ctx.Status(fiber.StatusInternalServerError).
-					JSON(fiber.Map{"error": err.Error()})
-			}
-
-		}
-
-		// 2. Jika LotNo kosong ATAU tidak ditemukan, cari berdasarkan SKU saja
-		if len(outboundDetails) == 0 {
-
-			if err := c.DB.Debug().Where(
-				"outbound_id = ? AND item_code = ?",
-				outboundHeader.ID,
-				scanOutbound.Sku,
-			).Find(&outboundDetails).Error; err != nil {
-				return ctx.Status(fiber.StatusInternalServerError).
-					JSON(fiber.Map{"error": err.Error()})
-			}
-
-		}
-
-	} else {
-
-		// Cari berdasarkan Barcode
-		if err := c.DB.Where(
-			"outbound_id = ? AND barcode = ?",
-			outboundHeader.ID,
-			scanOutbound.Barcode,
-		).Find(&outboundDetails).Error; err != nil {
-			return ctx.Status(fiber.StatusInternalServerError).
-				JSON(fiber.Map{"error": err.Error()})
-		}
-
-	}
-
 	// var outboundDetails []models.OutboundDetail
+
 	// if scanOutbound.Sku != "" {
-	// 	if err := c.DB.Where("outbound_id = ? AND item_code = ?", outboundHeader.ID, scanOutbound.Sku).
-	// 		Find(&outboundDetails).Error; err != nil {
-	// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+
+	// 	// 1. Jika LotNo terisi, cari berdasarkan SKU + Lot Number
+	// 	if scanOutbound.LotNo != "" {
+
+	// 		if err := c.DB.Debug().Where(
+	// 			"outbound_id = ? AND item_code = ? AND lot_number = ?",
+	// 			outboundHeader.ID,
+	// 			scanOutbound.Sku,
+	// 			scanOutbound.LotNo,
+	// 		).Find(&outboundDetails).Error; err != nil {
+	// 			return ctx.Status(fiber.StatusInternalServerError).
+	// 				JSON(fiber.Map{"error": err.Error()})
+	// 		}
+
 	// 	}
+
+	// 	// 2. Jika LotNo kosong ATAU tidak ditemukan, cari berdasarkan SKU saja
+	// 	if len(outboundDetails) == 0 {
+
+	// 		if err := c.DB.Debug().Where(
+	// 			"outbound_id = ? AND item_code = ?",
+	// 			outboundHeader.ID,
+	// 			scanOutbound.Sku,
+	// 		).Find(&outboundDetails).Error; err != nil {
+	// 			return ctx.Status(fiber.StatusInternalServerError).
+	// 				JSON(fiber.Map{"error": err.Error()})
+	// 		}
+
+	// 	}
+
 	// } else {
-	// 	if err := c.DB.Where("outbound_id = ? AND barcode = ?", outboundHeader.ID, scanOutbound.Barcode).
-	// 		Find(&outboundDetails).Error; err != nil {
-	// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+
+	// 	// Cari berdasarkan Barcode
+	// 	if err := c.DB.Where(
+	// 		"outbound_id = ? AND barcode = ?",
+	// 		outboundHeader.ID,
+	// 		scanOutbound.Barcode,
+	// 	).Find(&outboundDetails).Error; err != nil {
+	// 		return ctx.Status(fiber.StatusInternalServerError).
+	// 			JSON(fiber.Map{"error": err.Error()})
+	// 	}
+
+	// }
+
+	// if len(outboundDetails) == 0 {
+	// 	return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
+	// 		"error":   "Item not found in outbound detail",
+	// 		"message": "Item not found in outbound detail",
+	// 	})
+	// }
+
+	// // Cari detail yang scanned qty-nya belum penuh
+	// var outboundDetail *models.OutboundDetail
+	// for i := range outboundDetails {
+	// 	var scannedQty float64
+	// 	c.DB.Model(&models.OutboundBarcode{}).
+	// 		Where("outbound_detail_id = ? AND status != 'cancelled'", outboundDetails[i].ID).
+	// 		Select("COALESCE(SUM(quantity), 0)").
+	// 		Scan(&scannedQty)
+
+	// 	if scannedQty < outboundDetails[i].Quantity {
+	// 		outboundDetail = &outboundDetails[i]
+	// 		break
 	// 	}
 	// }
+
+	// if outboundDetail == nil {
+	// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+	// 		"error":   "Quantity limit reached",
+	// 		"message": "Semua outbound detail untuk item ini sudah penuh",
+	// 	})
+	// }
+	// ────────────────────────────────────────────────────────────────────────
+
+	// ────────────────────────────────────────────────────────────────────────
+	// FIND OUTBOUND DETAIL
+	// Support multiple details per SKU and LOT
+	// ────────────────────────────────────────────────────────────────────────
+
+	var outboundDetails []models.OutboundDetail
+
+	query := c.DB.Where("outbound_id = ?", outboundHeader.ID)
+
+	if scanOutbound.Sku != "" {
+		query = query.Where("item_code = ?", scanOutbound.Sku)
+	} else {
+		query = query.Where("barcode = ?", scanOutbound.Barcode)
+	}
+
+	// Prioritize exact LOT match, followed by detail without LOT.
+	if scanOutbound.LotNo != "" {
+		query = query.Where(
+			"(lot_number = ? OR lot_number IS NULL OR lot_number = '')",
+			scanOutbound.LotNo,
+		).Order(
+			"CASE WHEN lot_number = '" + scanOutbound.LotNo + "' THEN 0 ELSE 1 END",
+		)
+	}
+
+	if err := query.Find(&outboundDetails).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
 
 	if len(outboundDetails) == 0 {
 		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
@@ -378,16 +426,31 @@ func (c *MobileOutboundController) ScanPicking(ctx *fiber.Ctx) error {
 		})
 	}
 
-	// Cari detail yang scanned qty-nya belum penuh
+	// Find first detail with remaining quantity.
 	var outboundDetail *models.OutboundDetail
-	for i := range outboundDetails {
-		var scannedQty float64
-		c.DB.Model(&models.OutboundBarcode{}).
-			Where("outbound_detail_id = ? AND status != 'cancelled'", outboundDetails[i].ID).
-			Select("COALESCE(SUM(quantity), 0)").
-			Scan(&scannedQty)
 
-		if scannedQty < outboundDetails[i].Quantity {
+	for i := range outboundDetails {
+
+		var scannedQty float64
+
+		err := c.DB.Model(&models.OutboundBarcode{}).
+			Where(
+				"outbound_detail_id = ? AND status != ?",
+				outboundDetails[i].ID,
+				"cancelled",
+			).
+			Select("COALESCE(SUM(quantity), 0)").
+			Scan(&scannedQty).Error
+
+		if err != nil {
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error": err.Error(),
+			})
+		}
+
+		remainingQty := outboundDetails[i].Quantity - scannedQty
+
+		if remainingQty > 0 {
 			outboundDetail = &outboundDetails[i]
 			break
 		}
@@ -399,6 +462,7 @@ func (c *MobileOutboundController) ScanPicking(ctx *fiber.Ctx) error {
 			"message": "Semua outbound detail untuk item ini sudah penuh",
 		})
 	}
+
 	// ────────────────────────────────────────────────────────────────────────
 
 	var product models.Product
@@ -503,7 +567,14 @@ func (c *MobileOutboundController) ScanPicking(ctx *fiber.Ctx) error {
 	var resOutboundDetailID ResultOutboundDetailID
 	errQtyOutboundDetailID := c.DB.Table("outbound_barcodes").
 		Select("COALESCE(SUM(quantity), 0) AS qty_outbound_detail_id").
-		Where("outbound_id = ? AND outbound_detail_id = ? AND item_code = ?", outboundHeader.ID, outboundDetail.ID, product.ItemCode).
+		// Where("outbound_id = ? AND outbound_detail_id = ? AND item_code = ?", outboundHeader.ID, outboundDetail.ID, product.ItemCode).
+		Where(
+			"outbound_id = ? AND outbound_detail_id = ? AND item_code = ? AND status != ?",
+			outboundHeader.ID,
+			outboundDetail.ID,
+			product.ItemCode,
+			"cancelled",
+		).
 		Scan(&resOutboundDetailID).Error
 	if errQtyOutboundDetailID != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": errQtyOutboundDetailID.Error()})

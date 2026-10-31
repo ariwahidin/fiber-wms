@@ -325,13 +325,17 @@ type ProductWithStock struct {
 
 func (c *ProductController) GetAllProductsWithStock(ctx *fiber.Ctx) error {
 	var products []ProductWithStock
+	// query := c.DB.Table("products").
+	// 	Select(`products.*, COALESCE((
+	// 		SELECT SUM(inventories.qty_available)
+	// 		FROM inventories
+	// 		WHERE inventories.item_id = products.id
+	// 		AND inventories.deleted_at IS NULL
+	// 	), 0) as qty_available`).
+	// 	Order("products.item_code ASC")
+
 	query := c.DB.Table("products").
-		Select(`products.*, COALESCE((
-			SELECT SUM(inventories.qty_available)
-			FROM inventories
-			WHERE inventories.item_id = products.id
-			AND inventories.deleted_at IS NULL
-		), 0) as qty_available`).
+		Select(`products.*, 0 as qty_available`).
 		Order("products.item_code ASC")
 
 	if owner := ctx.Query("owner"); owner != "" {

@@ -99,6 +99,31 @@ func SetupMobileOutboundRoutes(app *fiber.App) {
 	api.Post("/outbound/packing/confirm/:outbound_no", mobileOutboundController.ConfirmPacking)
 }
 
+func SetupMobileOutboundVerificationRoutes(app *fiber.App) {
+	verificationController := &mobiles.MobileOutboundVerificationController{}
+
+	api := app.Group(
+		config.MAIN_ROUTES+"/mobile/outbound/verification",
+		middleware.AuthMiddleware,
+	)
+
+	api.Use(database.InjectDBMiddleware(verificationController))
+
+	// Get verification details by SPK / Order No
+	api.Get("/:orderNo", verificationController.GetVerification)
+
+	// Scan shipment ID
+	api.Post("/:orderNo/scan", verificationController.ScanShipment)
+
+	// Get shipment scan history
+	api.Get("/:orderNo/history", verificationController.GetHistory)
+
+	// Confirm outbound verification
+	api.Post("/:orderNo/confirm", verificationController.ConfirmVerification)
+
+	api.Delete("/:orderNo/shipments/:orderDetailId", verificationController.DeleteShipment)
+}
+
 func SetupMobileShippingGuestRoutes(app *fiber.App, shippingGuestController *mobiles.ShippingGuestController) {
 	// api := app.Group("/api/v1/mobile/", middleware.AuthMiddleware)
 	api := app.Group("/guest/api/v1")

@@ -1058,36 +1058,210 @@ func (c *OutboundController) GetItem(ctx *fiber.Ctx) error {
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Item found successfully", "data": resultItem})
 }
 
+// func (c *OutboundController) DeleteItem(ctx *fiber.Ctx) error {
+
+// 	outbound_detail_id := ctx.Params("id")
+// 	var outboundDetail models.OutboundDetail
+// 	if err := c.DB.Debug().First(&outboundDetail, "id = ?", outbound_detail_id).Error; err != nil {
+// 		if errors.Is(err, gorm.ErrRecordNotFound) {
+// 			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Item not found"})
+// 		}
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+// 	}
+
+// 	// check status in outbound headers
+// 	var outboundHeader models.OutboundHeader
+// 	if err := c.DB.Debug().First(&outboundHeader, "id = ?", outboundDetail.OutboundID).Error; err != nil {
+// 		if errors.Is(err, gorm.ErrRecordNotFound) {
+// 			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Outbound header not found"})
+// 		}
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+// 	}
+
+// 	if outboundHeader.Status != "open" {
+// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "This outbound is not open"})
+// 	}
+
+// 	// hard delete
+// 	if err := c.DB.Debug().Unscoped().Delete(&outboundDetail).Error; err != nil {
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+// 	}
+
+// 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Item deleted successfully", "data": outboundDetail})
+// }
+
 func (c *OutboundController) DeleteItem(ctx *fiber.Ctx) error {
 
-	outbound_detail_id := ctx.Params("id")
-	var outboundDetail models.OutboundDetail
-	if err := c.DB.Debug().First(&outboundDetail, "id = ?", outbound_detail_id).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Item not found"})
-		}
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	// ============================================================
+	// 1. Validate ID
+	// ============================================================
+
+	outboundDetailID, err := ctx.ParamsInt("id")
+	if err != nil || outboundDetailID <= 0 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "Invalid outbound detail ID",
+		})
 	}
 
-	// check status in outbound headers
-	var outboundHeader models.OutboundHeader
-	if err := c.DB.Debug().First(&outboundHeader, "id = ?", outboundDetail.OutboundID).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Outbound header not found"})
-		}
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	// ============================================================
+	// 2. Begin Transaction
+	// ============================================================
+
+	tx := c.DB.Begin()
+
+	if tx.Error != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to start transaction",
+		})
 	}
+
+	rollback := func(status int, message string) error {
+		tx.Rollback()
+
+		return ctx.Status(status).JSON(fiber.Map{
+			"success": false,
+			"message": message,
+		})
+	}
+
+	// ============================================================
+	// 3. Get Outbound Detail
+	// ============================================================
+
+	var outboundDetail models.OutboundDetail
+
+	if err := tx.First(
+		&outboundDetail,
+		"id = ?",
+		outboundDetailID,
+	).Error; err != nil {
+
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return rollback(
+				fiber.StatusNotFound,
+				"Item not found",
+			)
+		}
+
+		return rollback(
+			fiber.StatusInternalServerError,
+			err.Error(),
+		)
+	}
+
+	// ============================================================
+	// 4. Get Outbound Header
+	// ============================================================
+
+	var outboundHeader models.OutboundHeader
+
+	if err := tx.First(
+		&outboundHeader,
+		"id = ?",
+		outboundDetail.OutboundID,
+	).Error; err != nil {
+
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return rollback(
+				fiber.StatusNotFound,
+				"Outbound header not found",
+			)
+		}
+
+		return rollback(
+			fiber.StatusInternalServerError,
+			err.Error(),
+		)
+	}
+
+	// ============================================================
+	// 5. Validate Status
+	// ============================================================
 
 	if outboundHeader.Status != "open" {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "This outbound is not open"})
+
+		return rollback(
+			fiber.StatusBadRequest,
+			"Item deletion is only allowed for open outbound. Use reconciliation for picking or packing outbound.",
+		)
 	}
 
-	// hard delete
-	if err := c.DB.Debug().Unscoped().Delete(&outboundDetail).Error; err != nil {
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	// ============================================================
+	// 6. Check Existing Allocation
+	// ============================================================
+
+	allocatedQty, err := GetExistingAllocation(
+		tx,
+		outboundDetail.ID,
+	)
+
+	if err != nil {
+		return rollback(
+			fiber.StatusInternalServerError,
+			err.Error(),
+		)
 	}
 
-	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Item deleted successfully", "data": outboundDetail})
+	// Release allocation if any exists.
+	if allocatedQty > 0 {
+
+		userIDValue, ok := ctx.Locals("userID").(float64)
+		if !ok {
+			return rollback(
+				fiber.StatusUnauthorized,
+				"Invalid user ID",
+			)
+		}
+
+		if err := ReleaseExcessAllocation(
+			tx,
+			outboundDetail,
+			allocatedQty,
+			int(userIDValue),
+		); err != nil {
+
+			return rollback(
+				fiber.StatusBadRequest,
+				err.Error(),
+			)
+		}
+	}
+
+	// ============================================================
+	// 7. Delete Outbound Detail
+	// ============================================================
+
+	// Preserve existing behavior: hard delete.
+	if err := tx.Unscoped().
+		Delete(&outboundDetail).Error; err != nil {
+
+		return rollback(
+			fiber.StatusInternalServerError,
+			err.Error(),
+		)
+	}
+
+	// ============================================================
+	// 8. Commit
+	// ============================================================
+
+	if err := tx.Commit().Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(
+			fiber.Map{
+				"success": false,
+				"message": "Failed to delete outbound item",
+				"error":   err.Error(),
+			},
+		)
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": "Item deleted successfully",
+		"data":    outboundDetail,
+	})
 }
 
 func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
@@ -1188,320 +1362,399 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 		}
 	}
 
-	uomRepo := repositories.NewUomRepository(tx)
-	locationRepo := repositories.NewLocationRepository(tx)
+	// uomRepo := repositories.NewUomRepository(tx)
+	// locationRepo := repositories.NewLocationRepository(tx)
 
-	for _, outboundDetail := range outboundDetails {
+	// for _, outboundDetail := range outboundDetails {
 
-		uomConversion, err := uomRepo.ConversionQty(outboundDetail.ItemCode, outboundDetail.Quantity, outboundDetail.Uom)
-		if err != nil {
-			tx.Rollback()
-			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "UOM Conversion Error: " + err.Error()})
-		}
+	// 	// uomConversion, err := uomRepo.ConversionQty(outboundDetail.ItemCode, outboundDetail.Quantity, outboundDetail.Uom)
+	// 	// if err != nil {
+	// 	// 	tx.Rollback()
+	// 	// 	return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "UOM Conversion Error: " + err.Error()})
+	// 	// }
 
-		qtyReq := uomConversion.QtyConverted
+	// 	// qtyReq := uomConversion.QtyConverted
 
-		fmt.Println("Picking Query")
+	// 	// fmt.Println("Picking Query")
 
-		// queryInventory := tx.Debug().
-		// 	Table("inventories as i").
-		// 	Joins("LEFT JOIN locations as l ON i.whs_code = l.whs_code AND i.location = l.location_code").
-		// 	Where(`
-		// 			i.item_id = ?
-		// 			AND i.whs_code = ?
-		// 			AND i.qty_available > 0
-		// 			AND i.uom = ?
-		// 			AND i.owner_code = ?
-		// 			AND i.qa_status = ?
-		// 			AND i.division_code = ?
-		// 			AND (
-		// 				l.id IS NULL
-		// 				OR (l.is_active = 1 AND l.is_pickable = 1)
-		// 			)
-		// 		`,
-		// 		outboundDetail.ItemID,
-		// 		outboundDetail.WhsCode,
-		// 		uomConversion.ToUom,
-		// 		outboundHeader.OwnerCode,
-		// 		outboundDetail.QaStatus,
-		// 		outboundDetail.DivisionCode,
-		// 	)
+	// 	// ================================================================
+	// 	// UOM Conversion
+	// 	// ================================================================
 
-		queryInventory := tx.Debug().
-			Table("inventories as i").
-			Joins("LEFT JOIN locations as l ON i.whs_code = l.whs_code AND i.location = l.location_code").
-			Joins(`LEFT JOIN (
-				SELECT location, whs_code, item_id,
-					MIN(rec_date) as min_rec_date,
-					MIN(qty_available) as min_qty,
-					MIN(exp_date) as min_exp_date
-				FROM inventories
-				WHERE qty_available > 0 AND deleted_at IS NULL
-				GROUP BY location, whs_code, item_id
-			) as loc_rank ON loc_rank.location = i.location 
-						AND loc_rank.whs_code = i.whs_code 
-						AND loc_rank.item_id = i.item_id`).
-			Where(`
-					i.item_id = ?
-					AND i.whs_code = ?
-					AND i.qty_available > 0
-					AND i.uom = ?
-					AND i.owner_code = ?
-					AND i.qa_status = ?
-					AND i.division_code = ?
-					AND (
-						l.id IS NULL
-						OR (l.is_active = 1 AND l.is_pickable = 1)
-					)
-				`,
-				outboundDetail.ItemID,
-				outboundDetail.WhsCode,
-				uomConversion.ToUom,
-				outboundHeader.OwnerCode,
-				outboundDetail.QaStatus,
-				outboundDetail.DivisionCode,
-			)
+	// 	uomConversion, err := uomRepo.ConversionQty(
+	// 		outboundDetail.ItemCode,
+	// 		outboundDetail.Quantity,
+	// 		outboundDetail.Uom,
+	// 	)
+	// 	if err != nil {
+	// 		tx.Rollback()
+	// 		return ctx.Status(fiber.StatusInternalServerError).JSON(
+	// 			fiber.Map{
+	// 				"error": "UOM Conversion Error: " + err.Error(),
+	// 			},
+	// 		)
+	// 	}
 
-		if invetoryPolicy.RequireLotNumber {
-			if outboundDetail.LotNumber == "" {
-				tx.Rollback()
-				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-					"success": false,
-					"message": "Lot number is required",
-					"error":   "Lot number is required",
-				})
-			}
-			queryInventory = queryInventory.Where("i.lot_number = ?", outboundDetail.LotNumber)
-		}
+	// 	// Requested quantity dalam UOM inventory
+	// 	qtyReq := uomConversion.QtyConverted
 
-		// if invetoryPolicy.UseLotNo && !invetoryPolicy.AllowMixedLot {
-		// 	queryInventory = queryInventory.
-		// 		Where("i.qty_available >= ?", qtyReq).
-		// 		Limit(1)
-		// }
+	// 	// ================================================================
+	// 	// Get Existing Allocation
+	// 	// ================================================================
 
-		if invetoryPolicy.AllocationLotByOrder {
-			if outboundDetail.LotNumber != "" {
-				queryInventory = queryInventory.
-					Where("i.lot_number = ? AND i.qty_available > 0", outboundDetail.LotNumber)
-			}
-		}
+	// 	allocatedQty, err := GetExistingAllocation(
+	// 		tx,
+	// 		outboundDetail.ID,
+	// 	)
+	// 	if err != nil {
+	// 		tx.Rollback()
+	// 		return ctx.Status(fiber.StatusInternalServerError).JSON(
+	// 			fiber.Map{"error": err.Error()},
+	// 		)
+	// 	}
 
-		if invetoryPolicy.AllocationLocationByOrder {
-			if outboundDetail.Location != "" {
-				queryInventory = queryInventory.
-					Where("i.location = ? AND i.qty_available > 0", outboundDetail.Location)
-			}
-		}
+	// 	// ================================================================
+	// 	// Calculate Remaining Allocation
+	// 	// ================================================================
 
-		if invetoryPolicy.AllocationCaseByOrder {
-			if outboundDetail.CaseNumber != "" && invetoryPolicy.UseCaseNumber {
-				queryInventory = queryInventory.
-					Where("i.case_number = ? AND i.qty_available > 0", outboundDetail.CaseNumber)
-			}
-		}
+	// 	remainingQty := qtyReq - allocatedQty
 
-		if invetoryPolicy.AllocationCartonByOrder {
-			if outboundDetail.CartonNumber != "" && invetoryPolicy.UseCartonNumber {
-				queryInventory = queryInventory.
-					Where("i.carton_number = ? AND i.qty_available > 0", outboundDetail.CartonNumber)
-			}
-		}
+	// 	// Sudah teralokasi seluruhnya
+	// 	if remainingQty <= 0 {
+	// 		continue
+	// 	}
 
-		if invetoryPolicy.AllocationSerialByOrder {
-			if outboundDetail.SerialNumber != "" && invetoryPolicy.UseSerialNumber {
-				queryInventory = queryInventory.
-					Where("i.serial_number = ? AND i.qty_available > 0", outboundDetail.SerialNumber)
-			}
-		}
+	// 	// Hanya allocate quantity yang belum terpenuhi
+	// 	qtyReq = remainingQty
 
-		// if invetoryPolicy.UseFEFO {
-		// 	queryInventory = queryInventory.Order("i.exp_date, i.lot_number, i.rec_date, i.qty_available, i.pallet, i.location ASC")
-		// } else {
-		// 	queryInventory = queryInventory.Order("i.rec_date, i.qty_available, i.location ASC")
-		// }
+	// 	// ================================================================
+	// 	// Existing FIFO / FEFO Allocation Logic
+	// 	// ================================================================
 
-		if invetoryPolicy.UseFEFO {
-			queryInventory = queryInventory.Order("loc_rank.min_exp_date ASC, loc_rank.min_qty ASC, i.location ASC, i.exp_date ASC, i.lot_number ASC, i.rec_date ASC, i.qty_available ASC, i.pallet ASC")
-		} else {
-			queryInventory = queryInventory.Order("loc_rank.min_rec_date ASC, loc_rank.min_qty ASC, i.location ASC, i.qty_available ASC, i.rec_date ASC")
-		}
+	// 	queryInventory := tx.Debug().
+	// 		Table("inventories as i").
+	// 		Joins("LEFT JOIN locations as l ON i.whs_code = l.whs_code AND i.location = l.location_code").
+	// 		Joins(`LEFT JOIN (
+	// 			SELECT location, whs_code, item_id,
+	// 				MIN(rec_date) as min_rec_date,
+	// 				MIN(qty_available) as min_qty,
+	// 				MIN(exp_date) as min_exp_date
+	// 			FROM inventories
+	// 			WHERE qty_available > 0 AND deleted_at IS NULL
+	// 			GROUP BY location, whs_code, item_id
+	// 		) as loc_rank ON loc_rank.location = i.location
+	// 					AND loc_rank.whs_code = i.whs_code
+	// 					AND loc_rank.item_id = i.item_id`).
+	// 		Where(`
+	// 				i.item_id = ?
+	// 				AND i.whs_code = ?
+	// 				AND i.qty_available > 0
+	// 				AND i.uom = ?
+	// 				AND i.owner_code = ?
+	// 				AND i.qa_status = ?
+	// 				AND i.division_code = ?
+	// 				AND (
+	// 					l.id IS NULL
+	// 					OR (l.is_active = 1 AND l.is_pickable = 1)
+	// 				)
+	// 			`,
+	// 			outboundDetail.ItemID,
+	// 			outboundDetail.WhsCode,
+	// 			uomConversion.ToUom,
+	// 			outboundHeader.OwnerCode,
+	// 			outboundDetail.QaStatus,
+	// 			outboundDetail.DivisionCode,
+	// 		)
 
-		if invetoryPolicy.PickingExcludeLocationsUnderCycleCount {
-			queryInventory = locationRepo.ExcludeLocationsUnderCycleCount(queryInventory, "i")
-		}
+	// 	if invetoryPolicy.RequireLotNumber {
+	// 		if outboundDetail.LotNumber == "" {
+	// 			tx.Rollback()
+	// 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+	// 				"success": false,
+	// 				"message": "Lot number is required",
+	// 				"error":   "Lot number is required",
+	// 			})
+	// 		}
+	// 		queryInventory = queryInventory.Where("i.lot_number = ?", outboundDetail.LotNumber)
+	// 	}
 
-		type InventoryWithLocation struct {
-			models.Inventory
-			LocationCode string
-			Row          string
-			Bay          string
-			Level        string
-			Bin          string
-			Area         string
-		}
+	// 	if invetoryPolicy.AllocationLotByOrder {
+	// 		if outboundDetail.LotNumber != "" {
+	// 			queryInventory = queryInventory.
+	// 				Where("i.lot_number = ? AND i.qty_available > 0", outboundDetail.LotNumber)
+	// 		}
+	// 	}
 
-		var inventories []InventoryWithLocation
+	// 	if invetoryPolicy.AllocationLocationByOrder {
+	// 		if outboundDetail.Location != "" {
+	// 			queryInventory = queryInventory.
+	// 				Where("i.location = ? AND i.qty_available > 0", outboundDetail.Location)
+	// 		}
+	// 	}
 
-		if err := queryInventory.
-			Select(`
-				i.*,
-				l.location_code as location_code,
-				l.row as row,
-				l.bay as bay,
-				l.level as level,
-				l.bin as bin,
-				l.area as area
-			`).
-			Find(&inventories).Error; err != nil {
-			tx.Rollback()
-			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-				"error": fmt.Sprintf(
-					"Failed to fetch inventory for ItemCode: %s (ItemID: %d, Whs: %s, UOM: %s, Owner: %s). Detail: %s",
-					outboundDetail.ItemCode,
-					outboundDetail.ItemID,
-					outboundDetail.WhsCode,
-					uomConversion.ToUom,
-					outboundHeader.OwnerCode,
-					err.Error(),
-				),
-			})
-		}
+	// 	if invetoryPolicy.AllocationCaseByOrder {
+	// 		if outboundDetail.CaseNumber != "" && invetoryPolicy.UseCaseNumber {
+	// 			queryInventory = queryInventory.
+	// 				Where("i.case_number = ? AND i.qty_available > 0", outboundDetail.CaseNumber)
+	// 		}
+	// 	}
 
-		// if len(inventories) == 0 && invetoryPolicy.UseLotNo && !invetoryPolicy.AllowMixedLot {
-		// 	tx.Rollback()
-		// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Insufficient stock available for item " + outboundDetail.ItemCode + " and AllowMixedLot is false"})
-		// }
+	// 	if invetoryPolicy.AllocationCartonByOrder {
+	// 		if outboundDetail.CartonNumber != "" && invetoryPolicy.UseCartonNumber {
+	// 			queryInventory = queryInventory.
+	// 				Where("i.carton_number = ? AND i.qty_available > 0", outboundDetail.CartonNumber)
+	// 		}
+	// 	}
 
-		if len(inventories) == 0 && invetoryPolicy.UseLotNo && outboundDetail.LotNumber != "" {
-			tx.Rollback()
-			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Insufficient stock available for item " + outboundDetail.ItemCode + " in lot number " + outboundDetail.LotNumber})
-		}
+	// 	if invetoryPolicy.AllocationSerialByOrder {
+	// 		if outboundDetail.SerialNumber != "" && invetoryPolicy.UseSerialNumber {
+	// 			queryInventory = queryInventory.
+	// 				Where("i.serial_number = ? AND i.qty_available > 0", outboundDetail.SerialNumber)
+	// 		}
+	// 	}
 
-		if len(inventories) == 0 {
-			tx.Rollback()
-			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-				"error": "Insufficient stock available for item " + outboundDetail.ItemCode,
-			})
-		}
+	// 	if invetoryPolicy.UseFEFO {
+	// 		queryInventory = queryInventory.Order("loc_rank.min_exp_date ASC, loc_rank.min_qty ASC, i.location ASC, i.exp_date ASC, i.lot_number ASC, i.rec_date ASC, i.qty_available ASC, i.pallet ASC")
+	// 	} else {
+	// 		queryInventory = queryInventory.Order("loc_rank.min_rec_date ASC, loc_rank.min_qty ASC, i.location ASC, i.qty_available ASC, i.rec_date ASC")
+	// 	}
 
-		for _, inventory := range inventories {
+	// 	if invetoryPolicy.PickingExcludeLocationsUnderCycleCount {
+	// 		queryInventory = locationRepo.ExcludeLocationsUnderCycleCount(queryInventory, "i")
+	// 	}
 
-			if qtyReq < 1 {
-				break
-			}
-			var qtyPick float64 = 0
+	// 	type InventoryWithLocation struct {
+	// 		models.Inventory
+	// 		LocationCode string
+	// 		Row          string
+	// 		Bay          string
+	// 		Level        string
+	// 		Bin          string
+	// 		Area         string
+	// 	}
 
-			if inventory.QtyAvailable >= qtyReq {
-				qtyPick = qtyReq
-			} else {
-				qtyPick = inventory.QtyAvailable
-			}
+	// 	var inventories []InventoryWithLocation
 
-			var product models.Product
-			if err := tx.Debug().Where("id = ?", outboundDetail.ItemID).First(&product).Error; err != nil {
-				tx.Rollback()
-				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-					"error": "Product not found",
-				})
-			}
+	// 	if err := queryInventory.
+	// 		Select(`
+	// 			i.*,
+	// 			l.location_code as location_code,
+	// 			l.row as row,
+	// 			l.bay as bay,
+	// 			l.level as level,
+	// 			l.bin as bin,
+	// 			l.area as area
+	// 		`).
+	// 		Find(&inventories).Error; err != nil {
+	// 		tx.Rollback()
+	// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+	// 			"error": fmt.Sprintf(
+	// 				"Failed to fetch inventory for ItemCode: %s (ItemID: %d, Whs: %s, UOM: %s, Owner: %s). Detail: %s",
+	// 				outboundDetail.ItemCode,
+	// 				outboundDetail.ItemID,
+	// 				outboundDetail.WhsCode,
+	// 				uomConversion.ToUom,
+	// 				outboundHeader.OwnerCode,
+	// 				err.Error(),
+	// 			),
+	// 		})
+	// 	}
 
-			// Insert picking sheet
-			pickingSheet := models.OutboundPicking{
-				InventoryID:      int(inventory.ID),
-				OutboundId:       outboundDetail.OutboundID,
-				OutboundNo:       outboundDetail.OutboundNo,
-				OutboundDetailId: int(outboundDetail.ID),
-				OwnerCode:        inventory.OwnerCode,
-				ItemID:           inventory.ItemId,
-				Barcode:          product.Barcode,
-				ItemCode:         product.ItemCode,
-				Pallet:           inventory.Pallet,
-				Location:         inventory.Location,
-				Quantity:         qtyPick,
-				Uom:              inventory.Uom,
-				RecDate:          inventory.RecDate,
-				ExpDate:          inventory.ExpDate,
-				LotNumber:        inventory.LotNumber,
-				CartonNumber:     inventory.CartonNumber,
-				CaseNumber:       inventory.CaseNumber,
-				SerialNumber:     inventory.SerialNumber,
-				ProdDate:         inventory.ProdDate,
-				WhsCode:          inventory.WhsCode,
-				QaStatus:         inventory.QaStatus,
-				UomDisplay:       outboundDetail.Uom,
-				QtyDisplay:       qtyPick / uomConversion.Rate,
-				EanDisplay:       uomConversion.Ean,
-				CreatedBy:        int(ctx.Locals("userID").(float64)),
-			}
+	// 	if len(inventories) == 0 && invetoryPolicy.UseLotNo && outboundDetail.LotNumber != "" {
+	// 		tx.Rollback()
+	// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Insufficient stock available for item " + outboundDetail.ItemCode + " in lot number " + outboundDetail.LotNumber})
+	// 	}
 
-			if err := tx.Create(&pickingSheet).Error; err != nil {
-				tx.Rollback()
-				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-					"error": "Failed to create picking sheet",
-				})
-			}
+	// 	if len(inventories) == 0 {
+	// 		tx.Rollback()
+	// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+	// 			"error": "Insufficient stock available for item " + outboundDetail.ItemCode,
+	// 		})
+	// 	}
 
-			// Update Inventory
-			if err := tx.Debug().
-				Model(&models.Inventory{}).
-				Where("id = ?", inventory.ID).
-				Updates(map[string]interface{}{
-					"qty_available": gorm.Expr("qty_available - ?", qtyPick),
-					"qty_allocated": gorm.Expr("qty_allocated + ?", qtyPick),
-					"updated_by":    int(ctx.Locals("userID").(float64)),
-					"updated_at":    time.Now(),
-				}).Error; err != nil {
-				tx.Rollback()
-				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-					"error": "Failed to update inventory",
-				})
-			}
+	// 	for _, inventory := range inventories {
 
-			qtyReq -= qtyPick
+	// 		// if qtyReq < 1 {
+	// 		// 	break
+	// 		// }
 
-		}
+	// 		if qtyReq <= 0 {
+	// 			break
+	// 		}
 
-		if qtyReq > 0 && invetoryPolicy.UseLotNo && invetoryPolicy.RequireLotNumber && outboundDetail.LotNumber != "" {
-			tx.Rollback()
-			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"error": "Insufficient stock for item " + outboundDetail.ItemCode + " in lot number " + outboundDetail.LotNumber,
-			})
-		}
+	// 		var qtyPick float64 = 0
 
-		if qtyReq > 0 {
-			tx.Rollback()
-			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"error": "Insufficient stock for item " + outboundDetail.ItemCode,
-			})
-		}
+	// 		if inventory.QtyAvailable >= qtyReq {
+	// 			qtyPick = qtyReq
+	// 		} else {
+	// 			qtyPick = inventory.QtyAvailable
+	// 		}
+
+	// 		var product models.Product
+	// 		if err := tx.Debug().Where("id = ?", outboundDetail.ItemID).First(&product).Error; err != nil {
+	// 			tx.Rollback()
+	// 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+	// 				"error": "Product not found",
+	// 			})
+	// 		}
+
+	// 		// Insert picking sheet
+	// 		pickingSheet := models.OutboundPicking{
+	// 			InventoryID:      int(inventory.ID),
+	// 			OutboundId:       outboundDetail.OutboundID,
+	// 			OutboundNo:       outboundDetail.OutboundNo,
+	// 			OutboundDetailId: int(outboundDetail.ID),
+	// 			OwnerCode:        inventory.OwnerCode,
+	// 			ItemID:           inventory.ItemId,
+	// 			Barcode:          product.Barcode,
+	// 			ItemCode:         product.ItemCode,
+	// 			Pallet:           inventory.Pallet,
+	// 			Location:         inventory.Location,
+	// 			Quantity:         qtyPick,
+	// 			Uom:              inventory.Uom,
+	// 			RecDate:          inventory.RecDate,
+	// 			ExpDate:          inventory.ExpDate,
+	// 			LotNumber:        inventory.LotNumber,
+	// 			CartonNumber:     inventory.CartonNumber,
+	// 			CaseNumber:       inventory.CaseNumber,
+	// 			SerialNumber:     inventory.SerialNumber,
+	// 			ProdDate:         inventory.ProdDate,
+	// 			WhsCode:          inventory.WhsCode,
+	// 			QaStatus:         inventory.QaStatus,
+	// 			UomDisplay:       outboundDetail.Uom,
+	// 			QtyDisplay:       qtyPick / uomConversion.Rate,
+	// 			EanDisplay:       uomConversion.Ean,
+	// 			CreatedBy:        int(ctx.Locals("userID").(float64)),
+	// 		}
+
+	// 		if err := tx.Create(&pickingSheet).Error; err != nil {
+	// 			tx.Rollback()
+	// 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+	// 				"error": "Failed to create picking sheet",
+	// 			})
+	// 		}
+
+	// 		// Update Inventory
+	// 		if err := tx.Debug().
+	// 			Model(&models.Inventory{}).
+	// 			Where("id = ?", inventory.ID).
+	// 			Updates(map[string]interface{}{
+	// 				"qty_available": gorm.Expr("qty_available - ?", qtyPick),
+	// 				"qty_allocated": gorm.Expr("qty_allocated + ?", qtyPick),
+	// 				"updated_by":    int(ctx.Locals("userID").(float64)),
+	// 				"updated_at":    time.Now(),
+	// 			}).Error; err != nil {
+	// 			tx.Rollback()
+	// 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+	// 				"error": "Failed to update inventory",
+	// 			})
+	// 		}
+
+	// 		qtyReq -= qtyPick
+
+	// 	}
+
+	// 	if qtyReq > 0 && invetoryPolicy.UseLotNo && invetoryPolicy.RequireLotNumber && outboundDetail.LotNumber != "" {
+	// 		tx.Rollback()
+	// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+	// 			"error": "Insufficient stock for item " + outboundDetail.ItemCode + " in lot number " + outboundDetail.LotNumber,
+	// 		})
+	// 	}
+
+	// 	if qtyReq > 0 {
+	// 		tx.Rollback()
+	// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+	// 			"error": "Insufficient stock for item " + outboundDetail.ItemCode,
+	// 		})
+	// 	}
+	// }
+
+	// ================================================================
+	// Allocate Outbound Details
+	// ================================================================
+
+	userID := int(ctx.Locals("userID").(float64))
+
+	if err := AllocateOutboundDetails(
+		tx,
+		outboundHeader,
+		outboundDetails,
+		invetoryPolicy,
+		userID,
+	); err != nil {
+
+		tx.Rollback()
+
+		return ctx.Status(fiber.StatusBadRequest).JSON(
+			fiber.Map{
+				"success": false,
+				"message": "Failed to allocate outbound",
+				"error":   err.Error(),
+			},
+		)
 	}
 
-	outboundHeader.Status = "picking"
-	outboundHeader.RawStatus = "CONFIRMED"
-	outboundHeader.ConfirmTime = time.Now()
-	outboundHeader.ConfirmBy = int(ctx.Locals("userID").(float64))
-	outboundHeader.UpdatedBy = int(ctx.Locals("userID").(float64))
+	// ================================================================
+	// Update Outbound Header
+	// ================================================================
+
+	// Only change status during initial picking.
+	// Never reset an existing picking or packing outbound.
+	if outboundHeader.Status == "open" {
+		outboundHeader.Status = "picking"
+		outboundHeader.RawStatus = "CONFIRMED"
+		outboundHeader.ConfirmTime = time.Now()
+		outboundHeader.ConfirmBy = userID
+	}
+
+	outboundHeader.UpdatedBy = userID
 
 	if err := tx.Save(&outboundHeader).Error; err != nil {
 		tx.Rollback()
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to update outbound header: " + err.Error()})
+
+		return ctx.Status(fiber.StatusInternalServerError).JSON(
+			fiber.Map{
+				"error": "Failed to update outbound header: " + err.Error(),
+			},
+		)
 	}
 
 	if err := tx.Commit().Error; err != nil {
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return ctx.Status(fiber.StatusInternalServerError).JSON(
+			fiber.Map{"error": err.Error()},
+		)
 	}
 
-	// realtime.GlobalHub.Broadcast(realtime.Event{
-	// 	Type: "outbound.packing_confirmed",
-	// 	Payload: fiber.Map{
-	// 		"outbound_no": outboundHeader.OutboundNo,
-	// 		"user_id":     int(ctx.Locals("userID").(float64)),
-	// 		"message":     fmt.Sprintf("Outbound %s is in picking status", outboundHeader.OutboundNo),
-	// 	},
-	// })
+	return ctx.Status(fiber.StatusOK).JSON(
+		fiber.Map{
+			"success": true,
+			"message": "Picking Outbound Success",
+		},
+	)
 
-	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Picking Outbound Success"})
+	// if outboundHeader.Status == "draft" {
+	// 	outboundHeader.Status = "picking"
+	// 	outboundHeader.RawStatus = "CONFIRMED"
+	// 	outboundHeader.ConfirmTime = time.Now()
+	// 	outboundHeader.ConfirmBy = int(ctx.Locals("userID").(float64))
+	// }
+
+	// outboundHeader.Status = "picking"
+	// outboundHeader.RawStatus = "CONFIRMED"
+	// outboundHeader.ConfirmTime = time.Now()
+	// outboundHeader.ConfirmBy = int(ctx.Locals("userID").(float64))
+	// outboundHeader.UpdatedBy = int(ctx.Locals("userID").(float64))
+
+	// if err := tx.Save(&outboundHeader).Error; err != nil {
+	// 	tx.Rollback()
+	// 	return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to update outbound header: " + err.Error()})
+	// }
+
+	// if err := tx.Commit().Error; err != nil {
+	// 	return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	// }
+
+	// return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Picking Outbound Success"})
 }
 
 func (c *OutboundController) PackingAll(ctx *fiber.Ctx) error {

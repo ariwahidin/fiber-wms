@@ -221,6 +221,7 @@ func main() {
 	routes.SetupWarehouseRoutes(app)
 	routes.SetupMobileInboundRoutes(app)
 	routes.SetupMobileOutboundRoutes(app)
+	routes.SetupMobileOutboundVerificationRoutes(app)
 	routes.SetupMobilePackingRoutes(app)
 	routes.SetupShippingRoutes(app)
 	routes.SetupMobileInventoryRoutes(app)

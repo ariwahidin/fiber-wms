@@ -52,6 +52,10 @@ func SetupOutboundRoutes(app *fiber.App) {
 	api.Get("/picking/sheet/:id", outboundController.GetPickingSheet)
 	api.Post("/picking/complete/:id", outboundController.PickingComplete)
 	api.Get("/koli-details/:outbound_no", outboundController.GetKoliDetails)
+	api.Post(
+		"/:id/reconcile",
+		outboundController.ReconcileOutbound,
+	)
 
 	api.Post("/packing/generate/", outboundController.CreatePacking)
 	api.Get("/packing/all/", outboundController.GetAllPacking)

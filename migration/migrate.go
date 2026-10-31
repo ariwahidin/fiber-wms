@@ -49,6 +49,7 @@ func MigrateBusinessUnit(db *gorm.DB) error {
 		&models.ListOrderPart{},
 		&models.OrderHeader{},
 		&models.OrderDetail{},
+		&models.OrderShipmentScan{},
 		&models.Uom{},
 		&models.StockTakeBatch{},
 		&models.StockTake{},

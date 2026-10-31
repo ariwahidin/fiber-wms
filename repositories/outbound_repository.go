@@ -188,6 +188,7 @@ type OutboundList struct {
 	QtyPack            int     `json:"qty_pack"`
 	TotalQty           int     `json:"total_qty"`
 	Status             string  `json:"status"`
+	DeliveryStatus     string  `json:"delivery_status"`
 	TotalPrice         int     `json:"total_price"`
 	DelivTo            string  `json:"deliv_to"`
 	DelivToName        string  `json:"deliv_to_name"`
@@ -234,9 +235,10 @@ func (r *OutboundRepository) GetAllOutboundList() ([]OutboundList, error) {
 	),
 	ord AS (
 		SELECT 
-		order_no, outbound_id, outbound_no
+		a.order_no, a.outbound_id, a.outbound_no, b.status
 		FROM
-		order_details
+		order_details a 
+		inner join outbound_headers b on a.order_id = b.id
 	)
    select a.id, a.outbound_no, 
 			a.shipment_id, 
@@ -245,6 +247,7 @@ func (r *OutboundRepository) GetAllOutboundList() ([]OutboundList, error) {
             a.outbound_date,
 			a.order_type,
 			ord.order_no,
+			ord.status as delivery_status,
 			a.customer_code,
             od.total_item, od.qty_req, COALESCE(ps.qty_plan, 0) AS qty_plan,
             COALESCE(kd.qty_pack, 0) AS qty_pack,
@@ -1436,11 +1439,13 @@ func (r *OutboundRepository) GetOutboundListWithFilter(params OutboundFilterPara
         GROUP BY outbound_id
     ),
     ord AS (
-        SELECT outbound_id,
-            STRING_AGG(order_no, ', ') AS order_no
-        FROM order_details
-        WHERE outbound_id IN (SELECT id FROM base)
-        GROUP BY outbound_id
+        SELECT a.outbound_id,
+            STRING_AGG(a.order_no, ', ') AS order_no,
+			STRING_AGG(b.status, ', ') AS status			
+        FROM order_details a
+		INNER JOIN order_headers b ON a.order_id = b.id
+        WHERE a.outbound_id IN (SELECT id FROM base)
+        GROUP BY a.outbound_id
     )
     SELECT
         a.id,
@@ -1451,6 +1456,7 @@ func (r *OutboundRepository) GetOutboundListWithFilter(params OutboundFilterPara
         a.outbound_date,
         a.order_type,
         ord.order_no,
+		ord.status as delivery_status,
         a.customer_code,
         od.total_item,
         od.qty_req,
