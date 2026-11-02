@@ -109,6 +109,11 @@ func SetupMobileOutboundVerificationRoutes(app *fiber.App) {
 
 	api.Use(database.InjectDBMiddleware(verificationController))
 
+	api.Get(
+		"/options",
+		verificationController.GetVerificationOptions,
+	)
+
 	// Get verification details by SPK / Order No
 	api.Get("/:orderNo", verificationController.GetVerification)
 

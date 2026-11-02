@@ -728,6 +728,34 @@ func (c *MobileOutboundVerificationController) ConfirmVerification(
 		)
 	}
 
+	var request ConfirmVerificationRequest
+
+	if err := ctx.BodyParser(&request); err != nil {
+		return verificationError(
+			ctx,
+			fiber.StatusBadRequest,
+			"Invalid transport information payload",
+		)
+	}
+
+	request.TransporterCode = strings.TrimSpace(request.TransporterCode)
+	request.Driver = strings.TrimSpace(request.Driver)
+	request.DriverPhone = strings.TrimSpace(request.DriverPhone)
+	request.TruckNo = strings.TrimSpace(request.TruckNo)
+	request.TruckType = strings.TrimSpace(request.TruckType)
+
+	if request.TransporterCode == "" ||
+		request.Driver == "" ||
+		request.TruckNo == "" ||
+		request.TruckType == "" {
+
+		return verificationError(
+			ctx,
+			fiber.StatusBadRequest,
+			"Transporter, driver, truck number and truck type are required",
+		)
+	}
+
 	userID, err := getVerificationUserID(ctx)
 
 	if err != nil {
@@ -780,6 +808,33 @@ func (c *MobileOutboundVerificationController) ConfirmVerification(
 			ctx,
 			fiber.StatusUnprocessableEntity,
 			"SPK has already been confirmed or is not open",
+		)
+	}
+
+	var transporter models.Transporter
+
+	if err := tx.
+		Where("transporter_code = ?", request.TransporterCode).
+		Where("is_active = ?", true).
+		First(&transporter).Error; err != nil {
+
+		return verificationError(
+			ctx,
+			fiber.StatusUnprocessableEntity,
+			"Selected transporter is invalid or inactive",
+		)
+	}
+
+	var truck models.Truck
+
+	if err := tx.
+		Where("name = ?", request.TruckType).
+		First(&truck).Error; err != nil {
+
+		return verificationError(
+			ctx,
+			fiber.StatusUnprocessableEntity,
+			"Selected truck type does not exist",
 		)
 	}
 
@@ -862,16 +917,34 @@ func (c *MobileOutboundVerificationController) ConfirmVerification(
 	// Update Order Header
 	// --------------------------------------------------------
 
+	// result := tx.Model(&models.OrderHeader{}).
+	// 	Where("id = ?", order.ID).
+	// 	Where("status = ?", "open").
+	// 	Updates(map[string]interface{}{
+
+	// 		"status":      "confirmed",
+	// 		"verified_by": userID,
+	// 		"verified_at": now,
+	// 		"updated_by":  userID,
+	// 		"updated_at":  now,
+	// 	})
+
 	result := tx.Model(&models.OrderHeader{}).
 		Where("id = ?", order.ID).
 		Where("status = ?", "open").
 		Updates(map[string]interface{}{
-
 			"status":      "confirmed",
 			"verified_by": userID,
 			"verified_at": now,
 			"updated_by":  userID,
 			"updated_at":  now,
+
+			"transporter_code": transporter.TransporterCode,
+			"transporter_name": transporter.TransporterName,
+			"driver":           request.Driver,
+			"driver_phone":     request.DriverPhone,
+			"truck_no":         request.TruckNo,
+			"truck_type":       truck.Name,
 		})
 
 	if result.Error != nil {
@@ -986,4 +1059,121 @@ func (c *MobileOutboundVerificationController) DeleteShipment(ctx *fiber.Ctx) er
 		"success": true,
 		"message": "Shipment ID : " + orderNo + " deleted successfully",
 	})
+}
+
+func (c *MobileOutboundVerificationController) GetVerificationOptions(
+	ctx *fiber.Ctx,
+) error {
+
+	var transporters []models.Transporter
+
+	if err := c.DB.
+		Where("is_active = ?", true).
+		Order("transporter_name ASC").
+		Find(&transporters).Error; err != nil {
+
+		return verificationError(
+			ctx,
+			fiber.StatusInternalServerError,
+			"Failed to retrieve transporters",
+		)
+	}
+
+	var trucks []models.Truck
+
+	if err := c.DB.
+		Order("name ASC").
+		Find(&trucks).Error; err != nil {
+
+		return verificationError(
+			ctx,
+			fiber.StatusInternalServerError,
+			"Failed to retrieve truck types",
+		)
+	}
+
+	// Retrieve driver history from all SPKs.
+	type driverHistory struct {
+		Driver      string    `gorm:"column:driver"`
+		DriverPhone string    `gorm:"column:driver_phone"`
+		CreatedAt   time.Time `gorm:"column:created_at"`
+	}
+
+	var histories []driverHistory
+
+	if err := c.DB.
+		Model(&models.OrderHeader{}).
+		Select("driver, driver_phone, created_at").
+		Where("driver IS NOT NULL AND LTRIM(RTRIM(driver)) <> ''").
+		Order("created_at DESC").
+		Find(&histories).Error; err != nil {
+
+		return verificationError(
+			ctx,
+			fiber.StatusInternalServerError,
+			"Failed to retrieve driver history",
+		)
+	}
+
+	// Keep the latest phone number for each driver.
+	drivers := make([]DriverOptionDTO, 0)
+	seenDrivers := make(map[string]bool)
+
+	for _, history := range histories {
+		name := strings.TrimSpace(history.Driver)
+
+		if name == "" {
+			continue
+		}
+
+		key := strings.ToLower(name)
+
+		if seenDrivers[key] {
+			continue
+		}
+
+		seenDrivers[key] = true
+
+		drivers = append(drivers, DriverOptionDTO{
+			Driver:      name,
+			DriverPhone: strings.TrimSpace(history.DriverPhone),
+		})
+	}
+
+	transporterOptions := make(
+		[]TransporterOptionDTO, 0, len(transporters),
+	)
+
+	for _, item := range transporters {
+		transporterOptions = append(
+			transporterOptions,
+			TransporterOptionDTO{
+				TransporterCode: item.TransporterCode,
+				TransporterName: item.TransporterName,
+			},
+		)
+	}
+
+	truckOptions := make([]TruckOptionDTO, 0, len(trucks))
+
+	for _, item := range trucks {
+		truckOptions = append(
+			truckOptions,
+			TruckOptionDTO{
+				Name:        item.Name,
+				Description: item.Description,
+				CBM:         item.CBM,
+			},
+		)
+	}
+
+	return verificationSuccess(
+		ctx,
+		"Verification options retrieved successfully",
+		VerificationOptionsDTO{
+			Transporters: transporterOptions,
+			Drivers:      drivers,
+			Trucks:       truckOptions,
+		},
+	)
 }

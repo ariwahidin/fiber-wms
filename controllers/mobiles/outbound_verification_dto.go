@@ -42,13 +42,41 @@ type VerificationHistoryItem struct {
 	Status        string    `json:"status"`
 	Remarks       string    `json:"remarks"`
 }
-
 type ScanShipmentRequest struct {
 	ShipmentID string `json:"shipment_id"`
 	Remarks    string `json:"remarks"`
 }
-
 type VerificationDetailResponse struct {
 	Summary VerificationSummary `json:"summary"`
 	Items   []VerificationItem  `json:"items"`
+}
+
+type ConfirmVerificationRequest struct {
+	TransporterCode string `json:"transporter_code"`
+	Driver          string `json:"driver"`
+	DriverPhone     string `json:"driver_phone"`
+	TruckNo         string `json:"truck_no"`
+	TruckType       string `json:"truck_type"`
+}
+
+type DriverOptionDTO struct {
+	Driver      string `json:"driver"`
+	DriverPhone string `json:"driver_phone"`
+}
+
+type TransporterOptionDTO struct {
+	TransporterCode string `json:"transporter_code"`
+	TransporterName string `json:"transporter_name"`
+}
+
+type TruckOptionDTO struct {
+	Name        string  `json:"name"`
+	Description string  `json:"description"`
+	CBM         float64 `json:"cbm"`
+}
+
+type VerificationOptionsDTO struct {
+	Transporters []TransporterOptionDTO `json:"transporters"`
+	Drivers      []DriverOptionDTO      `json:"drivers"`
+	Trucks       []TruckOptionDTO       `json:"trucks"`
 }

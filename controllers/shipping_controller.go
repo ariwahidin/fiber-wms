@@ -105,6 +105,7 @@ type OrderItem struct {
 type Order struct {
 	ID              types.SnowflakeID `json:"ID"`
 	Driver          string            `json:"driver"`
+	DriverPhone     string            `json:"driver_phone"`
 	OrderDate       string            `json:"order_date"`
 	OrderNo         string            `json:"order_no"`
 	TransporterCode string            `json:"transporter_code"`
@@ -176,6 +177,7 @@ func (c *ShippingController) CreateOrder(ctx *fiber.Ctx) error {
 	var orderHeader models.OrderHeader
 	orderHeader.OrderNo = orderNo
 	orderHeader.Driver = payload.Driver
+	orderHeader.DriverPhone = payload.DriverPhone
 	orderHeader.OrderDate = payload.OrderDate
 	orderHeader.TransporterCode = payload.TransporterCode
 	orderHeader.TransporterName = payload.TransporterName
@@ -349,6 +351,7 @@ func (c *ShippingController) UpdateOrderByID(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	orderHeader.Driver = payload.Driver
+	orderHeader.DriverPhone = payload.DriverPhone
 	orderHeader.OrderDate = payload.OrderDate
 	orderHeader.TransporterCode = payload.TransporterCode
 	orderHeader.TransporterName = payload.TransporterName

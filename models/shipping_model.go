@@ -38,29 +38,6 @@ type ListOrderPart struct {
 	DeletedBy        int               `json:"deleted_by"`
 }
 
-// type OrderHeader struct {
-// 	gorm.Model
-// 	OrderNo         string        `json:"order_no" gorm:"unique"`
-// 	Status          string        `json:"status" gorm:"default:'open'"`
-// 	OrderDate       string        `json:"order_date"`
-// 	DeliveryDate    string        `json:"delivery_date"`
-// 	LoadDate        string        `json:"load_date"`
-// 	OrderType       string        `json:"order_type"`
-// 	Driver          string        `json:"driver"`
-// 	TruckType       string        `json:"truck_type"`
-// 	TruckSize       string        `json:"truck_size"`
-// 	TruckNo         string        `json:"truck_no"`
-// 	TransporterCode string        `json:"transporter_code"`
-// 	TransporterName string        `json:"transporter_name"`
-// 	LoadStartTime   string        `json:"load_start_time"`
-// 	LoadEndTime     string        `json:"load_end_time"`
-// 	Remarks         string        `json:"remarks"`
-// 	CreatedBy       int           `json:"created_by"`
-// 	UpdatedBy       int           `json:"updated_by"`
-// 	DeletedBy       int           `json:"deleted_by"`
-// 	Items           []OrderDetail `json:"items" gorm:"foreignKey:OrderID;references:ID"`
-// }
-
 type OrderHeader struct {
 	gorm.Model
 
@@ -72,6 +49,7 @@ type OrderHeader struct {
 	LoadDate        string `json:"load_date"`
 	OrderType       string `json:"order_type"`
 	Driver          string `json:"driver"`
+	DriverPhone     string `json:"driver_phone" gorm:"type:varchar(30)"`
 	TruckType       string `json:"truck_type"`
 	TruckSize       string `json:"truck_size"`
 	TruckNo         string `json:"truck_no"`
@@ -94,64 +72,16 @@ type OrderHeader struct {
 
 type OrderShipmentScan struct {
 	gorm.Model
-
-	OrderID uint `json:"order_id" gorm:"not null;uniqueIndex:ux_order_shipment_scan"`
-
+	OrderID uint   `json:"order_id" gorm:"not null;uniqueIndex:ux_order_shipment_scan"`
 	OrderNo string `json:"order_no" gorm:"type:nvarchar(100);index"`
-
-	OrderDetailID uint `json:"order_detail_id" gorm:"not null;uniqueIndex:ux_order_shipment_scan"`
-
-	ShipmentID string `json:"shipment_id" gorm:"type:nvarchar(100);not null;index"`
-
-	ScannedBy int       `json:"scanned_by"`
-	ScannedAt time.Time `json:"scanned_at"`
-
-	Status string `json:"status" gorm:"type:varchar(20);default:'verified'"`
-
-	Remarks string `json:"remarks" gorm:"type:nvarchar(500)"`
+	// OrderDetailID uint      `json:"order_detail_id" gorm:"not null;uniqueIndex:ux_order_shipment_scan"`
+	OrderDetailID uint      `json:"order_detail_id" gorm:"not null;uniqueIndex:ux_order_shipment_scan"`
+	ShipmentID    string    `json:"shipment_id" gorm:"type:nvarchar(100);not null;index"`
+	ScannedBy     int       `json:"scanned_by"`
+	ScannedAt     time.Time `json:"scanned_at"`
+	Status        string    `json:"status" gorm:"type:varchar(20);default:'verified'"`
+	Remarks       string    `json:"remarks" gorm:"type:nvarchar(500)"`
 }
-
-// type OrderDetailItem struct {
-// 	OutboundID  int     `json:"outbound_id"`
-// 	OutboundNo  string  `json:"outbound_no"`
-// 	DelivTo     string  `json:"deliv_to"`
-// 	DelivToName string  `json:"deliv_to_name"`
-// 	DelivCity   string  `json:"deliv_city"`
-// 	ShipmentID  string  `json:"shipment_id"`
-// 	TotalKoli   int     `json:"total_koli"`
-// 	Remarks     string  `json:"remarks"`
-// 	ItemCode    string  `json:"item_code"`
-// 	Quantity    int     `json:"quantity"`
-// 	CBM         float64 `json:"cbm"`
-// 	TotalCBM    float64 `json:"total_cbm"`
-// }
-
-// type OrderDetail struct {
-// 	gorm.Model
-
-// 	OrderID uint   `json:"order_id"`
-// 	OrderNo string `json:"order_no"`
-
-// 	ShipmentID string            `json:"shipment_id" gorm:"uniqueIndex:ux_order_details_outbound_shipment"`
-// 	OutboundID types.SnowflakeID `json:"outbound_id" gorm:"uniqueIndex:ux_order_details_outbound_shipment"`
-
-// 	OutboundNo   string  `json:"outbound_no"`
-// 	QtyKoli      int     `json:"qty_koli"`
-// 	VasKoli      int     `json:"vas_koli"`
-// 	TotalItem    int     `json:"total_item"`
-// 	TotalQty     int     `json:"total_qty"`
-// 	TotalCBM     float64 `json:"total_cbm"`
-// 	DelivTo      string  `json:"deliv_to"`
-// 	DelivToName  string  `json:"deliv_to_name"`
-// 	DelivAddress string  `json:"deliv_address"`
-// 	DelivCity    string  `json:"deliv_city"`
-// 	OrderType    string  `json:"order_type"`
-// 	Status       string  `json:"status" gorm:"default:'open'"`
-// 	Remarks      string  `json:"remarks"`
-// 	CreatedBy    int     `json:"created_by"`
-// 	UpdatedBy    int     `json:"updated_by"`
-// 	DeletedBy    int     `json:"deleted_by"`
-// }
 
 type OrderDetail struct {
 	gorm.Model
@@ -178,31 +108,9 @@ type OrderDetail struct {
 	CreatedBy    int     `json:"created_by"`
 	UpdatedBy    int     `json:"updated_by"`
 	DeletedBy    int     `json:"deleted_by"`
-}
 
-// type OrderDetail struct {
-// 	gorm.Model
-// 	OrderID      uint              `json:"order_id"`
-// 	OrderNo      string            `json:"order_no"`
-// 	ShipmentID   string            `json:"shipment_id"`
-// 	OutboundID   types.SnowflakeID `json:"outbound_id"`
-// 	OutboundNo   string            `json:"outbound_no"`
-// 	QtyKoli      int               `json:"qty_koli"`
-// 	VasKoli      int               `json:"vas_koli"`
-// 	TotalItem    int               `json:"total_item"`
-// 	TotalQty     int               `json:"total_qty"`
-// 	TotalCBM     float64           `json:"total_cbm"`
-// 	DelivTo      string            `json:"deliv_to"`
-// 	DelivToName  string            `json:"deliv_to_name"`
-// 	DelivAddress string            `json:"deliv_address"`
-// 	DelivCity    string            `json:"deliv_city"`
-// 	OrderType    string            `json:"order_type"`
-// 	Status       string            `json:"status" gorm:"default:'open'"`
-// 	Remarks      string            `json:"remarks"`
-// 	CreatedBy    int               `json:"created_by"`
-// 	UpdatedBy    int               `json:"updated_by"`
-// 	DeletedBy    int               `json:"deleted_by"`
-// }
+	ShipmentScans []OrderShipmentScan `json:"-" gorm:"foreignKey:OrderDetailID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
+}
 
 type OrderConsole struct {
 	gorm.Model
