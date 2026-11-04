@@ -150,6 +150,9 @@ type InventoryMovement struct {
 	FromPallet   string `gorm:"size:100"`
 	ToPallet     string `gorm:"size:100"`
 
+	FromCaseNumber string `gorm:"size:100" json:"from_case_number"`
+	ToCaseNumber   string `gorm:"size:100" json:"to_case_number"`
+
 	FromCartonNumber string `gorm:"size:100" json:"from_carton_number"`
 	ToCartonNumber   string `gorm:"size:100" json:"to_carton_number"`
 
