@@ -5,6 +5,7 @@ import (
 	"fiber-app/models"
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 	"time"
 
@@ -45,6 +46,20 @@ type productInputStruct struct {
 	Uom          string  `json:"uom" validate:"required,min=1"`
 	OwnerCode    string  `json:"owner_code" validate:"required,min=3"`
 	UserDef1     string  `json:"user_def1"`
+
+	// Additional fields
+	ItemCode2       string  `json:"item_code2"`
+	ItemCode3       string  `json:"item_code3"`
+	PcsPeBox        int     `json:"pcs_per_box"`
+	PcsPerDozen     int     `json:"pcs_per_dozen"`
+	PcsPerSet       int     `json:"pcs_per_set"`
+	PcsPerPack      int     `json:"pcs_per_pack"`
+	PcsPerCase      int     `json:"pcs_per_case"`
+	PcsPerGross     int     `json:"pcs_per_gross"`
+	CbmPerCarton    float64 `json:"cbm_per_carton"`
+	CbmPerPcs       float64 `json:"cbm_per_pcs"`
+	TonagePerCarton float64 `json:"tonage_per_carton"`
+	TonagePerPcs    float64 `json:"tonage_per_pcs"`
 }
 
 func (c *ProductController) CreateProduct(ctx *fiber.Ctx) error {
@@ -74,28 +89,40 @@ func (c *ProductController) CreateProduct(ctx *fiber.Ctx) error {
 	userID := int(ctx.Locals("userID").(float64))
 
 	product := models.Product{
-		ItemCode:     input.ItemCode,
-		ItemName:     input.ItemName,
-		UnitModel:    input.UnitModel,
-		CBM:          input.CBM,
-		Barcode:      input.GMC,
-		GMC:          input.GMC,
-		Width:        input.Width,
-		Length:       input.Length,
-		Height:       input.Height,
-		Weight:       input.Weight,
-		Color:        input.Color,
-		Group:        input.Group,
-		QtyPerCarton: input.QtyPerCarton,
-		Category:     input.Category,
-		HasSerial:    input.Serial,
-		HasWaranty:   input.Waranty,
-		HasAdaptor:   input.Adaptor,
-		ManualBook:   input.ManualBook,
-		Uom:          input.Uom,
-		OwnerCode:    input.OwnerCode,
-		UserDef1:     input.UserDef1,
-		CreatedBy:    userID,
+		ItemCode:        input.ItemCode,
+		ItemName:        input.ItemName,
+		UnitModel:       input.UnitModel,
+		CBM:             input.CBM,
+		Barcode:         input.GMC,
+		GMC:             input.GMC,
+		Width:           input.Width,
+		Length:          input.Length,
+		Height:          input.Height,
+		Weight:          input.Weight,
+		Color:           input.Color,
+		Group:           input.Group,
+		QtyPerCarton:    input.QtyPerCarton,
+		Category:        input.Category,
+		HasSerial:       input.Serial,
+		HasWaranty:      input.Waranty,
+		HasAdaptor:      input.Adaptor,
+		ManualBook:      input.ManualBook,
+		Uom:             input.Uom,
+		OwnerCode:       input.OwnerCode,
+		UserDef1:        input.UserDef1,
+		ItemCode2:       input.ItemCode2,
+		ItemCode3:       input.ItemCode3,
+		PcsPeBox:        input.PcsPeBox,
+		PcsPerDozen:     input.PcsPerDozen,
+		PcsPerSet:       input.PcsPerSet,
+		PcsPerPack:      input.PcsPerPack,
+		PcsPerCase:      input.PcsPerCase,
+		PcsPerGross:     input.PcsPerGross,
+		CbmPerCarton:    input.CbmPerCarton,
+		CbmPerPcs:       input.CbmPerPcs,
+		TonagePerCarton: input.TonagePerCarton,
+		TonagePerPcs:    input.TonagePerPcs,
+		CreatedBy:       userID,
 	}
 
 	if err := c.DB.Create(&product).Error; err != nil {
@@ -240,29 +267,41 @@ func (c *ProductController) UpdateProduct(ctx *fiber.Ctx) error {
 	userID := int(ctx.Locals("userID").(float64))
 
 	if err := c.DB.Model(&models.Product{}).Where("id = ?", id).Updates(map[string]interface{}{
-		"item_code":      input.ItemCode,
-		"item_name":      input.ItemName,
-		"unit_model":     input.UnitModel,
-		"cbm":            input.CBM,
-		"gmc":            input.GMC,
-		"barcode":        input.GMC,
-		"group":          input.Group,
-		"category":       input.Category,
-		"width":          input.Width,
-		"length":         input.Length,
-		"height":         input.Height,
-		"weight":         input.Weight,
-		"color":          input.Color,
-		"qty_per_carton": input.QtyPerCarton,
-		"has_serial":     input.Serial,
-		"has_waranty":    input.Waranty,
-		"has_adaptor":    input.Adaptor,
-		"manual_book":    input.ManualBook,
-		"uom":            input.Uom,
-		"owner_code":     input.OwnerCode,
-		"user_def1":      input.UserDef1,
-		"updated_at":     time.Now(),
-		"updated_by":     userID,
+		"item_code":         input.ItemCode,
+		"item_name":         input.ItemName,
+		"unit_model":        input.UnitModel,
+		"cbm":               input.CBM,
+		"gmc":               input.GMC,
+		"barcode":           input.GMC,
+		"group":             input.Group,
+		"category":          input.Category,
+		"width":             input.Width,
+		"length":            input.Length,
+		"height":            input.Height,
+		"weight":            input.Weight,
+		"color":             input.Color,
+		"qty_per_carton":    input.QtyPerCarton,
+		"has_serial":        input.Serial,
+		"has_waranty":       input.Waranty,
+		"has_adaptor":       input.Adaptor,
+		"manual_book":       input.ManualBook,
+		"uom":               input.Uom,
+		"owner_code":        input.OwnerCode,
+		"user_def1":         input.UserDef1,
+		"item_code2":        input.ItemCode2,
+		"item_code3":        input.ItemCode3,
+		"pcs_pe_box":        input.PcsPeBox,
+		"pcs_per_dozen":     input.PcsPerDozen,
+		"pcs_per_set":       input.PcsPerSet,
+		"pcs_per_pack":      input.PcsPerPack,
+		"pcs_per_case":      input.PcsPerCase,
+		"pcs_per_gross":     input.PcsPerGross,
+		"cbm_per_carton":    input.CbmPerCarton,
+		"cbm_per_pcs":       input.CbmPerPcs,
+		"tonage_per_carton": input.TonagePerCarton,
+		"tonage_per_pcs":    input.TonagePerPcs,
+		"updated_at":        time.Now(),
+		"updated_by":        userID,
 	}).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -454,8 +493,9 @@ func (c *ProductController) CreateProductFromExcelFile(ctx *fiber.Ctx) error {
 		}
 	}()
 
-	// Column order: item_code, item_name, unit_model, width, length, height, ean, weight, color,
-	//               group, category, serial, warranty, adaptor, manual_book, uom, owner_code
+	// Column order matches the Excel import template. The first 17 columns are the
+	// original format; columns 18-29 contain additional fields, with qty_per_carton
+	// appended at index 29 to preserve compatibility with previously issued templates.
 	for i, row := range rows[1:] {
 		rowNum := i + 2
 
@@ -465,8 +505,16 @@ func (c *ProductController) CreateProductFromExcelFile(ctx *fiber.Ctx) error {
 
 		if len(row) < 17 {
 			result.ErrorCount++
-			result.ErrorMessages = append(result.ErrorMessages, fmt.Sprintf("Row %d: Insufficient columns (need 17)", rowNum))
+			result.ErrorMessages = append(result.ErrorMessages, fmt.Sprintf("Row %d: Insufficient columns (need at least 17)", rowNum))
 			continue
+		}
+
+		// Additional columns are optional for backward compatibility with the old 17-column template.
+		cell := func(index int) string {
+			if index < 0 || index >= len(row) {
+				return ""
+			}
+			return strings.TrimSpace(row[index])
 		}
 
 		itemCode := strings.ToUpper(strings.TrimSpace(row[0]))
@@ -487,6 +535,20 @@ func (c *ProductController) CreateProductFromExcelFile(ctx *fiber.Ctx) error {
 		manualBook := strings.ToUpper(strings.TrimSpace(row[14]))
 		uom := strings.ToUpper(strings.TrimSpace(row[15]))
 		ownerCode := strings.ToUpper(strings.TrimSpace(row[16]))
+
+		itemCode2 := strings.ToUpper(cell(17))
+		itemCode3 := strings.ToUpper(cell(18))
+		pcsPerBox := parseInt(cell(19))
+		pcsPerDozen := parseInt(cell(20))
+		pcsPerSet := parseInt(cell(21))
+		pcsPerPack := parseInt(cell(22))
+		pcsPerCase := parseInt(cell(23))
+		pcsPerGross := parseInt(cell(24))
+		cbmPerCarton := parseFloat(cell(25))
+		cbmPerPcs := parseFloat(cell(26))
+		tonagePerCarton := parseFloat(cell(27))
+		tonagePerPcs := parseFloat(cell(28))
+		qtyPerCarton := parseInt(cell(29))
 
 		if itemCode == "" || itemName == "" || gmc == "" || serial == "" ||
 			warranty == "" || adaptor == "" || manualBook == "" || uom == "" || ownerCode == "" {
@@ -520,26 +582,39 @@ func (c *ProductController) CreateProductFromExcelFile(ctx *fiber.Ctx) error {
 		}
 
 		product := models.Product{
-			ItemCode:   itemCode,
-			ItemName:   itemName,
-			UnitModel:  unitModel,
-			CBM:        cbm,
-			Barcode:    gmc,
-			GMC:        gmc,
-			Width:      width,
-			Length:     length,
-			Height:     height,
-			Weight:     weight,
-			Color:      color,
-			Group:      group,
-			Category:   category,
-			HasSerial:  serial,
-			HasWaranty: warranty,
-			HasAdaptor: adaptor,
-			ManualBook: manualBook,
-			Uom:        uom,
-			OwnerCode:  ownerCode,
-			CreatedBy:  userID,
+			ItemCode:        itemCode,
+			ItemName:        itemName,
+			UnitModel:       unitModel,
+			CBM:             cbm,
+			Barcode:         gmc,
+			GMC:             gmc,
+			Width:           width,
+			Length:          length,
+			Height:          height,
+			Weight:          weight,
+			Color:           color,
+			Group:           group,
+			Category:        category,
+			HasSerial:       serial,
+			HasWaranty:      warranty,
+			HasAdaptor:      adaptor,
+			ManualBook:      manualBook,
+			Uom:             uom,
+			OwnerCode:       ownerCode,
+			QtyPerCarton:    qtyPerCarton,
+			ItemCode2:       itemCode2,
+			ItemCode3:       itemCode3,
+			PcsPeBox:        pcsPerBox,
+			PcsPerDozen:     pcsPerDozen,
+			PcsPerSet:       pcsPerSet,
+			PcsPerPack:      pcsPerPack,
+			PcsPerCase:      pcsPerCase,
+			PcsPerGross:     pcsPerGross,
+			CbmPerCarton:    cbmPerCarton,
+			CbmPerPcs:       cbmPerPcs,
+			TonagePerCarton: tonagePerCarton,
+			TonagePerPcs:    tonagePerPcs,
+			CreatedBy:       userID,
 		}
 
 		if err := tx.Create(&product).Error; err != nil {
@@ -587,6 +662,23 @@ func parseFloat(s string) float64 {
 	var val float64
 	fmt.Sscanf(s, "%f", &val)
 	return val
+}
+
+func parseInt(s string) int {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0
+	}
+	value, err := strconv.Atoi(s)
+	if err == nil {
+		return value
+	}
+	// Accept Excel numeric values represented as decimals, e.g. "12.0".
+	floatValue, floatErr := strconv.ParseFloat(s, 64)
+	if floatErr != nil {
+		return 0
+	}
+	return int(floatValue)
 }
 
 func calculateCBM(width, length, height float64) float64 {

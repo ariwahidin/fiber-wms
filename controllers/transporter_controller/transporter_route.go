@@ -15,6 +15,7 @@ func SetupTransporterRoutes(app *fiber.App) {
 	api.Use(database.InjectDBMiddleware(transporterController))
 
 	api.Get("/export", transporterController.ExportTransporters)
+	api.Post("/upload-excel", transporterController.CreateTransporterFromExcel)
 	api.Post("/", transporterController.CreateTransporter)
 	api.Get("/", transporterController.GetAllTransporter)
 	api.Put("/:id", transporterController.UpdateTransporter)

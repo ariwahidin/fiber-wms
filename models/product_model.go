@@ -36,6 +36,20 @@ type Product struct {
 	CreatedBy     int
 	UpdatedBy     int
 	DeletedBy     int
+
+	//Additional fields
+	ItemCode2       string  `json:"item_code2"`
+	ItemCode3       string  `json:"item_code3"`
+	PcsPeBox        int     `json:"pcs_per_box" gorm:"default:0"`
+	PcsPerDozen     int     `json:"pcs_per_dozen" gorm:"default:0"`
+	PcsPerSet       int     `json:"pcs_per_set" gorm:"default:0"`
+	PcsPerPack      int     `json:"pcs_per_pack" gorm:"default:0"`
+	PcsPerCase      int     `json:"pcs_per_case" gorm:"default:0"`
+	PcsPerGross     int     `json:"pcs_per_gross" gorm:"default:0"`
+	CbmPerCarton    float64 `json:"cbm_per_carton" gorm:"default:0"`
+	CbmPerPcs       float64 `json:"cbm_per_pcs" gorm:"default:0"`
+	TonagePerCarton float64 `json:"tonnage_per_carton" gorm:"default:0"`
+	TonagePerPcs    float64 `json:"tonnage_per_pcs" gorm:"default:0"`
 }
 
 func (p *Product) BeforeCreate(tx *gorm.DB) (err error) {
