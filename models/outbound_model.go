@@ -264,6 +264,8 @@ type OutboundBarcode struct {
 	CtnVolume        float64 `json:"ctn_volume"`
 	CtnActualWeight  float64 `json:"ctn_actual_weight" gorm:"default:0"`
 	CtnStatus        string  `json:"ctn_status" gorm:"default:'open'"`
+	PackageType      string  `json:"package_type"`
+	PackageQty       float64 `json:"package_qty"`
 	CreatedBy        int
 	UpdatedBy        int
 	DeletedBy        int

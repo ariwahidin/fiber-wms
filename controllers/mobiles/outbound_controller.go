@@ -75,21 +75,197 @@ func (c *MobileOutboundController) GetListOutbound(ctx *fiber.Ctx) error {
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"data": listOutbound})
 }
 
+// func (c *MobileOutboundController) GetListOutboundDetail(ctx *fiber.Ctx) error {
+
+// 	outbound_no := ctx.Params("outbound_no")
+
+// 	if outbound_no == "" {
+// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "outbound_no is required"})
+// 	}
+
+// 	var outboundHeader models.OutboundHeader
+// 	if err := c.DB.Debug().Where("outbound_no = ?", outbound_no).First(&outboundHeader).Error; err != nil {
+// 		if errors.Is(err, gorm.ErrRecordNotFound) {
+// 			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "outbound_no not found"})
+// 		}
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+// 	}
+
+// 	type OutboundResult struct {
+// 		OutboundDetailID int     `json:"outbound_detail_id"`
+// 		WhsCode          string  `json:"whs_code"`
+// 		ItemCode         string  `json:"item_code"`
+// 		Barcode          string  `json:"barcode"`
+// 		Quantity         int     `json:"quantity"`
+// 		ItemName         string  `json:"item_name"`
+// 		HasSerial        string  `json:"has_serial"`
+// 		QtyScan          float64 `json:"scan_qty"`
+// 		UOM              string  `json:"uom"`
+// 	OwnerCode        string  `json:"owner_code"`
+// 		LotNumber        string  `json:"lot_number"`
+// 	}
+
+// 	var results []OutboundResult
+
+// 	query := `WITH ob AS (
+// 			SELECT a.outbound_id, a.item_code, a.barcode, a.item_id, a.outbound_detail_id,
+// 			COALESCE(SUM(a.quantity),0) as qty_scan
+// 			FROM outbound_barcodes a
+// 			LEFT JOIN outbound_details b ON a.outbound_detail_id = b.id
+// 			WHERE a.outbound_id = ?
+// 			GROUP BY a.item_code, a.barcode, a.item_id, a.outbound_id, a.outbound_detail_id
+// 		),
+// 		op AS (
+// 			SELECT a.outbound_detail_id, a.item_code, sum(a.quantity) as qty, a.uom, lot_number
+// 			FROM outbound_pickings a
+// 			WHERE a.outbound_id = ?
+// 			GROUP BY a.outbound_detail_id, a.item_code, a.uom, lot_number
+// 		),
+// 		opb AS (
+// 			SELECT a.id as outbound_detail_id, a.whs_code, a.item_code, a.barcode,
+// 				a.quantity,
+// 				a.uom,
+// 				b.item_name,
+// 				COALESCE(ob.qty_scan, 0) as qty_scan,
+// 				b.has_serial,
+// 				a.owner_code,
+// 				a.lot_number
+// 			FROM outbound_details a
+// 			INNER JOIN products b ON a.item_id = b.id
+// 			LEFT JOIN op ON a.id = op.outbound_detail_id
+// 			LEFT JOIN ob ON ob.outbound_id = a.outbound_id AND a.item_code = ob.item_code AND a.id = ob.outbound_detail_id
+// 			WHERE a.outbound_id = ?
+// 		)
+// 		select
+// 		opb.outbound_detail_id,
+// 		opb.whs_code,
+// 		opb.item_code,
+// 		opb.barcode,
+// 		opb.quantity,
+// 		opb.uom,
+// 		opb.item_name,
+// 		opb.lot_number,
+// 		ROUND(opb.qty_scan / oc.conversion_rate, 3) AS qty_scan,
+// 		opb.owner_code
+// 		from opb
+// 		left join uom_conversions oc ON oc.item_code = opb.item_code and oc.ean = opb.barcode and opb.uom = oc.from_uom
+// 		order by opb.outbound_detail_id asc;`
+
+// 	err := c.DB.Debug().Raw(query, outboundHeader.ID, outboundHeader.ID, outboundHeader.ID).Scan(&results).Error
+// 	if err != nil {
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+// 	}
+
+// 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "data": results})
+// }
+
 func (c *MobileOutboundController) GetListOutboundDetail(ctx *fiber.Ctx) error {
 
 	outbound_no := ctx.Params("outbound_no")
 
 	if outbound_no == "" {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "outbound_no is required"})
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "outbound_no is required",
+		})
 	}
 
+	// ============================================
+	// 1. GET OUTBOUND HEADER
+	// ============================================
+
 	var outboundHeader models.OutboundHeader
-	if err := c.DB.Debug().Where("outbound_no = ?", outbound_no).First(&outboundHeader).Error; err != nil {
+
+	if err := c.DB.Debug().
+		Where("outbound_no = ?", outbound_no).
+		First(&outboundHeader).Error; err != nil {
+
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "outbound_no not found"})
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"error": "outbound_no not found",
+			})
 		}
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": err.Error(),
+		})
 	}
+
+	// ============================================
+	// 2. GET CUSTOMER INFORMATION
+	// ============================================
+
+	type CustomerInfo struct {
+		CustomerCode string `json:"customer_code"`
+		CustomerName string `json:"customer_name"`
+		CustAddr1    string `json:"cust_addr1"`
+		CustAddr2    string `json:"cust_addr2"`
+		CustCity     string `json:"cust_city"`
+		CustArea     string `json:"cust_area"`
+		CustCountry  string `json:"cust_country"`
+		CustPhone    string `json:"cust_phone"`
+		CustEmail    string `json:"cust_email"`
+	}
+
+	var customer CustomerInfo
+
+	err := c.DB.Debug().
+		Table("customers").
+		Select(`
+			customer_code,
+			customer_name,
+			cust_addr1,
+			cust_addr2,
+			cust_city,
+			cust_area,
+			cust_country,
+			cust_phone,
+			cust_email
+		`).
+		Where("customer_code = ? AND owner_code = ?",
+			outboundHeader.CustomerCode,
+			outboundHeader.OwnerCode,
+		).
+		Where("deleted_at IS NULL").
+		Scan(&customer).Error
+
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	// ============================================
+	// 3. PREPARE HEADER RESPONSE
+	// ============================================
+
+	type OutboundHeaderResult struct {
+		models.OutboundHeader
+		CustomerName    string `json:"customer_name"`
+		CustomerAddr1   string `json:"customer_addr1"`
+		CustomerAddr2   string `json:"customer_addr2"`
+		CustomerCity    string `json:"customer_city"`
+		CustomerArea    string `json:"customer_area"`
+		CustomerCountry string `json:"customer_country"`
+		CustomerPhone   string `json:"customer_phone"`
+		CustomerEmail   string `json:"customer_email"`
+	}
+
+	headerResult := OutboundHeaderResult{
+		OutboundHeader:  outboundHeader,
+		CustomerName:    customer.CustomerName,
+		CustomerAddr1:   customer.CustAddr1,
+		CustomerAddr2:   customer.CustAddr2,
+		CustomerCity:    customer.CustCity,
+		CustomerArea:    customer.CustArea,
+		CustomerCountry: customer.CustCountry,
+		CustomerPhone:   customer.CustPhone,
+		CustomerEmail:   customer.CustEmail,
+	}
+
+	// ============================================
+	// 4. GET OUTBOUND DETAIL
+	// ORIGINAL QUERY - UNCHANGED
+	// ============================================
 
 	type OutboundResult struct {
 		OutboundDetailID int     `json:"outbound_detail_id"`
@@ -151,12 +327,30 @@ func (c *MobileOutboundController) GetListOutboundDetail(ctx *fiber.Ctx) error {
 		left join uom_conversions oc ON oc.item_code = opb.item_code and oc.ean = opb.barcode and opb.uom = oc.from_uom
 		order by opb.outbound_detail_id asc;`
 
-	err := c.DB.Debug().Raw(query, outboundHeader.ID, outboundHeader.ID, outboundHeader.ID).Scan(&results).Error
+	err = c.DB.Debug().
+		Raw(
+			query,
+			outboundHeader.ID,
+			outboundHeader.ID,
+			outboundHeader.ID,
+		).
+		Scan(&results).Error
+
 	if err != nil {
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": err.Error(),
+		})
 	}
 
-	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "data": results})
+	// ============================================
+	// 5. RETURN RESPONSE
+	// ============================================
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"header":  headerResult,
+		"data":    results,
+	})
 }
 
 func (c *MobileOutboundController) CheckItem(ctx *fiber.Ctx) error {
@@ -262,6 +456,8 @@ func (c *MobileOutboundController) ScanPicking(ctx *fiber.Ctx) error {
 		InnerSerialEnd string   `json:"inner_serial_end"`
 		CaseNumber     string   `json:"case_number"`
 		ItemModel      string   `json:"item_model"`
+		PackageType    string   `json:"package_type"`
+		PackageQty     float64  `json:"package_qty"`
 	}
 
 	if err := ctx.BodyParser(&scanOutbound); err != nil {
@@ -308,85 +504,6 @@ func (c *MobileOutboundController) ScanPicking(ctx *fiber.Ctx) error {
 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "CTN is required"})
 		}
 	}
-
-	// ── FIND OUTBOUND DETAIL: support multiple detail per item ──────────────
-
-	// var outboundDetails []models.OutboundDetail
-
-	// if scanOutbound.Sku != "" {
-
-	// 	// 1. Jika LotNo terisi, cari berdasarkan SKU + Lot Number
-	// 	if scanOutbound.LotNo != "" {
-
-	// 		if err := c.DB.Debug().Where(
-	// 			"outbound_id = ? AND item_code = ? AND lot_number = ?",
-	// 			outboundHeader.ID,
-	// 			scanOutbound.Sku,
-	// 			scanOutbound.LotNo,
-	// 		).Find(&outboundDetails).Error; err != nil {
-	// 			return ctx.Status(fiber.StatusInternalServerError).
-	// 				JSON(fiber.Map{"error": err.Error()})
-	// 		}
-
-	// 	}
-
-	// 	// 2. Jika LotNo kosong ATAU tidak ditemukan, cari berdasarkan SKU saja
-	// 	if len(outboundDetails) == 0 {
-
-	// 		if err := c.DB.Debug().Where(
-	// 			"outbound_id = ? AND item_code = ?",
-	// 			outboundHeader.ID,
-	// 			scanOutbound.Sku,
-	// 		).Find(&outboundDetails).Error; err != nil {
-	// 			return ctx.Status(fiber.StatusInternalServerError).
-	// 				JSON(fiber.Map{"error": err.Error()})
-	// 		}
-
-	// 	}
-
-	// } else {
-
-	// 	// Cari berdasarkan Barcode
-	// 	if err := c.DB.Where(
-	// 		"outbound_id = ? AND barcode = ?",
-	// 		outboundHeader.ID,
-	// 		scanOutbound.Barcode,
-	// 	).Find(&outboundDetails).Error; err != nil {
-	// 		return ctx.Status(fiber.StatusInternalServerError).
-	// 			JSON(fiber.Map{"error": err.Error()})
-	// 	}
-
-	// }
-
-	// if len(outboundDetails) == 0 {
-	// 	return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
-	// 		"error":   "Item not found in outbound detail",
-	// 		"message": "Item not found in outbound detail",
-	// 	})
-	// }
-
-	// // Cari detail yang scanned qty-nya belum penuh
-	// var outboundDetail *models.OutboundDetail
-	// for i := range outboundDetails {
-	// 	var scannedQty float64
-	// 	c.DB.Model(&models.OutboundBarcode{}).
-	// 		Where("outbound_detail_id = ? AND status != 'cancelled'", outboundDetails[i].ID).
-	// 		Select("COALESCE(SUM(quantity), 0)").
-	// 		Scan(&scannedQty)
-
-	// 	if scannedQty < outboundDetails[i].Quantity {
-	// 		outboundDetail = &outboundDetails[i]
-	// 		break
-	// 	}
-	// }
-
-	// if outboundDetail == nil {
-	// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-	// 		"error":   "Quantity limit reached",
-	// 		"message": "Semua outbound detail untuk item ini sudah penuh",
-	// 	})
-	// }
-	// ────────────────────────────────────────────────────────────────────────
 
 	// ────────────────────────────────────────────────────────────────────────
 	// FIND OUTBOUND DETAIL
@@ -663,6 +780,8 @@ func (c *MobileOutboundController) ScanPicking(ctx *fiber.Ctx) error {
 				CtnVolume:        carton.Volume,
 				CtnMaxWeight:     carton.MaxWeight,
 				CtnTareWeight:    carton.TareWeight,
+				PackageType:      scanOutbound.PackageType,
+				PackageQty:       scanOutbound.PackageQty,
 				CreatedBy:        int(ctx.Locals("userID").(float64)),
 			}
 
@@ -736,6 +855,8 @@ func (c *MobileOutboundController) ScanPicking(ctx *fiber.Ctx) error {
 			CtnVolume:     carton.Volume,
 			CtnMaxWeight:  carton.MaxWeight,
 			CtnTareWeight: carton.TareWeight,
+			PackageType:   scanOutbound.PackageType,
+			PackageQty:    scanOutbound.PackageQty,
 			CreatedBy:     int(ctx.Locals("userID").(float64)),
 		}
 

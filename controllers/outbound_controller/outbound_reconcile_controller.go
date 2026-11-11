@@ -255,6 +255,7 @@ func AllocateOutboundDetails(
 						location,
 						whs_code,
 						item_id,
+						MIN(prod_date) AS min_prod_date,
 						MIN(rec_date) AS min_rec_date,
 						MIN(qty_available) AS min_qty,
 						MIN(exp_date) AS min_exp_date
@@ -375,10 +376,12 @@ func AllocateOutboundDetails(
 		} else {
 
 			queryInventory = queryInventory.Order(`
+				loc_rank.min_prod_date ASC,
 				loc_rank.min_rec_date ASC,
 				loc_rank.min_qty ASC,
 				i.location ASC,
 				i.qty_available ASC,
+				i.prod_date ASC,
 				i.rec_date ASC
 			`)
 		}

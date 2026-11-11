@@ -893,6 +893,8 @@ type PackingItem struct {
 	CtnTareWeight   float64   `json:"ctn_tare_weight"`
 	CtnVolume       float64   `json:"ctn_volume"`
 	SerialRemarks   string    `json:"serial_remarks"`
+	PackageType     string    `json:"package_type"`
+	PackageQty      float64   `json:"package_qty"`
 }
 
 func (r *OutboundRepository) GetPackingItemsList(outboundID int, packingNo string) ([]PackingItem, error) {
@@ -931,7 +933,9 @@ func (r *OutboundRepository) GetPackingItemsList(outboundID int, packingNo strin
 				a.barcode_data_scan as barcode_scan,
 				a.ctn_length,
 				a.ctn_width,
-				a.ctn_height
+				a.ctn_height,
+				a.package_type,
+				a.package_qty
         FROM outbound_barcodes a
         INNER JOIN products b ON a.item_id = b.id
         INNER JOIN outbound_packings c ON a.packing_id = c.id
@@ -971,7 +975,9 @@ func (r *OutboundRepository) GetPackingItemsList(outboundID int, packingNo strin
 				a.pack_ctn_no,
 				a.ctn_length,
 				a.ctn_width,
-				a.ctn_height
+				a.ctn_height,
+				a.package_type,
+				a.package_qty
 		ORDER BY CAST(a.pack_ctn_no AS INT) ASC
 	`
 
