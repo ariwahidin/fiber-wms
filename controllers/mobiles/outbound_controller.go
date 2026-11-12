@@ -283,36 +283,106 @@ func (c *MobileOutboundController) GetListOutboundDetail(ctx *fiber.Ctx) error {
 
 	var results []OutboundResult
 
+	// query := `WITH ob AS (
+	// 		SELECT a.outbound_id, a.item_code, a.barcode, a.item_id, a.outbound_detail_id,
+	// 		COALESCE(SUM(a.quantity),0) as qty_scan
+	// 		FROM outbound_barcodes a
+	// 		LEFT JOIN outbound_details b ON a.outbound_detail_id = b.id
+	// 		WHERE a.outbound_id = ?
+	// 		GROUP BY a.item_code, a.barcode, a.item_id, a.outbound_id, a.outbound_detail_id
+	// 	),
+	// 	op AS (
+	// 		SELECT a.outbound_detail_id, a.item_code, sum(a.quantity) as qty, a.uom, lot_number
+	// 		FROM outbound_pickings a
+	// 		WHERE a.outbound_id = ?
+	// 		GROUP BY a.outbound_detail_id, a.item_code, a.uom, lot_number
+	// 	),
+	// 	opb AS (
+	// 		SELECT a.id as outbound_detail_id, a.whs_code, a.item_code, a.barcode,
+	// 			a.quantity,
+	// 			a.uom,
+	// 			b.item_name,
+	// 			COALESCE(ob.qty_scan, 0) as qty_scan,
+	// 			b.has_serial,
+	// 			a.owner_code,
+	// 			a.lot_number
+	// 		FROM outbound_details a
+	// 		INNER JOIN products b ON a.item_id = b.id
+	// 		LEFT JOIN op ON a.id = op.outbound_detail_id
+	// 		LEFT JOIN ob ON ob.outbound_id = a.outbound_id AND a.item_code = ob.item_code AND a.id = ob.outbound_detail_id
+	// 		WHERE a.outbound_id = ?
+	// 	)
+	// 	select
+	// 	opb.outbound_detail_id,
+	// 	opb.whs_code,
+	// 	opb.item_code,
+	// 	opb.barcode,
+	// 	opb.quantity,
+	// 	opb.uom,
+	// 	opb.item_name,
+	// 	opb.lot_number,
+	// 	ROUND(opb.qty_scan / oc.conversion_rate, 3) AS qty_scan,
+	// 	opb.owner_code
+	// 	from opb
+	// 	left join uom_conversions oc ON oc.item_code = opb.item_code and oc.ean = opb.barcode and opb.uom = oc.from_uom
+	// 	order by opb.outbound_detail_id asc;`
+
 	query := `WITH ob AS (
-			SELECT a.outbound_id, a.item_code, a.barcode, a.item_id, a.outbound_detail_id,
-			COALESCE(SUM(a.quantity),0) as qty_scan
-			FROM outbound_barcodes a
-			LEFT JOIN outbound_details b ON a.outbound_detail_id = b.id
-			WHERE a.outbound_id = ?
-			GROUP BY a.item_code, a.barcode, a.item_id, a.outbound_id, a.outbound_detail_id
-		),
-		op AS (
-			SELECT a.outbound_detail_id, a.item_code, sum(a.quantity) as qty, a.uom, lot_number
-			FROM outbound_pickings a
-			WHERE a.outbound_id = ?
-			GROUP BY a.outbound_detail_id, a.item_code, a.uom, lot_number
-		),
-		opb AS (
-			SELECT a.id as outbound_detail_id, a.whs_code, a.item_code, a.barcode,
-				a.quantity, 
-				a.uom,
-				b.item_name, 
-				COALESCE(ob.qty_scan, 0) as qty_scan, 
-				b.has_serial, 
-				a.owner_code,
-				a.lot_number
-			FROM outbound_details a
-			INNER JOIN products b ON a.item_id = b.id
-			LEFT JOIN op ON a.id = op.outbound_detail_id
-			LEFT JOIN ob ON ob.outbound_id = a.outbound_id AND a.item_code = ob.item_code AND a.id = ob.outbound_detail_id
-			WHERE a.outbound_id = ?
-		)
-		select 
+		SELECT
+			a.outbound_id,
+			a.outbound_detail_id,
+			a.item_code,
+			a.barcode,
+			a.item_id,
+			COALESCE(SUM(a.quantity), 0) AS qty_scan
+		FROM outbound_barcodes a
+		WHERE a.outbound_id = ?
+		GROUP BY
+			a.outbound_id,
+			a.outbound_detail_id,
+			a.item_code,
+			a.barcode,
+			a.item_id
+	),
+	op AS (
+		SELECT
+			a.outbound_detail_id,
+			a.item_code,
+			a.lot_number,
+			SUM(a.quantity) AS qty,
+			a.uom
+		FROM outbound_pickings a
+		WHERE a.outbound_id = ?
+		GROUP BY
+			a.outbound_detail_id,
+			a.item_code,
+			a.lot_number,
+			a.uom
+	),
+	opb AS (
+		SELECT
+			a.id AS outbound_detail_id,
+			a.whs_code,
+			a.item_code,
+			a.barcode,
+			a.quantity,
+			a.uom,
+			b.item_name,
+			COALESCE(ob.qty_scan, 0) AS qty_scan,
+			b.has_serial,
+			a.owner_code,
+			a.lot_number
+		FROM outbound_details a
+		INNER JOIN products b
+			ON a.item_id = b.id
+		LEFT JOIN ob
+			ON ob.outbound_id = a.outbound_id
+			AND ob.outbound_detail_id = a.id
+			AND ob.item_code = a.item_code
+			AND ob.barcode = a.barcode
+		WHERE a.outbound_id = ?
+	)
+	SELECT
 		opb.outbound_detail_id,
 		opb.whs_code,
 		opb.item_code,
@@ -321,11 +391,18 @@ func (c *MobileOutboundController) GetListOutboundDetail(ctx *fiber.Ctx) error {
 		opb.uom,
 		opb.item_name,
 		opb.lot_number,
-		ROUND(opb.qty_scan / oc.conversion_rate, 3) AS qty_scan,
+		ROUND(
+			COALESCE(opb.qty_scan, 0) /
+			NULLIF(COALESCE(oc.conversion_rate, 1), 0),
+			3
+		) AS qty_scan,
 		opb.owner_code
-		from opb
-		left join uom_conversions oc ON oc.item_code = opb.item_code and oc.ean = opb.barcode and opb.uom = oc.from_uom
-		order by opb.outbound_detail_id asc;`
+	FROM opb
+	LEFT JOIN uom_conversions oc
+		ON oc.item_code = opb.item_code
+		AND oc.ean = opb.barcode
+		AND oc.from_uom = opb.uom
+	ORDER BY opb.outbound_detail_id ASC;`
 
 	err = c.DB.Debug().
 		Raw(

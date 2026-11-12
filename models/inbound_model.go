@@ -13,6 +13,8 @@ type InboundHeader struct {
 	OwnerCode         string    `json:"owner_code" required:"required"`
 	WhsCode           string    `json:"whs_code" required:"required"`
 	ReceiptID         string    `json:"receipt_id" required:"required" gorm:"unique"`
+	PONumber          string    `json:"po_number"`
+	InvoiceNo         string    `json:"invoice"`
 	SupplierId        int       `json:"supplier_id"`
 	Supplier          string    `json:"supplier"`
 	Status            string    `json:"status" gorm:"default:'draft'"`

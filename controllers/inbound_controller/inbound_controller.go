@@ -252,6 +252,8 @@ func (c *InboundController) CreateInbound(ctx *fiber.Ctx) error {
 	InboundHeader.InboundNo = payload.InboundNo
 	InboundHeader.InboundDate = payload.InboundDate
 	InboundHeader.ReceiptID = payload.ReceiptID
+	InboundHeader.PONumber = payload.PONumber
+	InboundHeader.InvoiceNo = payload.Invoice
 	InboundHeader.Supplier = payload.Supplier
 	InboundHeader.SupplierId = int(supplier.ID)
 	InboundHeader.Status = payload.Status
@@ -651,6 +653,8 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 	InboundHeader.Supplier = payload.Supplier
 	InboundHeader.SupplierId = int(supplier.ID)
 	InboundHeader.ReceiptID = payload.ReceiptID
+	InboundHeader.PONumber = payload.PONumber
+	InboundHeader.InvoiceNo = payload.Invoice
 	InboundHeader.Type = payload.Type
 	InboundHeader.Remarks = payload.Remarks
 	InboundHeader.UpdatedBy = userID
