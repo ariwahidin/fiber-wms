@@ -452,7 +452,7 @@ GROUP BY a.id, a.[status], a.inbound_date, a.deleted_at, a.owner_code)
 SELECT
 	ih.status                       AS stage_key,
 	COUNT(DISTINCT ih.id)           AS total_orders,
-	SUM(qty)                             AS total_qty
+	CAST(COALESCE(SUM(qty), 0) AS BIGINT) AS total_qty
 FROM ih 
 WHERE ih.deleted_at IS NULL
 		` + ibDateCond + `

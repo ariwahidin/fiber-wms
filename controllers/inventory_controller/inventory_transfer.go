@@ -212,12 +212,12 @@ func (c *InventoryController) TransferInventory(ctx *fiber.Ctx) error {
 		})
 	}
 
-	if input.FromProdDate != "" && input.ProdDate != "" && input.FromProdDate != input.ProdDate {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"success": false,
-			"error":   "FromProdDate and ProdDate must match if both are provided",
-		})
-	}
+	// if input.FromProdDate != "" && input.ProdDate != "" && input.FromProdDate != input.ProdDate {
+	// 	return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+	// 		"success": false,
+	// 		"error":   "FromProdDate and ProdDate must match if both are provided",
+	// 	})
+	// }
 
 	userID := int(ctx.Locals("userID").(float64))
 

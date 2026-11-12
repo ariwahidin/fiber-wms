@@ -154,9 +154,10 @@ type InventoryMovement struct {
 	FromProdDate  string `gorm:"size:20"`
 	ToProdDate    string `gorm:"size:20"`
 
-	Reason    string `gorm:"size:255"`
-	CreatedBy int
-	CreatedAt time.Time
+	Reason     string `gorm:"size:255"`
+	ActionType string `gorm:"size:50"`
+	CreatedBy  int
+	CreatedAt  time.Time
 }
 
 // qa_status_change_request table
