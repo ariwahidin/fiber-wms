@@ -895,6 +895,12 @@ type PackingItem struct {
 	SerialRemarks   string    `json:"serial_remarks"`
 	PackageType     string    `json:"package_type"`
 	PackageQty      float64   `json:"package_qty"`
+	QtyPerCarton    float64   `json:"qty_per_carton"`
+	PcsPerGross     float64   `json:"pcs_per_gross"`
+	PcsPerDozen     float64   `json:"pcs_per_dozen"`
+	PcsPerSet       float64   `json:"pcs_per_set"`
+	PcsPerPack      float64   `json:"pcs_per_pack"`
+	PcsPerCase      float64   `json:"pcs_per_case"`
 }
 
 func (r *OutboundRepository) GetPackingItemsList(outboundID int, packingNo string) ([]PackingItem, error) {
@@ -935,7 +941,13 @@ func (r *OutboundRepository) GetPackingItemsList(outboundID int, packingNo strin
 				a.ctn_width,
 				a.ctn_height,
 				a.package_type,
-				a.package_qty
+				a.package_qty,
+				b.qty_per_carton,
+				b.pcs_per_gross,
+				b.pcs_per_dozen,
+				b.pcs_per_set,
+				b.pcs_per_pack,
+				b.pcs_per_case
         FROM outbound_barcodes a
         INNER JOIN products b ON a.item_id = b.id
         INNER JOIN outbound_packings c ON a.packing_id = c.id
@@ -977,7 +989,13 @@ func (r *OutboundRepository) GetPackingItemsList(outboundID int, packingNo strin
 				a.ctn_width,
 				a.ctn_height,
 				a.package_type,
-				a.package_qty
+				a.package_qty,
+				b.qty_per_carton,
+				b.pcs_per_gross,
+				b.pcs_per_dozen,
+				b.pcs_per_set,
+				b.pcs_per_pack,
+				b.pcs_per_case
 		ORDER BY CAST(a.pack_ctn_no AS INT) ASC
 	`
 
