@@ -43,6 +43,18 @@ type InventoryMovementPayload struct {
 	QtySuspendChange   float64
 	QtyShippedChange   float64
 
+	FromDivision string
+	ToDivision   string
+
+	FromProdDate string
+	ToProdDate   string
+
+	FromLotNumber string
+	ToLotNumber   string
+
+	FromPallet string
+	ToPallet   string
+
 	FromWhsCode  string
 	ToWhsCode    string
 	FromLocation string
@@ -77,12 +89,22 @@ func InsertInventoryMovement(
 		ToWhsCode:          p.ToWhsCode,
 		FromLocation:       p.FromLocation,
 		ToLocation:         p.ToLocation,
-		OldQaStatus:        p.OldQaStatus,
-		NewQaStatus:        p.NewQaStatus,
-		Reason:             p.Reason,
-		ActionType:         p.ActionType,
-		CreatedBy:          p.CreatedBy,
-		CreatedAt:          time.Now(),
+
+		FromPallet: p.FromPallet,
+		ToPallet:   p.ToPallet,
+
+		OldQaStatus:   p.OldQaStatus,
+		NewQaStatus:   p.NewQaStatus,
+		FromDivision:  p.FromDivision,
+		ToDivision:    p.ToDivision,
+		FromLotNumber: p.FromLotNumber,
+		ToLotNumber:   p.ToLotNumber,
+		FromProdDate:  p.FromProdDate,
+		ToProdDate:    p.ToProdDate,
+		Reason:        p.Reason,
+		ActionType:    p.ActionType,
+		CreatedBy:     p.CreatedBy,
+		CreatedAt:     time.Now(),
 	}
 
 	return tx.Create(&movement).Error

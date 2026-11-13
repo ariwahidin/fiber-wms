@@ -701,8 +701,14 @@ func (r *InboundRepository) ProcessPutawayItem(ctx *fiber.Ctx, inboundBarcodeID 
 			FromLocation:       barcode.Location,
 			NewQaStatus:        barcode.QaStatus,
 			ToLocation:         location,
-			Reason:             detail.InboundNo + " PUTAWAY",
-			CreatedBy:          int(userID),
+
+			ToPallet:    barcode.Pallet,
+			ToDivision:  barcode.DivisionCode,
+			ToLotNumber: barcode.LotNumber,
+			ToProdDate:  barcode.ProdDate,
+
+			Reason:    detail.InboundNo + " PUTAWAY",
+			CreatedBy: int(userID),
 		})
 
 	} else if err == nil {
@@ -719,20 +725,27 @@ func (r *InboundRepository) ProcessPutawayItem(ctx *fiber.Ctx, inboundBarcodeID 
 
 		// ledger
 		helpers.InsertInventoryMovement(r.db, helpers.InventoryMovementPayload{
-			InventoryID:        existingInv.ID,
-			MovementID:         movementID,
-			RefType:            "INBOUND PUTAWAY",
-			RefID:              uint(barcode.InboundId),
-			ItemID:             product.ID,
-			ItemCode:           product.ItemCode,
-			ToWhsCode:          existingInv.WhsCode,
+			InventoryID: existingInv.ID,
+			MovementID:  movementID,
+			RefType:     "INBOUND PUTAWAY",
+			RefID:       uint(barcode.InboundId),
+			ItemID:      product.ID,
+			ItemCode:    product.ItemCode,
+			ToWhsCode:   existingInv.WhsCode,
+
 			QtyOnhandChange:    qtyConverted,
 			QtyAvailableChange: qtyConverted,
 			NewQaStatus:        barcode.QaStatus,
 			FromLocation:       barcode.Location,
 			ToLocation:         location,
-			Reason:             detail.InboundNo + " PUTAWAY",
-			CreatedBy:          int(userID),
+
+			ToPallet:    barcode.Pallet,
+			ToDivision:  barcode.DivisionCode,
+			ToLotNumber: barcode.LotNumber,
+			ToProdDate:  barcode.ProdDate,
+
+			Reason:    detail.InboundNo + " PUTAWAY",
+			CreatedBy: int(userID),
 		})
 	} else {
 		return false, err
