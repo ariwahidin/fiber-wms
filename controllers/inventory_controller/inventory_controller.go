@@ -715,130 +715,528 @@ func (c *InventoryController) GetAllInventoryAvailableGrouped(ctx *fiber.Ctx) er
 //===================================================================
 
 // GetInventoryMovements returns paginated inventory movements with filters
-func (c *InventoryController) GetInventoryMovements(ctx *fiber.Ctx) error {
-	type InventoryMovementResponse struct {
-		ID         uint   `json:"id"`
-		MovementID string `json:"movement_id"`
-		ItemCode   string `json:"item_code"`
-		ItemName   string `json:"item_name"`
-		RefType    string `json:"ref_type"`
-		RefID      uint   `json:"ref_id"`
+// func (c *InventoryController) GetInventoryMovements(ctx *fiber.Ctx) error {
+// 	type InventoryMovementResponse struct {
+// 		ID         uint   `json:"id"`
+// 		MovementID string `json:"movement_id"`
+// 		ItemCode   string `json:"item_code"`
+// 		ItemName   string `json:"item_name"`
+// 		RefType    string `json:"ref_type"`
+// 		RefID      uint   `json:"ref_id"`
 
+// 		QtyOnhandChange    float64 `json:"qty_onhand_change"`
+// 		QtyAvailableChange float64 `json:"qty_available_change"`
+// 		QtyAllocatedChange float64 `json:"qty_allocated_change"`
+// 		QtySuspendChange   float64 `json:"qty_suspend_change"`
+// 		QtyShippedChange   float64 `json:"qty_shipped_change"`
+
+// 		FromWhsCode  string `json:"from_whs_code"`
+// 		ToWhsCode    string `json:"to_whs_code"`
+// 		FromLocation string `json:"from_location"`
+// 		ToLocation   string `json:"to_location"`
+// 		OldQaStatus  string `json:"old_qa_status"`
+// 		NewQaStatus  string `json:"new_qa_status"`
+
+// 		Reason    string    `json:"reason"`
+// 		CreatedBy int       `json:"created_by"`
+// 		CreatedAt time.Time `json:"created_at"`
+// 	}
+
+// 	// Pagination parameters
+// 	page, _ := strconv.Atoi(ctx.Query("page", "1"))
+// 	pageSize, _ := strconv.Atoi(ctx.Query("page_size", "50"))
+// 	if page < 1 {
+// 		page = 1
+// 	}
+// 	if pageSize < 10 || pageSize > 100 {
+// 		pageSize = 50
+// 	}
+// 	offset := (page - 1) * pageSize
+
+// 	// Filter parameters
+// 	refType := ctx.Query("ref_type")
+// 	itemCode := ctx.Query("item_code")
+// 	location := ctx.Query("location")
+// 	whsCode := ctx.Query("whs_code")
+// 	qaStatus := ctx.Query("qa_status")
+// 	search := ctx.Query("search")
+// 	dateFrom := ctx.Query("date_from")
+// 	dateTo := ctx.Query("date_to")
+
+// 	// Build query
+// 	query := c.DB.Table("inventory_movements").
+// 		Select(`
+// 			inventory_movements.id,
+// 			inventory_movements.movement_id,
+// 			inventory_movements.item_code,
+// 			products.item_name,
+// 			inventory_movements.ref_type,
+// 			inventory_movements.ref_id,
+// 			inventory_movements.qty_onhand_change,
+// 			inventory_movements.qty_available_change,
+// 			inventory_movements.qty_allocated_change,
+// 			inventory_movements.qty_suspend_change,
+// 			inventory_movements.qty_shipped_change,
+// 			inventory_movements.from_whs_code,
+// 			inventory_movements.to_whs_code,
+// 			inventory_movements.from_location,
+// 			inventory_movements.to_location,
+// 			inventory_movements.old_qa_status,
+// 			inventory_movements.new_qa_status,
+// 			inventory_movements.reason,
+// 			inventory_movements.created_by,
+// 			inventory_movements.created_at
+// 		`).
+// 		Joins("LEFT JOIN products ON inventory_movements.item_id = products.id")
+
+// 	// Apply filters
+// 	if refType != "" {
+// 		query = query.Where("inventory_movements.ref_type = ?", refType)
+// 	}
+// 	if itemCode != "" {
+// 		query = query.Where("inventory_movements.item_code = ?", itemCode)
+// 	}
+// 	if location != "" {
+// 		query = query.Where(
+// 			"inventory_movements.from_location = ? OR inventory_movements.to_location = ?",
+// 			location, location,
+// 		)
+// 	}
+// 	if whsCode != "" {
+// 		query = query.Where(
+// 			"inventory_movements.from_whs_code = ? OR inventory_movements.to_whs_code = ?",
+// 			whsCode, whsCode,
+// 		)
+// 	}
+// 	if qaStatus != "" {
+// 		query = query.Where(
+// 			"inventory_movements.old_qa_status = ? OR inventory_movements.new_qa_status = ?",
+// 			qaStatus, qaStatus,
+// 		)
+// 	}
+// 	if search != "" {
+// 		query = query.Where(
+// 			"inventory_movements.movement_id LIKE ? OR inventory_movements.item_code LIKE ? OR products.item_name LIKE ?",
+// 			"%"+search+"%", "%"+search+"%", "%"+search+"%",
+// 		)
+// 	}
+// 	if dateFrom != "" {
+// 		query = query.Where("inventory_movements.created_at >= ?", dateFrom)
+// 	}
+// 	if dateTo != "" {
+// 		query = query.Where("inventory_movements.created_at <= ?", dateTo+" 23:59:59")
+// 	}
+
+// 	// Count total records (for pagination)
+// 	var totalRecords int64
+// 	countQuery := query
+// 	countQuery.Count(&totalRecords)
+
+// 	// Get paginated data
+// 	var movements []InventoryMovementResponse
+// 	result := query.
+// 		Order("inventory_movements.created_at DESC").
+// 		Limit(pageSize).
+// 		Offset(offset).
+// 		Find(&movements)
+
+// 	if result.Error != nil {
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+// 			"success": false,
+// 			"message": "Failed to retrieve inventory movements",
+// 			"error":   result.Error.Error(),
+// 		})
+// 	}
+
+// 	// Get filter options
+// 	var refTypes []string
+// 	c.DB.Table("inventory_movements").
+// 		Distinct("ref_type").
+// 		Order("ref_type ASC").
+// 		Pluck("ref_type", &refTypes)
+
+// 	var locations []string
+// 	c.DB.Table("inventory_movements").
+// 		Select("DISTINCT COALESCE(from_location, to_location) as location").
+// 		Where("COALESCE(from_location, to_location) != ''").
+// 		Order("location ASC").
+// 		Pluck("location", &locations)
+
+// 	var whsCodes []string
+// 	c.DB.Table("inventory_movements").
+// 		Select("DISTINCT COALESCE(from_whs_code, to_whs_code) as whs_code").
+// 		Where("COALESCE(from_whs_code, to_whs_code) != ''").
+// 		Order("whs_code ASC").
+// 		Pluck("whs_code", &whsCodes)
+
+// 	qaStatuses := []string{"A", "R", "Q"}
+
+// 	totalPages := int(math.Ceil(float64(totalRecords) / float64(pageSize)))
+
+// 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+// 		"success": true,
+// 		"message": "Inventory movements retrieved successfully",
+// 		"data":    movements,
+// 		"pagination": fiber.Map{
+// 			"page":          page,
+// 			"page_size":     pageSize,
+// 			"total_records": totalRecords,
+// 			"total_pages":   totalPages,
+// 		},
+// 		"filters": fiber.Map{
+// 			"ref_types":   refTypes,
+// 			"locations":   locations,
+// 			"whs_codes":   whsCodes,
+// 			"qa_statuses": qaStatuses,
+// 		},
+// 	})
+// }
+
+//===================================================================
+// END GET INVENTORY MOVEMENT
+//===================================================================
+
+//===================================================================
+// BEGIN GET INVENTORY MOVEMENT
+//===================================================================
+
+// GetInventoryMovements returns paginated inventory movements with filters
+func (c *InventoryController) GetInventoryMovements(ctx *fiber.Ctx) error {
+
+	type InventoryMovementResponse struct {
+		// Identification
+		ID          uint   `json:"id"`
+		MovementID  string `json:"movement_id"`
+		InventoryID uint   `json:"inventory_id"`
+
+		// Product
+		ItemID   uint   `json:"item_id"`
+		ItemCode string `json:"item_code"`
+		ItemName string `json:"item_name"`
+
+		// Reference
+		RefType string `json:"ref_type"`
+		RefID   uint   `json:"ref_id"`
+
+		// Quantity Changes
 		QtyOnhandChange    float64 `json:"qty_onhand_change"`
 		QtyAvailableChange float64 `json:"qty_available_change"`
 		QtyAllocatedChange float64 `json:"qty_allocated_change"`
 		QtySuspendChange   float64 `json:"qty_suspend_change"`
 		QtyShippedChange   float64 `json:"qty_shipped_change"`
 
-		FromWhsCode  string `json:"from_whs_code"`
-		ToWhsCode    string `json:"to_whs_code"`
+		// Quantity Before / After
+		QtyOnhandBefore    *float64 `json:"qty_onhand_before"`
+		QtyOnhandAfter     *float64 `json:"qty_onhand_after"`
+		QtyAvailableBefore *float64 `json:"qty_available_before"`
+		QtyAvailableAfter  *float64 `json:"qty_available_after"`
+
+		// Owner
+		OwnerCode string `json:"owner_code"`
+
+		// Warehouse
+		FromWhsCode string `json:"from_whs_code"`
+		ToWhsCode   string `json:"to_whs_code"`
+
+		// Location
 		FromLocation string `json:"from_location"`
 		ToLocation   string `json:"to_location"`
-		OldQaStatus  string `json:"old_qa_status"`
-		NewQaStatus  string `json:"new_qa_status"`
 
-		Reason    string    `json:"reason"`
-		CreatedBy int       `json:"created_by"`
-		CreatedAt time.Time `json:"created_at"`
+		// Division
+		FromDivision string `json:"from_division"`
+		ToDivision   string `json:"to_division"`
+
+		// Pallet
+		FromPallet string `json:"from_pallet"`
+		ToPallet   string `json:"to_pallet"`
+
+		// Lot
+		FromLotNumber string `json:"from_lot_number"`
+		ToLotNumber   string `json:"to_lot_number"`
+
+		// Production Date
+		FromProdDate string `json:"from_prod_date"`
+		ToProdDate   string `json:"to_prod_date"`
+
+		// Quality Assurance
+		OldQaStatus string `json:"old_qa_status"`
+		NewQaStatus string `json:"new_qa_status"`
+
+		// Transaction Information
+		ActionType string `json:"action_type"`
+		Reason     string `json:"reason"`
+
+		// Audit Information
+		CreatedBy     int       `json:"created_by"`
+		CreatedByName string    `json:"created_by_name"`
+		CreatedAt     time.Time `json:"created_at"`
 	}
 
-	// Pagination parameters
+	// ================================================================
+	// PAGINATION
+	// ================================================================
+
 	page, _ := strconv.Atoi(ctx.Query("page", "1"))
 	pageSize, _ := strconv.Atoi(ctx.Query("page_size", "50"))
+
 	if page < 1 {
 		page = 1
 	}
+
 	if pageSize < 10 || pageSize > 100 {
 		pageSize = 50
 	}
+
 	offset := (page - 1) * pageSize
 
-	// Filter parameters
+	// ================================================================
+	// FILTER PARAMETERS
+	// ================================================================
+
 	refType := ctx.Query("ref_type")
 	itemCode := ctx.Query("item_code")
 	location := ctx.Query("location")
 	whsCode := ctx.Query("whs_code")
 	qaStatus := ctx.Query("qa_status")
 	search := ctx.Query("search")
+
 	dateFrom := ctx.Query("date_from")
 	dateTo := ctx.Query("date_to")
 
-	// Build query
+	ownerCode := ctx.Query("owner_code")
+	actionType := ctx.Query("action_type")
+	division := ctx.Query("division")
+	pallet := ctx.Query("pallet")
+	lotNumber := ctx.Query("lot_number")
+
+	// ================================================================
+	// BASE QUERY
+	// ================================================================
+
 	query := c.DB.Table("inventory_movements").
 		Select(`
 			inventory_movements.id,
 			inventory_movements.movement_id,
+			inventory_movements.inventory_id,
+
+			inventory_movements.item_id,
 			inventory_movements.item_code,
 			products.item_name,
+
 			inventory_movements.ref_type,
 			inventory_movements.ref_id,
+
 			inventory_movements.qty_onhand_change,
 			inventory_movements.qty_available_change,
 			inventory_movements.qty_allocated_change,
 			inventory_movements.qty_suspend_change,
 			inventory_movements.qty_shipped_change,
+
+			inventory_movements.qty_onhand_before,
+			inventory_movements.qty_onhand_after,
+			inventory_movements.qty_available_before,
+			inventory_movements.qty_available_after,
+
+			inventory_movements.owner_code,
+
 			inventory_movements.from_whs_code,
 			inventory_movements.to_whs_code,
+
 			inventory_movements.from_location,
 			inventory_movements.to_location,
+
+			inventory_movements.from_division,
+			inventory_movements.to_division,
+
+			inventory_movements.from_pallet,
+			inventory_movements.to_pallet,
+
+			inventory_movements.from_lot_number,
+			inventory_movements.to_lot_number,
+
+			inventory_movements.from_prod_date,
+			inventory_movements.to_prod_date,
+
 			inventory_movements.old_qa_status,
 			inventory_movements.new_qa_status,
+
+			inventory_movements.action_type,
 			inventory_movements.reason,
+
 			inventory_movements.created_by,
+			COALESCE(users.name, '') AS created_by_name,
 			inventory_movements.created_at
 		`).
-		Joins("LEFT JOIN products ON inventory_movements.item_id = products.id")
+		Joins(`
+			LEFT JOIN products
+				ON inventory_movements.item_id = products.id
+		`).
+		Joins(`
+			LEFT JOIN users
+				ON inventory_movements.created_by = users.id
+		`)
 
-	// Apply filters
+	// ================================================================
+	// APPLY FILTERS
+	// ================================================================
+
 	if refType != "" {
-		query = query.Where("inventory_movements.ref_type = ?", refType)
+		query = query.Where(
+			"inventory_movements.ref_type = ?", refType,
+		)
 	}
+
 	if itemCode != "" {
-		query = query.Where("inventory_movements.item_code = ?", itemCode)
+		query = query.Where(
+			"inventory_movements.item_code = ?", itemCode,
+		)
 	}
+
 	if location != "" {
-		query = query.Where(
-			"inventory_movements.from_location = ? OR inventory_movements.to_location = ?",
-			location, location,
-		)
+		query = query.Where(`
+			(
+				inventory_movements.from_location = ?
+				OR inventory_movements.to_location = ?
+			)
+		`, location, location)
 	}
+
 	if whsCode != "" {
-		query = query.Where(
-			"inventory_movements.from_whs_code = ? OR inventory_movements.to_whs_code = ?",
-			whsCode, whsCode,
-		)
+		query = query.Where(`
+			(
+				inventory_movements.from_whs_code = ?
+				OR inventory_movements.to_whs_code = ?
+			)
+		`, whsCode, whsCode)
 	}
+
 	if qaStatus != "" {
+		query = query.Where(`
+			(
+				inventory_movements.old_qa_status = ?
+				OR inventory_movements.new_qa_status = ?
+			)
+		`, qaStatus, qaStatus)
+	}
+
+	if ownerCode != "" {
 		query = query.Where(
-			"inventory_movements.old_qa_status = ? OR inventory_movements.new_qa_status = ?",
-			qaStatus, qaStatus,
+			"inventory_movements.owner_code = ?", ownerCode,
 		)
 	}
+
+	if actionType != "" {
+		query = query.Where(
+			"inventory_movements.action_type = ?", actionType,
+		)
+	}
+
+	if division != "" {
+		query = query.Where(`
+			(
+				inventory_movements.from_division = ?
+				OR inventory_movements.to_division = ?
+			)
+		`, division, division)
+	}
+
+	if pallet != "" {
+		query = query.Where(`
+			(
+				inventory_movements.from_pallet = ?
+				OR inventory_movements.to_pallet = ?
+			)
+		`, pallet, pallet)
+	}
+
+	if lotNumber != "" {
+		query = query.Where(`
+			(
+				inventory_movements.from_lot_number = ?
+				OR inventory_movements.to_lot_number = ?
+			)
+		`, lotNumber, lotNumber)
+	}
+
 	if search != "" {
-		query = query.Where(
-			"inventory_movements.movement_id LIKE ? OR inventory_movements.item_code LIKE ? OR products.item_name LIKE ?",
-			"%"+search+"%", "%"+search+"%", "%"+search+"%",
+		keyword := "%" + search + "%"
+
+		query = query.Where(`
+			(
+				inventory_movements.movement_id LIKE ?
+				OR inventory_movements.item_code LIKE ?
+				OR products.item_name LIKE ?
+				OR inventory_movements.ref_type LIKE ?
+				OR inventory_movements.reason LIKE ?
+				OR inventory_movements.owner_code LIKE ?
+				OR inventory_movements.from_location LIKE ?
+				OR inventory_movements.to_location LIKE ?
+				OR inventory_movements.from_pallet LIKE ?
+				OR inventory_movements.to_pallet LIKE ?
+				OR inventory_movements.from_lot_number LIKE ?
+				OR inventory_movements.to_lot_number LIKE ?
+				OR inventory_movements.action_type LIKE ?
+				OR users.name LIKE ?
+				OR users.username LIKE ?
+			)
+		`,
+			keyword,
+			keyword,
+			keyword,
+			keyword,
+			keyword,
+			keyword,
+			keyword,
+			keyword,
+			keyword,
+			keyword,
+			keyword,
+			keyword,
+			keyword,
+			keyword,
+			keyword,
 		)
 	}
+
 	if dateFrom != "" {
-		query = query.Where("inventory_movements.created_at >= ?", dateFrom)
+		query = query.Where(
+			"inventory_movements.created_at >= ?", dateFrom,
+		)
 	}
+
 	if dateTo != "" {
-		query = query.Where("inventory_movements.created_at <= ?", dateTo+" 23:59:59")
+		query = query.Where(
+			"inventory_movements.created_at < DATEADD(DAY, 1, CAST(? AS DATE))",
+			dateTo,
+		)
 	}
 
-	// Count total records (for pagination)
-	var totalRecords int64
-	countQuery := query
-	countQuery.Count(&totalRecords)
+	// ================================================================
+	// COUNT TOTAL RECORDS
+	// ================================================================
 
-	// Get paginated data
+	var totalRecords int64
+
+	if err := query.Count(&totalRecords).Error; err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to count inventory movements",
+			"error":   err.Error(),
+		})
+	}
+
+	// ================================================================
+	// GET PAGINATED DATA
+	// ================================================================
+
 	var movements []InventoryMovementResponse
+
 	result := query.
 		Order("inventory_movements.created_at DESC").
+		Order("inventory_movements.id DESC").
 		Limit(pageSize).
 		Offset(offset).
-		Find(&movements)
+		Scan(&movements)
 
 	if result.Error != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
@@ -848,46 +1246,133 @@ func (c *InventoryController) GetInventoryMovements(ctx *fiber.Ctx) error {
 		})
 	}
 
-	// Get filter options
+	if movements == nil {
+		movements = []InventoryMovementResponse{}
+	}
+
+	// ================================================================
+	// GET FILTER OPTIONS
+	// ================================================================
+
 	var refTypes []string
+
 	c.DB.Table("inventory_movements").
 		Distinct("ref_type").
+		Where("ref_type IS NOT NULL AND ref_type <> ''").
 		Order("ref_type ASC").
 		Pluck("ref_type", &refTypes)
 
 	var locations []string
-	c.DB.Table("inventory_movements").
-		Select("DISTINCT COALESCE(from_location, to_location) as location").
-		Where("COALESCE(from_location, to_location) != ''").
-		Order("location ASC").
-		Pluck("location", &locations)
+
+	c.DB.Raw(`
+		SELECT DISTINCT location
+		FROM (
+			SELECT from_location AS location
+			FROM inventory_movements
+			WHERE from_location IS NOT NULL
+				AND from_location <> ''
+
+			UNION
+
+			SELECT to_location AS location
+			FROM inventory_movements
+			WHERE to_location IS NOT NULL
+				AND to_location <> ''
+		) AS location_list
+		ORDER BY location
+	`).Scan(&locations)
 
 	var whsCodes []string
+
+	c.DB.Raw(`
+		SELECT DISTINCT whs_code
+		FROM (
+			SELECT from_whs_code AS whs_code
+			FROM inventory_movements
+			WHERE from_whs_code IS NOT NULL
+				AND from_whs_code <> ''
+
+			UNION
+
+			SELECT to_whs_code AS whs_code
+			FROM inventory_movements
+			WHERE to_whs_code IS NOT NULL
+				AND to_whs_code <> ''
+		) AS warehouse_list
+		ORDER BY whs_code
+	`).Scan(&whsCodes)
+
+	var ownerCodes []string
+
 	c.DB.Table("inventory_movements").
-		Select("DISTINCT COALESCE(from_whs_code, to_whs_code) as whs_code").
-		Where("COALESCE(from_whs_code, to_whs_code) != ''").
-		Order("whs_code ASC").
-		Pluck("whs_code", &whsCodes)
+		Distinct("owner_code").
+		Where("owner_code IS NOT NULL AND owner_code <> ''").
+		Order("owner_code ASC").
+		Pluck("owner_code", &ownerCodes)
+
+	var actionTypes []string
+
+	c.DB.Table("inventory_movements").
+		Distinct("action_type").
+		Where("action_type IS NOT NULL AND action_type <> ''").
+		Order("action_type ASC").
+		Pluck("action_type", &actionTypes)
+
+	var divisions []string
+
+	c.DB.Raw(`
+		SELECT DISTINCT division
+		FROM (
+			SELECT from_division AS division
+			FROM inventory_movements
+			WHERE from_division IS NOT NULL
+				AND from_division <> ''
+
+			UNION
+
+			SELECT to_division AS division
+			FROM inventory_movements
+			WHERE to_division IS NOT NULL
+				AND to_division <> ''
+		) AS division_list
+		ORDER BY division
+	`).Scan(&divisions)
 
 	qaStatuses := []string{"A", "R", "Q"}
 
-	totalPages := int(math.Ceil(float64(totalRecords) / float64(pageSize)))
+	// ================================================================
+	// PAGINATION SUMMARY
+	// ================================================================
+
+	totalPages := int(math.Ceil(
+		float64(totalRecords) / float64(pageSize),
+	))
+
+	// ================================================================
+	// RESPONSE
+	// ================================================================
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
 		"success": true,
 		"message": "Inventory movements retrieved successfully",
-		"data":    movements,
+
+		"data": movements,
+
 		"pagination": fiber.Map{
 			"page":          page,
 			"page_size":     pageSize,
 			"total_records": totalRecords,
 			"total_pages":   totalPages,
 		},
+
 		"filters": fiber.Map{
-			"ref_types":   refTypes,
-			"locations":   locations,
-			"whs_codes":   whsCodes,
-			"qa_statuses": qaStatuses,
+			"ref_types":    refTypes,
+			"locations":    locations,
+			"whs_codes":    whsCodes,
+			"qa_statuses":  qaStatuses,
+			"owner_codes":  ownerCodes,
+			"action_types": actionTypes,
+			"divisions":    divisions,
 		},
 	})
 }

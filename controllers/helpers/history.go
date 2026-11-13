@@ -52,6 +52,8 @@ type InventoryMovementPayload struct {
 
 	Reason    string
 	CreatedBy int
+
+	ActionType string
 }
 
 func InsertInventoryMovement(
@@ -78,6 +80,7 @@ func InsertInventoryMovement(
 		OldQaStatus:        p.OldQaStatus,
 		NewQaStatus:        p.NewQaStatus,
 		Reason:             p.Reason,
+		ActionType:         p.ActionType,
 		CreatedBy:          p.CreatedBy,
 		CreatedAt:          time.Now(),
 	}
