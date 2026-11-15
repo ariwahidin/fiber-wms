@@ -20,9 +20,10 @@ type PrintLog struct {
 	Reason       string `gorm:"type:nvarchar(max)" json:"reason"`
 	ErrorMessage string `gorm:"type:nvarchar(max)" json:"error_message"`
 
-	RequestedBy uint       `gorm:"not null" json:"requested_by"`
-	RequestedAt time.Time  `gorm:"not null" json:"requested_at"`
-	CompletedAt *time.Time `json:"completed_at"`
+	RequestedBy     uint       `gorm:"not null;index" json:"requested_by"`
+	RequestedByName string     `gorm:"->;column:requested_by_name" json:"requested_by_name"`
+	RequestedAt     time.Time  `gorm:"not null;index" json:"requested_at"`
+	CompletedAt     *time.Time `json:"completed_at"`
 
 	IPAddress   string `gorm:"size:50" json:"ip_address"`
 	Workstation string `gorm:"size:100" json:"workstation"`

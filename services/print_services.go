@@ -15,18 +15,26 @@ type PrintService struct {
 	DB *gorm.DB
 }
 
+func NewPrintService(db *gorm.DB) *PrintService {
+	return &PrintService{DB: db}
+}
+
+// ============================================================
+// REQUEST & RESPONSE STRUCTS
+// ============================================================
+
 type CreatePrintLogRequest struct {
-	DocumentType string `json:"document_type"`
-	DocumentNo   string `json:"document_no"`
+	DocumentType string `json:"documentType"`
+	DocumentNo   string `json:"documentNo"`
 	Module       string `json:"module"`
-
-	PrintMethod string `json:"print_method"`
-	PrintFormat string `json:"print_format"`
-
-	CopyCount   int    `json:"copy_count"`
-	PrinterName string `json:"printer_name"`
-	Reason      string `json:"reason"`
-	Workstation string `json:"workstation"`
+	PrintMethod  string `json:"printMethod"`
+	PrintFormat  string `json:"printFormat"`
+	CopyCount    int    `json:"copyCount"`
+	PrinterName  string `json:"printerName"`
+	Workstation  string `json:"workstationName"`
+	Reason       string `json:"reason"`
+	Status       string `json:"status"`
+	ErrorMessage string `json:"errorMessage"`
 }
 
 type CreatePrintLogParams struct {
@@ -35,152 +43,431 @@ type CreatePrintLogParams struct {
 	IPAddress string
 }
 
-func NewPrintService(db *gorm.DB) *PrintService {
-	return &PrintService{
-		DB: db,
-	}
+type PrintLogFilter struct {
+	Page         int
+	PageSize     int
+	Search       string
+	Module       string
+	DocumentType string
+	PrintAction  string
+	Status       string
+	DateFrom     string
+	DateTo       string
 }
+
+type PrintLogSummary struct {
+	Total     int64 `json:"total"`
+	Original  int64 `json:"original"`
+	Reprint   int64 `json:"reprint"`
+	Requested int64 `json:"requested"`
+	Completed int64 `json:"completed"`
+	Failed    int64 `json:"failed"`
+}
+
+type PrintLogPagination struct {
+	Page       int   `json:"page"`
+	PageSize   int   `json:"page_size"`
+	Total      int64 `json:"total"`
+	TotalPages int   `json:"total_pages"`
+}
+
+type PrintLogListResult struct {
+	Data       []models.PrintLog  `json:"data"`
+	Summary    PrintLogSummary    `json:"summary"`
+	Pagination PrintLogPagination `json:"pagination"`
+}
+
+// ============================================================
+// CREATE PRINT LOG
+// ============================================================
 
 func (s *PrintService) CreateLog(
 	params CreatePrintLogParams,
 ) (*models.PrintLog, error) {
 
-	if s.DB == nil {
-		return nil, errors.New("database connection is not initialized")
-	}
-
 	req := params.Request
 
-	// Normalize input
 	req.DocumentType = strings.ToUpper(strings.TrimSpace(req.DocumentType))
 	req.DocumentNo = strings.TrimSpace(req.DocumentNo)
 	req.Module = strings.ToUpper(strings.TrimSpace(req.Module))
 	req.PrintMethod = strings.ToUpper(strings.TrimSpace(req.PrintMethod))
 	req.PrintFormat = strings.ToUpper(strings.TrimSpace(req.PrintFormat))
 	req.PrinterName = strings.TrimSpace(req.PrinterName)
-	req.Reason = strings.TrimSpace(req.Reason)
 	req.Workstation = strings.TrimSpace(req.Workstation)
 
-	// Validate required fields
-	if req.DocumentType == "" {
-		return nil, errors.New("document_type is required")
-	}
-
-	if req.DocumentNo == "" {
-		return nil, errors.New("document_no is required")
-	}
-
-	if req.Module == "" {
-		return nil, errors.New("module is required")
-	}
-
 	if params.UserID == 0 {
-		return nil, errors.New("invalid user")
+		return nil, errors.New("Authenticated user is required")
 	}
 
-	if req.PrintMethod != "BROWSER" &&
-		req.PrintMethod != "AGENT" {
-		return nil, errors.New("invalid print_method")
+	if req.DocumentType == "" || req.DocumentNo == "" || req.Module == "" {
+		return nil, errors.New("Document type, document number, and module are required")
 	}
 
-	if req.CopyCount <= 0 {
-		req.CopyCount = 1
-	}
-
-	if req.CopyCount > 100 {
-		return nil, errors.New("copy_count cannot exceed 100")
+	if req.PrintMethod == "" {
+		req.PrintMethod = "BROWSER"
 	}
 
 	if req.PrintFormat == "" {
 		req.PrintFormat = "PDF"
 	}
 
-	if req.PrintMethod == "AGENT" && req.PrinterName == "" {
-		return nil, errors.New("printer_name is required for agent printing")
+	if req.CopyCount <= 0 {
+		req.CopyCount = 1
 	}
 
-	var printLog models.PrintLog
+	if req.CopyCount > 500 {
+		return nil, errors.New("Copy count cannot exceed 500")
+	}
 
-	err := s.DB.Transaction(
-		func(tx *gorm.DB) error {
+	status := strings.ToUpper(strings.TrimSpace(req.Status))
 
-			var count int64
+	if status == "" {
+		status = "REQUESTED"
+	}
 
-			/*
-				SQL Server locking:
+	if status != "REQUESTED" &&
+		status != "COMPLETED" &&
+		status != "FAILED" {
+		return nil, errors.New("Invalid print status")
+	}
 
-				UPDLOCK:
-				Requests update locks instead of shared locks.
+	// Browser print dialogs cannot confirm physical print completion.
+	if req.PrintMethod == "BROWSER" && status != "REQUESTED" {
+		return nil, errors.New(
+			"Browser print status must remain REQUESTED",
+		)
+	}
 
-				HOLDLOCK:
-				Keep locks until transaction completes.
-				Equivalent to SERIALIZABLE behavior for this table reference.
+	now := time.Now()
 
-				Requires a suitable index on:
-				document_type, document_no
-			*/
+	log := models.PrintLog{
+		DocumentType: req.DocumentType,
+		DocumentNo:   req.DocumentNo,
+		Module:       req.Module,
 
-			query := tx.Model(&models.PrintLog{}).
-				Clauses(
-				// Intentionally no GORM clause.Locking here.
-				).
-				Where(
-					"document_type = ? AND document_no = ?",
-					req.DocumentType,
-					req.DocumentNo,
-				)
+		PrintMethod: req.PrintMethod,
+		PrintFormat: req.PrintFormat,
 
-			if err := query.
-				Count(&count).Error; err != nil {
-				return err
-			}
+		CopyCount:   req.CopyCount,
+		PrinterName: req.PrinterName,
 
-			action := "ORIGINAL"
+		Status:       status,
+		Reason:       strings.TrimSpace(req.Reason),
+		ErrorMessage: strings.TrimSpace(req.ErrorMessage),
 
-			if count > 0 {
-				action = "REPRINT"
+		RequestedBy: params.UserID,
+		RequestedAt: now,
 
-				// if req.Reason == "" {
-				// 	return errors.New("reprint reason is required")
-				// }
-			}
+		IPAddress:   params.IPAddress,
+		Workstation: req.Workstation,
+	}
 
-			printLog = models.PrintLog{
-				DocumentType: req.DocumentType,
-				DocumentNo:   req.DocumentNo,
-				Module:       req.Module,
+	if status == "COMPLETED" {
+		log.CompletedAt = &now
+	}
 
-				PrintAction: action,
-				PrintMethod: req.PrintMethod,
-				PrintFormat: req.PrintFormat,
+	// ========================================================
+	// DETERMINE ORIGINAL OR REPRINT
+	// ========================================================
 
-				CopyCount:   req.CopyCount,
-				PrinterName: req.PrinterName,
+	err := s.DB.Transaction(func(tx *gorm.DB) error {
 
-				Status: "REQUESTED",
-				Reason: req.Reason,
+		var previousCount int64
 
-				RequestedBy: params.UserID,
-				RequestedAt: time.Now(),
+		// SQL Server locking:
+		// UPDLOCK + HOLDLOCK prevents concurrent requests from
+		// incorrectly classifying the same document as ORIGINAL.
+		//
+		// Keep the composite index on:
+		// document_type + document_no
 
-				IPAddress:   params.IPAddress,
-				Workstation: req.Workstation,
-			}
+		err := tx.Raw(`
+			SELECT COUNT(*)
+			FROM print_logs WITH (UPDLOCK, HOLDLOCK)
+			WHERE document_type = ?
+			  AND document_no = ?
+		`,
+			req.DocumentType,
+			req.DocumentNo,
+		).Scan(&previousCount).Error
 
-			if err := tx.Create(&printLog).Error; err != nil {
-				return err
-			}
+		if err != nil {
+			return err
+		}
 
-			return nil
-		},
-		&sql.TxOptions{
-			Isolation: sql.LevelSerializable,
-		},
-	)
+		if previousCount == 0 {
+			log.PrintAction = "ORIGINAL"
+		} else {
+			log.PrintAction = "REPRINT"
+		}
+
+		return tx.Create(&log).Error
+
+	}, &sql.TxOptions{
+		Isolation: sql.LevelSerializable,
+	})
 
 	if err != nil {
 		return nil, err
 	}
 
-	return &printLog, nil
+	// ========================================================
+	// GET REQUESTED USER NAME
+	// ========================================================
+
+	err = s.DB.Table("users").
+		Select("name").
+		Where("id = ?", log.RequestedBy).
+		Scan(&log.RequestedByName).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &log, nil
+}
+
+// ============================================================
+// GET PRINT LOGS
+// ============================================================
+
+func (s *PrintService) GetLogs(
+	filter PrintLogFilter,
+) (*PrintLogListResult, error) {
+
+	if filter.Page < 1 {
+		filter.Page = 1
+	}
+
+	if filter.PageSize < 1 {
+		filter.PageSize = 20
+	}
+
+	if filter.PageSize > 100 {
+		filter.PageSize = 100
+	}
+
+	// LEFT JOIN ensures historical print logs remain visible
+	// even if the corresponding user record is unavailable.
+
+	query := s.DB.
+		Table("print_logs").
+		Joins(`
+			LEFT JOIN users
+				ON users.id = print_logs.requested_by
+		`)
+
+	// ========================================================
+	// SEARCH
+	// ========================================================
+
+	if search := strings.TrimSpace(filter.Search); search != "" {
+
+		like := "%" + search + "%"
+
+		query = query.Where(`
+			(
+				print_logs.document_no LIKE ?
+				OR print_logs.document_type LIKE ?
+				OR CAST(print_logs.requested_by AS varchar(30)) LIKE ?
+				OR users.name LIKE ?
+				OR print_logs.printer_name LIKE ?
+				OR print_logs.workstation LIKE ?
+			)
+		`,
+			like,
+			like,
+			like,
+			like,
+			like,
+			like,
+		)
+	}
+
+	// ========================================================
+	// FILTERS
+	// ========================================================
+
+	if filter.Module != "" {
+		query = query.Where(
+			"print_logs.module = ?",
+			strings.ToUpper(strings.TrimSpace(filter.Module)),
+		)
+	}
+
+	if filter.DocumentType != "" {
+		query = query.Where(
+			"print_logs.document_type = ?",
+			strings.ToUpper(strings.TrimSpace(filter.DocumentType)),
+		)
+	}
+
+	if filter.PrintAction != "" {
+		query = query.Where(
+			"print_logs.print_action = ?",
+			strings.ToUpper(strings.TrimSpace(filter.PrintAction)),
+		)
+	}
+
+	if filter.Status != "" {
+		query = query.Where(
+			"print_logs.status = ?",
+			strings.ToUpper(strings.TrimSpace(filter.Status)),
+		)
+	}
+
+	if filter.DateFrom != "" {
+		query = query.Where(
+			"print_logs.requested_at >= ?",
+			filter.DateFrom+" 00:00:00",
+		)
+	}
+
+	if filter.DateTo != "" {
+		query = query.Where(
+			"print_logs.requested_at < DATEADD(day, 1, ?)",
+			filter.DateTo,
+		)
+	}
+
+	// ========================================================
+	// TOTAL RECORDS
+	// ========================================================
+
+	var total int64
+
+	if err := query.Count(&total).Error; err != nil {
+		return nil, err
+	}
+
+	// ========================================================
+	// PAGINATION DATA
+	// ========================================================
+
+	var rows []models.PrintLog
+
+	offset := (filter.Page - 1) * filter.PageSize
+
+	err := query.
+		Select(`
+			print_logs.*,
+			users.name AS requested_by_name
+		`).
+		Order("print_logs.requested_at DESC").
+		Offset(offset).
+		Limit(filter.PageSize).
+		Scan(&rows).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	// ========================================================
+	// SUMMARY
+	// ========================================================
+
+	summaryQuery := s.DB.Model(&models.PrintLog{})
+
+	if filter.DateFrom != "" {
+		summaryQuery = summaryQuery.Where(
+			"requested_at >= ?",
+			filter.DateFrom+" 00:00:00",
+		)
+	}
+
+	if filter.DateTo != "" {
+		summaryQuery = summaryQuery.Where(
+			"requested_at < DATEADD(day, 1, ?)",
+			filter.DateTo,
+		)
+	}
+
+	var summary PrintLogSummary
+
+	err = summaryQuery.Select(`
+		COUNT(*) AS total,
+
+		COALESCE(
+			SUM(CASE WHEN print_action = 'ORIGINAL' THEN 1 ELSE 0 END),
+			0
+		) AS original,
+
+		COALESCE(
+			SUM(CASE WHEN print_action = 'REPRINT' THEN 1 ELSE 0 END),
+			0
+		) AS reprint,
+
+		COALESCE(
+			SUM(CASE WHEN status = 'REQUESTED' THEN 1 ELSE 0 END),
+			0
+		) AS requested,
+
+		COALESCE(
+			SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END),
+			0
+		) AS completed,
+
+		COALESCE(
+			SUM(CASE WHEN status = 'FAILED' THEN 1 ELSE 0 END),
+			0
+		) AS failed
+	`).Scan(&summary).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	totalPages := 0
+
+	if total > 0 {
+		totalPages = int(
+			(total + int64(filter.PageSize) - 1) /
+				int64(filter.PageSize),
+		)
+	}
+
+	return &PrintLogListResult{
+		Data:    rows,
+		Summary: summary,
+		Pagination: PrintLogPagination{
+			Page:       filter.Page,
+			PageSize:   filter.PageSize,
+			Total:      total,
+			TotalPages: totalPages,
+		},
+	}, nil
+}
+
+// ============================================================
+// GET PRINT LOG BY ID
+// ============================================================
+
+func (s *PrintService) GetLogByID(
+	id uint,
+) (*models.PrintLog, error) {
+
+	var item models.PrintLog
+
+	err := s.DB.
+		Table("print_logs").
+		Select(`
+			print_logs.*,
+			users.name AS requested_by_name
+		`).
+		Joins(`
+			LEFT JOIN users
+				ON users.id = print_logs.requested_by
+		`).
+		Where("print_logs.id = ?", id).
+		Scan(&item).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	if item.ID == 0 {
+		return nil, gorm.ErrRecordNotFound
+	}
+
+	return &item, nil
 }
