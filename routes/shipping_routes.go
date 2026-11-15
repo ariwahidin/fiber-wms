@@ -26,6 +26,7 @@ func SetupShippingRoutes(app *fiber.App) {
 	api.Get("/list", shippingController.GetOutboundList)
 	api.Get("/:order_no", shippingController.GetOrderByNo)
 	api.Get("/detail/:order_no", shippingController.GetOrderAndDetailByNo)
+	api.Get("/surat-jalan/:order_no", shippingController.GetSuratJalanByOrderNo)
 	api.Put("/:order_no", shippingController.UpdateOrderByID)
 	api.Delete("/item/:id", shippingController.DeleteItemOrderByID)
 

@@ -7,6 +7,8 @@ import (
 	integration_service "fiber-app/services/integration_service"
 	"fiber-app/types"
 	"fmt"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -322,7 +324,12 @@ func (c *ShippingController) GetOrderAndDetailByNo(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "data": fiber.Map{"order": OrderHeader, "detail_items": orderDetailItems}, "message": "Order found"})
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true,
+		"data": fiber.Map{
+			"order":        OrderHeader,
+			"detail_items": orderDetailItems},
+		"message": "Order found",
+	})
 }
 
 func (c *ShippingController) UpdateOrderByID(ctx *fiber.Ctx) error {
@@ -745,4 +752,367 @@ func (c *ShippingController) GetListOrderFilter(ctx *fiber.Ctx) error {
 		"message": "Orders found",
 		"data":    withNo,
 	})
+}
+
+// Surat jalan
+
+type SuratJalanItem struct {
+	ItemID   int     `json:"item_id"`
+	ItemCode string  `json:"item_code"`
+	ItemName string  `json:"item_name"`
+	CTNTotal int     `json:"ctn_total"`
+	QtyPack  float64 `json:"qty_pack"`
+	Uom      string  `json:"uom"`
+	QtyPCS   float64 `json:"qty_pcs"`
+	Remarks  string  `json:"remarks"`
+}
+
+type SuratJalan struct {
+	ShipmentID string `json:"shipment_id"`
+	OutboundNo string `json:"outbound_no"`
+
+	DeliveryTo      string `json:"delivery_to"`
+	DeliveryToName  string `json:"delivery_to_name"`
+	DeliveryAddress string `json:"delivery_address"`
+	DeliveryCity    string `json:"delivery_city"`
+
+	TotalCTN     int     `json:"total_ctn"`
+	TotalQtyPack float64 `json:"total_qty_pack"`
+	TotalQtyPCS  float64 `json:"total_qty_pcs"`
+	TotalItem    int     `json:"total_item"`
+
+	Items []SuratJalanItem `json:"items"`
+}
+
+type SuratJalanResponse struct {
+	OrderNo      string `json:"order_no"`
+	OrderDate    string `json:"order_date"`
+	LoadDate     string `json:"load_date"`
+	DeliveryDate string `json:"delivery_date"`
+
+	OrderType       string `json:"order_type"`
+	Driver          string `json:"driver"`
+	DriverPhone     string `json:"driver_phone"`
+	TruckType       string `json:"truck_type"`
+	TruckSize       string `json:"truck_size"`
+	TruckNo         string `json:"truck_no"`
+	TransporterCode string `json:"transporter_code"`
+	TransporterName string `json:"transporter_name"`
+
+	Status  string `json:"status"`
+	Remarks string `json:"remarks"`
+
+	TotalShipment int          `json:"total_shipment"`
+	Shipments     []SuratJalan `json:"shipments"`
+}
+
+// GetSuratJalanByOrderNo retrieves all delivery notes
+// associated with a single shipping order (SPK).
+func (c *ShippingController) GetSuratJalanByOrderNo(ctx *fiber.Ctx) error {
+
+	orderNo := strings.TrimSpace(ctx.Params("order_no"))
+
+	if orderNo == "" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "Order number is required",
+		})
+	}
+
+	// ============================================================
+	// 1. GET ORDER HEADER
+	// ============================================================
+
+	var order models.OrderHeader
+
+	if err := c.DB.
+		Where("order_no = ?", orderNo).
+		First(&order).Error; err != nil {
+
+		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"success": false,
+			"message": "Shipping order not found",
+		})
+	}
+
+	// ============================================================
+	// 2. GET ORDER DETAILS / SHIPMENTS
+	// ============================================================
+
+	var orderDetails []models.OrderDetail
+
+	if err := c.DB.
+		Where("order_id = ?", order.ID).
+		Order("id ASC").
+		Find(&orderDetails).Error; err != nil {
+
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to retrieve shipment details",
+			"error":   err.Error(),
+		})
+	}
+
+	// ============================================================
+	// 3. PREPARE RESPONSE HEADER
+	// ============================================================
+
+	response := SuratJalanResponse{
+		OrderNo:         order.OrderNo,
+		OrderDate:       order.OrderDate,
+		LoadDate:        order.LoadDate,
+		DeliveryDate:    order.DeliveryDate,
+		OrderType:       order.OrderType,
+		Driver:          order.Driver,
+		DriverPhone:     order.DriverPhone,
+		TruckType:       order.TruckType,
+		TruckSize:       order.TruckSize,
+		TruckNo:         order.TruckNo,
+		TransporterCode: order.TransporterCode,
+		TransporterName: order.TransporterName,
+		Status:          order.Status,
+		Remarks:         order.Remarks,
+		TotalShipment:   len(orderDetails),
+		Shipments:       make([]SuratJalan, 0),
+	}
+
+	// ============================================================
+	// 4. GET EACH SHIPMENT PACKING DETAILS
+	// ============================================================
+
+	for _, detail := range orderDetails {
+
+		shipment := SuratJalan{
+			ShipmentID: detail.ShipmentID,
+			OutboundNo: detail.OutboundNo,
+
+			DeliveryTo:      detail.DelivTo,
+			DeliveryToName:  detail.DelivToName,
+			DeliveryAddress: detail.DelivAddress,
+			DeliveryCity:    detail.DelivCity,
+
+			Items: make([]SuratJalanItem, 0),
+		}
+
+		// --------------------------------------------------------
+		// Get customer master as fallback
+		// --------------------------------------------------------
+
+		if detail.DelivTo != "" {
+
+			var customer models.Customer
+
+			err := c.DB.
+				Where("customer_code = ?", detail.DelivTo).
+				First(&customer).Error
+
+			if err == nil {
+
+				if shipment.DeliveryToName == "" {
+					shipment.DeliveryToName = customer.CustomerName
+				}
+
+				if shipment.DeliveryAddress == "" {
+					shipment.DeliveryAddress = strings.TrimSpace(
+						customer.CustAddr1 + " " + customer.CustAddr2,
+					)
+				}
+
+				if shipment.DeliveryCity == "" {
+					shipment.DeliveryCity = customer.CustCity
+				}
+			}
+		}
+
+		// --------------------------------------------------------
+		// Get packed barcode records
+		//
+		// Important:
+		// Use OutboundNo instead of OutboundID because
+		// the two models have different ID types.
+		// --------------------------------------------------------
+
+		var barcodes []models.OutboundBarcode
+
+		if err := c.DB.
+			Preload("Product").
+			Where("outbound_no = ?", detail.OutboundNo).
+			Find(&barcodes).Error; err != nil {
+
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"success": false,
+				"message": "Failed to retrieve outbound packing details",
+				"error":   err.Error(),
+			})
+		}
+
+		// --------------------------------------------------------
+		// Aggregate packing by ItemCode + UOM
+		// --------------------------------------------------------
+
+		itemMap := make(map[string]*SuratJalanItem)
+
+		// Track unique carton per item
+		cartonMap := make(map[string]map[string]bool)
+
+		for _, barcode := range barcodes {
+
+			itemCode := strings.TrimSpace(barcode.ItemCode)
+			uom := strings.TrimSpace(barcode.Uom)
+
+			if itemCode == "" {
+				continue
+			}
+
+			key := itemCode + "|" + strings.ToUpper(uom)
+
+			item, exists := itemMap[key]
+
+			if !exists {
+
+				item = &SuratJalanItem{
+					ItemID:   barcode.ItemID,
+					ItemCode: itemCode,
+					ItemName: barcode.Product.ItemName,
+					Uom:      uom,
+				}
+
+				itemMap[key] = item
+				cartonMap[key] = make(map[string]bool)
+			}
+
+			// ----------------------------------------------------
+			// Accumulate quantity
+			// ----------------------------------------------------
+
+			item.QtyPack += barcode.Quantity
+
+			conversion := getPCSConversion(
+				barcode.Product,
+				uom,
+			)
+
+			item.QtyPCS += barcode.Quantity * conversion
+
+			// ----------------------------------------------------
+			// Count unique cartons
+			// ----------------------------------------------------
+
+			cartonKey := ""
+
+			if barcode.CartonCode != "" {
+				cartonKey = strings.TrimSpace(barcode.CartonCode)
+
+			} else if barcode.CartonID > 0 {
+				cartonKey = strings.TrimSpace(
+					strings.TrimSpace(
+						// CartonID is converted below.
+						// No external dependency required.
+						strings.TrimSpace(
+							uintToString(barcode.CartonID),
+						),
+					),
+				)
+
+			} else if barcode.PackCtnNo != "" &&
+				barcode.PackCtnNo != "0" {
+
+				cartonKey = strings.TrimSpace(barcode.PackCtnNo)
+			}
+
+			if cartonKey != "" {
+				cartonMap[key][cartonKey] = true
+			}
+		}
+
+		// ========================================================
+		// 5. BUILD SHIPMENT ITEM LIST
+		// ========================================================
+
+		for key, item := range itemMap {
+
+			item.CTNTotal = len(cartonMap[key])
+
+			shipment.Items = append(shipment.Items, *item)
+
+			shipment.TotalQtyPack += item.QtyPack
+			shipment.TotalQtyPCS += item.QtyPCS
+			shipment.TotalCTN += item.CTNTotal
+		}
+
+		sort.Slice(shipment.Items, func(i, j int) bool {
+			return shipment.Items[i].ItemCode <
+				shipment.Items[j].ItemCode
+		})
+
+		shipment.TotalItem = len(shipment.Items)
+
+		response.Shipments = append(
+			response.Shipments,
+			shipment,
+		)
+	}
+
+	// ============================================================
+	// 6. RETURN RESPONSE
+	// ============================================================
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": "Delivery notes retrieved successfully",
+		"data":    response,
+	})
+}
+
+func getPCSConversion(product models.Product, uom string) float64 {
+
+	uom = strings.ToUpper(strings.TrimSpace(uom))
+
+	switch uom {
+
+	case "PCS", "PC", "PCE", "EA":
+		return 1
+
+	case "DOZ", "DZ", "DOZEN":
+		if product.PcsPerDozen > 0 {
+			return float64(product.PcsPerDozen)
+		}
+		return 12
+
+	case "BOX":
+		if product.PcsPeBox > 0 {
+			return float64(product.PcsPeBox)
+		}
+
+	case "SET":
+		if product.PcsPerSet > 0 {
+			return float64(product.PcsPerSet)
+		}
+
+	case "PACK":
+		if product.PcsPerPack > 0 {
+			return float64(product.PcsPerPack)
+		}
+
+	case "CASE", "CTN", "CARTON":
+		if product.PcsPerCase > 0 {
+			return float64(product.PcsPerCase)
+		}
+
+		if product.QtyPerCarton > 0 {
+			return float64(product.QtyPerCarton)
+		}
+
+	case "GROSS":
+		if product.PcsPerGross > 0 {
+			return float64(product.PcsPerGross)
+		}
+	}
+
+	// Unknown UOM: retain the original quantity.
+	return 1
+}
+
+func uintToString(value uint) string {
+	return strconv.FormatUint(uint64(value), 10)
 }

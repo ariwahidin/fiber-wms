@@ -210,7 +210,9 @@ func main() {
 	inventory_controller.SetupInventoryRoutes(app)
 	inbound_controller.SetupInboundRoutes(app)
 	inbound_controller.SetupIntegrationRoutes(app)
+
 	outbound_controller.SetupOutboundRoutes(app)
+	controllers.SetupPrintRoutes(app, unitDB)
 	shopee_config_controller.SetupShopeeConfigRoutes(app)
 
 	routes.SetupAuthRoutes(app)
