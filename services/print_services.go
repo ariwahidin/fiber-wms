@@ -99,9 +99,9 @@ func (s *PrintService) CreateLog(
 		return nil, errors.New("Authenticated user is required")
 	}
 
-	if req.DocumentType == "" || req.DocumentNo == "" || req.Module == "" {
-		return nil, errors.New("Document type, document number, and module are required")
-	}
+	// if req.DocumentType == "" || req.DocumentNo == "" || req.Module == "" {
+	// 	return nil, errors.New("Document type, document number, and module are required")
+	// }
 
 	if req.PrintMethod == "" {
 		req.PrintMethod = "BROWSER"
