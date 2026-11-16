@@ -223,15 +223,15 @@ func (r *InboundRepository) UpdateInboundDetail(data *models.InboundDetail, hand
 func (r *InboundRepository) GetAllInbound() ([]ListInbound, error) {
 	var listInbound []ListInbound
 	sql := `WITH detail AS (
-				SELECT inbound_id, COUNT(item_code) as total_line,SUM(quantity) total_qty 
+				SELECT inbound_id, COUNT(item_code) as total_line,CAST(SUM(quantity) AS BIGINT) AS total_qty
 				FROM inbound_details GROUP BY inbound_id
 			),
 	inbound_barcode AS(
-			select inbound_id, sum(quantity) as qty_scan from inbound_barcodes
+			select inbound_id, CAST(SUM(quantity) AS BIGINT) AS qty_scan from inbound_barcodes
 			group by inbound_id
 	),
 	inbound_putaway AS(
-			select inbound_id, sum(quantity) as qty_scan from inbound_barcodes
+			select inbound_id, CAST(SUM(quantity) AS BIGINT) AS qty_scan from inbound_barcodes
 			where status = 'in stock'
 			group by inbound_id
 	)
@@ -281,7 +281,7 @@ func (r *InboundRepository) GetInboundHeaderByInboundID(inbound_id int) (HeaderI
 	var result HeaderInbound
 
 	sql := `WITH detail AS (
-		SELECT inbound_id, COUNT(item_code) as total_line,SUM(quantity) total_qty 
+		SELECT inbound_id, COUNT(item_code) as total_line,CAST(SUM(quantity) AS BIGINT) AS total_qty 
 		FROM inbound_details GROUP BY inbound_id
 	)
 	SELECT a.id as inbound_id, a.inbound_no, a.supplier_id, 
@@ -372,7 +372,7 @@ func (r *InboundRepository) GetDetailInbound(inbound_id int, inbound_detail_id i
 	), 
 	inbound_barcode AS
 	(
-		SELECT inbound_id, inbound_detail_id, SUM(quantity) AS qty_scan
+		SELECT inbound_id, inbound_detail_id, CAST(SUM(quantity) AS BIGINT) AS qty_scan
 		FROM inbound_barcodes
 		WHERE inbound_id = ? AND inbound_detail_id = ?
 		GROUP BY inbound_id, inbound_detail_id
@@ -456,7 +456,7 @@ type InboundBarcodeScanned struct {
 
 func (r *InboundRepository) GetAllInboundScannedByInboundID(inbound_id int) ([]InboundBarcodeScanned, error) {
 	sqlSelect := `WITH barcode AS (
-    SELECT inbound_id, inbound_detail_id, item_code, barcode, SUM(quantity) as qty_scan
+    SELECT inbound_id, inbound_detail_id, item_code, barcode, CAST(SUM(quantity) AS BIGINT) AS qty_scan
     FROM inbound_barcodes
     WHERE inbound_id = ?
     GROUP BY inbound_id, inbound_detail_id, item_code, barcode
@@ -1384,7 +1384,7 @@ type ResultDetail struct {
 func (r *InboundRepository) GetInboundDetailByInboundID(inboundID uint) ([]ResultDetail, error) {
 
 	sql := `with inb_barcode as (
-			select item_id, inbound_id, inbound_detail_id, sum(quantity) as qty_scan  
+			select item_id, inbound_id, inbound_detail_id, CAST(SUM(quantity) AS BIGINT) AS qty_scan  
 			from inbound_barcodes
 			group by item_id, inbound_id, inbound_detail_id
 		)
@@ -1504,7 +1504,7 @@ func (r *InboundRepository) UpdateStatusInbound(ctx *fiber.Ctx, inboundHeaderID 
 
 	sqlCheck := `WITH ib AS
 	(
-		SELECT inbound_id, inbound_detail_id, item_id, SUM(quantity) AS qty_scan, status
+		SELECT inbound_id, inbound_detail_id, item_id, CAST(SUM(quantity) AS BIGINT) AS qty_scan, status
 		FROM inbound_barcodes WHERE inbound_id = ? AND status = 'in stock'
 		GROUP BY inbound_id, inbound_detail_id, item_id, status
 	)
@@ -1905,19 +1905,19 @@ func (r *InboundRepository) GetInboundListWithFilter(params InboundFilterParams)
           ` + baseSearch + `
     ),
     detail AS (
-        SELECT inbound_id, COUNT(item_code) as total_line, SUM(quantity) total_qty
+        SELECT inbound_id, COUNT(item_code) as total_line, CAST(SUM(quantity) AS BIGINT) AS total_qty
         FROM inbound_details
         WHERE inbound_id IN (SELECT id FROM base)
         GROUP BY inbound_id
     ),
     inbound_barcode AS (
-        SELECT inbound_id, SUM(quantity) as qty_scan
+        SELECT inbound_id, CAST(SUM(quantity) AS BIGINT) AS qty_scan
         FROM inbound_barcodes
         WHERE inbound_id IN (SELECT id FROM base)
         GROUP BY inbound_id
     ),
     inbound_putaway AS (
-        SELECT inbound_id, SUM(quantity) as qty_scan
+        SELECT inbound_id, CAST(SUM(quantity) AS BIGINT) AS qty_scan
         FROM inbound_barcodes
         WHERE status = 'in stock'
           AND inbound_id IN (SELECT id FROM base)

@@ -63,7 +63,7 @@ func (c *DashboardController) GetDashboard(ctx *fiber.Ctx) error {
 			       ih.status, ih.inbound_date AS trans_date, id.tot_item, id.tot_qty
 			FROM inbound_headers ih
 			INNER JOIN (
-				SELECT inbound_id, COUNT(item_code) AS tot_item, SUM(quantity) AS tot_qty
+				SELECT inbound_id, COUNT(item_code) AS tot_item, CAST(SUM(quantity) AS BIGINT) AS tot_qty
 				FROM inbound_details GROUP BY inbound_id
 			) id ON ih.id = id.inbound_id
 			WHERE ih.status <> 'complete'
@@ -75,7 +75,7 @@ func (c *DashboardController) GetDashboard(ctx *fiber.Ctx) error {
 			       oh.status, oh.outbound_date AS trans_date, od.tot_item, od.tot_qty
 			FROM outbound_headers oh
 			INNER JOIN (
-				SELECT outbound_id, COUNT(item_code) AS tot_item, SUM(quantity) AS tot_qty
+				SELECT outbound_id, COUNT(item_code) AS tot_item, CAST(SUM(quantity) AS BIGINT) AS tot_qty
 				FROM outbound_details GROUP BY outbound_id
 			) od ON oh.id = od.outbound_id
 			WHERE oh.status <> 'complete'
@@ -261,7 +261,7 @@ func (c *DashboardController) GetDashboardChart(ctx *fiber.Ctx) error {
 			SUM(od.tot_qty) AS total_qty
 		FROM outbound_headers oh
 		INNER JOIN (
-			SELECT outbound_id, SUM(quantity) AS tot_qty
+			SELECT outbound_id, CAST(SUM(quantity) AS BIGINT) AS tot_qty
 			FROM outbound_details
 			WHERE deleted_at IS NULL
 			GROUP BY outbound_id
@@ -366,7 +366,7 @@ OHD AS (
 SELECT
 			oh.status                       AS stage_key,
 			COUNT(DISTINCT oh.id)           AS total_orders,
-			SUM(oh.quantity)                             AS total_qty   -- [TODO] ganti dengan SUM(od.quantity) dari detail table
+			CAST(SUM(quantity) AS BIGINT) AS tot_qty   -- [TODO] ganti dengan SUM(od.quantity) dari detail table
 		FROM OHD oh
 		WHERE oh.deleted_at IS NULL
 		` + obDateCond + `

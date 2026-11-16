@@ -1328,7 +1328,7 @@ func (c *InboundController) GetPalletSummary(ctx *fiber.Ctx) error {
 		pallet,
 		COUNT(*) as item_count,
 		COUNT(DISTINCT NULLIF(case_number, '')) as carton_count,
-		SUM(quantity) as total_qty,
+		CAST(SUM(quantity) AS BIGINT) AS total_qty,
 		SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending_count,
 		SUM(CASE WHEN status = 'in stock' THEN 1 ELSE 0 END) as in_stock_count
 	FROM inbound_barcodes
@@ -1398,7 +1398,7 @@ func (c *InboundController) GetCartonSummary(ctx *fiber.Ctx) error {
             case_number,
             MAX(pallet) as pallet,
             COUNT(*) as item_count,
-            SUM(quantity) as total_qty,
+            CAST(SUM(quantity) AS BIGINT) AS total_qty,
             CASE WHEN SUM(CASE WHEN status != 'in stock' THEN 1 ELSE 0 END) = 0
                  THEN 1 ELSE 0 END as all_in_stock
         FROM inbound_barcodes
