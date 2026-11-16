@@ -1651,6 +1651,41 @@ func (c *OutboundController) PickingOutbound(ctx *fiber.Ctx) error {
 	}
 
 	// ================================================================
+	// Pre-Validate Outbound Stock
+	// ================================================================
+
+	shortages, err := ValidateOutboundStock(
+		tx,
+		outboundHeader,
+		outboundDetails,
+		invetoryPolicy,
+	)
+
+	if err != nil {
+		tx.Rollback()
+
+		return ctx.Status(fiber.StatusInternalServerError).JSON(
+			fiber.Map{
+				"success": false,
+				"message": "Failed to validate outbound stock",
+				"error":   err.Error(),
+			},
+		)
+	}
+
+	if len(shortages) > 0 {
+		tx.Rollback()
+
+		return ctx.Status(fiber.StatusBadRequest).JSON(
+			fiber.Map{
+				"success":   false,
+				"message":   "Insufficient stock for outbound picking",
+				"shortages": shortages,
+			},
+		)
+	}
+
+	// ================================================================
 	// Allocate Outbound Details
 	// ================================================================
 
@@ -4447,3 +4482,199 @@ func (c *OutboundController) validateOutboundFromPdf(payload OutboundFromPdfPayl
 //======================================================================
 // END PROCESS OUTBOUND FROM PDF
 //======================================================================
+
+type StockShortage struct {
+	ItemCode     string  `json:"item_code"`
+	ItemName     string  `json:"item_name"`
+	RequiredQty  float64 `json:"required_qty"`
+	AvailableQty float64 `json:"available_qty"`
+	ShortageQty  float64 `json:"shortage_qty"`
+}
+
+func ValidateOutboundStock(
+	tx *gorm.DB,
+	outboundHeader models.OutboundHeader,
+	outboundDetails []models.OutboundDetail,
+	inventoryPolicy models.InventoryPolicy,
+) ([]StockShortage, error) {
+
+	shortages := make([]StockShortage, 0)
+
+	uomRepo := repositories.NewUomRepository(tx)
+	locationRepo := repositories.NewLocationRepository(tx)
+
+	// ================================================================
+	// 1. Get Product Names (Single Query)
+	// ================================================================
+
+	itemIDs := make([]uint, 0)
+	uniqueItemIDs := make(map[uint]bool)
+
+	for _, detail := range outboundDetails {
+		if !uniqueItemIDs[uint(detail.ItemID)] {
+			itemIDs = append(itemIDs, uint(detail.ItemID))
+			uniqueItemIDs[uint(detail.ItemID)] = true
+		}
+	}
+
+	productNames := make(map[uint]string)
+
+	if len(itemIDs) > 0 {
+		var products []models.Product
+
+		if err := tx.
+			Model(&models.Product{}).
+			Select("id, item_name").
+			Where("id IN ?", itemIDs).
+			Find(&products).Error; err != nil {
+			return nil, fmt.Errorf("failed to get product names: %w", err)
+		}
+
+		for _, product := range products {
+			productNames[product.ID] = product.ItemName
+		}
+	}
+
+	// ================================================================
+	// 2. Validate Each Outbound Detail
+	// ================================================================
+
+	for _, detail := range outboundDetails {
+
+		// UOM Conversion
+		uomConversion, err := uomRepo.ConversionQty(
+			detail.ItemCode,
+			detail.Quantity,
+			detail.Uom,
+		)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"UOM conversion error for %s: %w",
+				detail.ItemCode,
+				err,
+			)
+		}
+
+		requiredQty := uomConversion.QtyConverted
+
+		// Existing Allocation
+		allocatedQty, err := GetExistingAllocation(
+			tx,
+			detail.ID,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		requiredQty -= allocatedQty
+
+		if requiredQty <= 0.000001 {
+			continue
+		}
+
+		// Build Inventory Query
+		query := tx.Table("inventories as i").
+			Joins(`
+				LEFT JOIN locations as l
+				ON i.whs_code = l.whs_code
+				AND i.location = l.location_code
+			`).
+			Where(`
+				i.item_id = ?
+				AND i.whs_code = ?
+				AND i.qty_available > 0
+				AND i.deleted_at IS NULL
+				AND i.uom = ?
+				AND i.owner_code = ?
+				AND i.qa_status = ?
+				AND i.division_code = ?
+				AND (
+					l.id IS NULL
+					OR (l.is_active = 1 AND l.is_pickable = 1)
+				)
+			`,
+				detail.ItemID,
+				detail.WhsCode,
+				uomConversion.ToUom,
+				outboundHeader.OwnerCode,
+				detail.QaStatus,
+				detail.DivisionCode,
+			)
+
+		// Apply Inventory Policy Filters
+
+		if inventoryPolicy.RequireLotNumber ||
+			(inventoryPolicy.AllocationLotByOrder &&
+				detail.LotNumber != "") {
+
+			query = query.Where(
+				"i.lot_number = ?", detail.LotNumber,
+			)
+		}
+
+		if inventoryPolicy.AllocationLocationByOrder &&
+			detail.Location != "" {
+
+			query = query.Where(
+				"i.location = ?", detail.Location,
+			)
+		}
+
+		if inventoryPolicy.AllocationCaseByOrder &&
+			inventoryPolicy.UseCaseNumber &&
+			detail.CaseNumber != "" {
+
+			query = query.Where(
+				"i.case_number = ?", detail.CaseNumber,
+			)
+		}
+
+		if inventoryPolicy.AllocationCartonByOrder &&
+			inventoryPolicy.UseCartonNumber &&
+			detail.CartonNumber != "" {
+
+			query = query.Where(
+				"i.carton_number = ?", detail.CartonNumber,
+			)
+		}
+
+		if inventoryPolicy.AllocationSerialByOrder &&
+			inventoryPolicy.UseSerialNumber &&
+			detail.SerialNumber != "" {
+
+			query = query.Where(
+				"i.serial_number = ?", detail.SerialNumber,
+			)
+		}
+
+		if inventoryPolicy.PickingExcludeLocationsUnderCycleCount {
+			query = locationRepo.ExcludeLocationsUnderCycleCount(
+				query,
+				"i",
+			)
+		}
+
+		// Calculate Available Stock
+		var availableQty float64
+
+		if err := query.
+			Select("COALESCE(SUM(i.qty_available), 0)").
+			Scan(&availableQty).Error; err != nil {
+			return nil, err
+		}
+
+		// Collect All Stock Shortages
+		if availableQty+0.000001 < requiredQty {
+
+			shortages = append(shortages, StockShortage{
+				ItemCode:     detail.ItemCode,
+				ItemName:     productNames[uint(detail.ItemID)],
+				RequiredQty:  requiredQty,
+				AvailableQty: availableQty,
+				ShortageQty:  requiredQty - availableQty,
+			})
+		}
+	}
+
+	return shortages, nil
+}
