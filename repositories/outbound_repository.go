@@ -628,7 +628,7 @@ func (r *OutboundRepository) GetOutboundItemByID(outbound_id int) ([]OutboundIte
 						a.outbound_id,
 						a.item_code,
 						a.item_id,
-						SUM(a.quantity) AS qty_req,
+						CAST(SUM(a.quantity) AS BIGINT) AS qty_req,
 						a.[status],
 						a.outbound_no,
 						a.barcode,
@@ -1435,7 +1435,7 @@ func (r *OutboundRepository) GetOutboundListWithFilter(params OutboundFilterPara
         SELECT od.outbound_id,
             COUNT(od.outbound_id)  AS total_item,
             SUM(p.cbm)             AS total_cbm,
-            SUM(od.quantity)       AS qty_req
+            CAST(SUM(od.quantity) AS BIGINT)       AS qty_req
         FROM outbound_details od
         INNER JOIN products AS p ON od.item_id = p.id
         WHERE od.outbound_id IN (SELECT id FROM base)
