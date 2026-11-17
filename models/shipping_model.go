@@ -92,6 +92,14 @@ type OrderDetail struct {
 	ShipmentID string            `json:"shipment_id" gorm:"type:nvarchar(100);uniqueIndex:ux_order_details_outbound_shipment"`
 	OutboundID types.SnowflakeID `json:"outbound_id" gorm:"uniqueIndex:ux_order_details_outbound_shipment"`
 
+	DeliveryMode string `json:"delivery_mode" gorm:"type:nvarchar(20);not null;default:'DIRECT'"`
+
+	DeliveryHubID      *uint  `json:"delivery_hub_id" gorm:"index"`
+	DeliveryHubCode    string `json:"delivery_hub_code" gorm:"type:nvarchar(50)"`
+	DeliveryHubName    string `json:"delivery_hub_name" gorm:"type:nvarchar(150)"`
+	DeliveryHubAddress string `json:"delivery_hub_address" gorm:"type:nvarchar(500)"`
+	DeliveryHubCity    string `json:"delivery_hub_city" gorm:"type:nvarchar(100)"`
+
 	OutboundNo   string  `json:"outbound_no"`
 	QtyKoli      int     `json:"qty_koli"`
 	VasKoli      int     `json:"vas_koli"`

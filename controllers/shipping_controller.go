@@ -102,6 +102,15 @@ type OrderItem struct {
 	TotalCBM     float64           `json:"total_cbm"`
 	Remarks      string            `json:"remarks"`
 	OrderType    string            `json:"order_type"`
+
+	DeliveryMode string `json:"delivery_mode"`
+
+	DeliveryHubID *uint `json:"delivery_hub_id"`
+
+	DeliveryHubCode    string `json:"delivery_hub_code"`
+	DeliveryHubName    string `json:"delivery_hub_name"`
+	DeliveryHubAddress string `json:"delivery_hub_address"`
+	DeliveryHubCity    string `json:"delivery_hub_city"`
 }
 
 type Order struct {
@@ -222,6 +231,17 @@ func (c *ShippingController) CreateOrder(ctx *fiber.Ctx) error {
 		orderItem.TotalCBM = item.TotalCBM
 		orderItem.Remarks = item.Remarks
 		orderItem.OrderType = item.OrderType
+
+		if err := applyDeliveryAssignment(tx, item, &orderItem); err != nil {
+			tx.Rollback()
+
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"success": false,
+				"message": "Invalid delivery assignment",
+				"error":   err.Error(),
+			})
+		}
+
 		orderItem.CreatedBy = int(ctx.Locals("userID").(float64))
 		orderItem.CreatedAt = time.Now()
 		orderItem.UpdatedAt = time.Now()
@@ -306,31 +326,112 @@ func (c *ShippingController) GetOrderByNo(ctx *fiber.Ctx) error {
 }
 
 func (c *ShippingController) GetOrderAndDetailByNo(ctx *fiber.Ctx) error {
-	order_no := ctx.Params("order_no")
-	var OrderHeader models.OrderHeader
+	orderNo := ctx.Params("order_no")
+
+	var orderHeader models.OrderHeader
+
 	if err := c.DB.Debug().
 		Preload("Items").
-		First(&OrderHeader, "order_no = ?", order_no).Error; err != nil {
+		First(&orderHeader, "order_no = ?", orderNo).Error; err != nil {
+
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Order not found"})
+			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"success": false,
+				"error":   "Order not found",
+			})
 		}
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"error":   err.Error(),
+		})
 	}
 
 	shippingRepo := repositories.NewShippingRepository(c.DB)
 
-	orderDetailItems, err := shippingRepo.GetOrderDetailItem(int(OrderHeader.ID))
+	orderDetailItems, err := shippingRepo.GetOrderDetailItem(int(orderHeader.ID))
 	if err != nil {
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"error":   err.Error(),
+		})
 	}
 
-	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true,
+	// Map Delivery Hub assignment by Outbound ID.
+	type DeliveryAssignment struct {
+		DeliveryMode       string
+		DeliveryHubID      *uint
+		DeliveryHubCode    string
+		DeliveryHubName    string
+		DeliveryHubAddress string
+		DeliveryHubCity    string
+	}
+
+	// assignmentMap := make(map[string]DeliveryAssignment)
+
+	assignmentMap := make(map[int64]DeliveryAssignment)
+
+	for _, item := range orderHeader.Items {
+		assignmentMap[int64(item.OutboundID)] = DeliveryAssignment{
+			DeliveryMode:       item.DeliveryMode,
+			DeliveryHubID:      item.DeliveryHubID,
+			DeliveryHubCode:    item.DeliveryHubCode,
+			DeliveryHubName:    item.DeliveryHubName,
+			DeliveryHubAddress: item.DeliveryHubAddress,
+			DeliveryHubCity:    item.DeliveryHubCity,
+		}
+	}
+
+	for i := range orderDetailItems {
+		outboundID := int64(orderDetailItems[i].OutboundID)
+		if assignment, exists := assignmentMap[outboundID]; exists {
+			orderDetailItems[i].DeliveryMode = assignment.DeliveryMode
+			orderDetailItems[i].DeliveryHubID = assignment.DeliveryHubID
+			orderDetailItems[i].DeliveryHubCode = assignment.DeliveryHubCode
+			orderDetailItems[i].DeliveryHubName = assignment.DeliveryHubName
+			orderDetailItems[i].DeliveryHubAddress = assignment.DeliveryHubAddress
+			orderDetailItems[i].DeliveryHubCity = assignment.DeliveryHubCity
+		} else {
+			orderDetailItems[i].DeliveryMode = "DIRECT"
+		}
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
 		"data": fiber.Map{
-			"order":        OrderHeader,
-			"detail_items": orderDetailItems},
+			"order":        orderHeader,
+			"detail_items": orderDetailItems,
+		},
 		"message": "Order found",
 	})
 }
+
+// func (c *ShippingController) GetOrderAndDetailByNo(ctx *fiber.Ctx) error {
+// 	order_no := ctx.Params("order_no")
+// 	var OrderHeader models.OrderHeader
+// 	if err := c.DB.Debug().
+// 		Preload("Items").
+// 		First(&OrderHeader, "order_no = ?", order_no).Error; err != nil {
+// 		if errors.Is(err, gorm.ErrRecordNotFound) {
+// 			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Order not found"})
+// 		}
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+// 	}
+
+// 	shippingRepo := repositories.NewShippingRepository(c.DB)
+
+// 	orderDetailItems, err := shippingRepo.GetOrderDetailItem(int(OrderHeader.ID))
+// 	if err != nil {
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+// 	}
+
+// 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true,
+// 		"data": fiber.Map{
+// 			"order":        OrderHeader,
+// 			"detail_items": orderDetailItems},
+// 		"message": "Order found",
+// 	})
+// }
 
 func (c *ShippingController) UpdateOrderByID(ctx *fiber.Ctx) error {
 	order_no := ctx.Params("order_no")
@@ -415,6 +516,17 @@ func (c *ShippingController) UpdateOrderByID(ctx *fiber.Ctx) error {
 				OrderType:    item.OrderType,
 				CreatedBy:    userID,
 			}
+
+			if err := applyDeliveryAssignment(tx, item, &newItem); err != nil {
+				tx.Rollback()
+
+				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+					"success": false,
+					"message": "Invalid delivery assignment",
+					"error":   err.Error(),
+				})
+			}
+
 			if err := tx.Create(&newItem).Error; err != nil {
 				tx.Rollback()
 				return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
@@ -437,9 +549,20 @@ func (c *ShippingController) UpdateOrderByID(ctx *fiber.Ctx) error {
 			orderItem.TotalCBM = item.TotalCBM
 			orderItem.Remarks = item.Remarks
 			orderItem.OrderType = item.OrderType
+
 			orderItem.CreatedBy = int(ctx.Locals("userID").(float64))
 			orderItem.CreatedAt = time.Now()
 			orderItem.UpdatedAt = time.Now()
+
+			if err := applyDeliveryAssignment(tx, item, &orderItem); err != nil {
+				tx.Rollback()
+
+				return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+					"success": false,
+					"message": "Invalid delivery assignment",
+					"error":   err.Error(),
+				})
+			}
 
 			if err := tx.Save(&orderItem).Error; err != nil {
 				tx.Rollback()

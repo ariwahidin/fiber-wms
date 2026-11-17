@@ -114,6 +114,7 @@ func MigrateBusinessUnit(db *gorm.DB) error {
 		&models.InventoryAdjustment{},
 		&models.AdjustmentReasonCode{},
 		&models.PrintLog{},
+		&models.DeliveryHub{},
 
 		&rpt_builder2.Rpt2Template{},
 		&rpt_builder2.Rpt2Sheet{},

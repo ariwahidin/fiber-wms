@@ -167,51 +167,124 @@ order by oh.order_no DESC`
 	return orderList, nil
 }
 
+// type OrderDetailItem struct {
+// 	OutboundID  int     `json:"outbound_id"`
+// 	OutboundNo  string  `json:"outbound_no"`
+// 	DelivTo     string  `json:"deliv_to"`
+// 	DelivToName string  `json:"deliv_to_name"`
+// 	DelivCity   string  `json:"deliv_city"`
+// 	ShipmentID  string  `json:"shipment_id"`
+// 	TotalKoli   int     `json:"total_koli"`
+// 	Remarks     string  `json:"remarks"`
+// 	ItemCode    string  `json:"item_code"`
+// 	Quantity    int     `json:"quantity"`
+// 	CBM         float64 `json:"cbm"`
+// 	TotalCBM    float64 `json:"total_cbm"`
+// }
+
 type OrderDetailItem struct {
-	OutboundID  int     `json:"outbound_id"`
-	OutboundNo  string  `json:"outbound_no"`
-	DelivTo     string  `json:"deliv_to"`
-	DelivToName string  `json:"deliv_to_name"`
-	DelivCity   string  `json:"deliv_city"`
-	ShipmentID  string  `json:"shipment_id"`
-	TotalKoli   int     `json:"total_koli"`
-	Remarks     string  `json:"remarks"`
-	ItemCode    string  `json:"item_code"`
-	Quantity    int     `json:"quantity"`
-	CBM         float64 `json:"cbm"`
-	TotalCBM    float64 `json:"total_cbm"`
+	OutboundID  int    `json:"outbound_id"`
+	OutboundNo  string `json:"outbound_no"`
+	DelivTo     string `json:"deliv_to"`
+	DelivToName string `json:"deliv_to_name"`
+	DelivCity   string `json:"deliv_city"`
+	ShipmentID  string `json:"shipment_id"`
+	TotalKoli   int    `json:"total_koli"`
+	Remarks     string `json:"remarks"`
+
+	DeliveryMode       string `json:"delivery_mode"`
+	DeliveryHubID      *uint  `json:"delivery_hub_id"`
+	DeliveryHubCode    string `json:"delivery_hub_code"`
+	DeliveryHubName    string `json:"delivery_hub_name"`
+	DeliveryHubAddress string `json:"delivery_hub_address"`
+	DeliveryHubCity    string `json:"delivery_hub_city"`
+
+	ItemCode string  `json:"item_code"`
+	Quantity int     `json:"quantity"`
+	CBM      float64 `json:"cbm"`
+	TotalCBM float64 `json:"total_cbm"`
 }
 
-func (r *ShippingRepository) GetOrderDetailItem(outboundID int) ([]OrderDetailItem, error) {
-	var orderDetailItem []OrderDetailItem
-	sql := `SELECT od.outbound_id,
-	od.outbound_no,
-	od.deliv_to,
-	od.deliv_to_name,
-	od.deliv_city,
-	od.shipment_id,
-	od.qty_koli as total_koli,
-	od.remarks,
-	odt.item_code,
-	odt.quantity,
-	p.cbm,
-	ROUND(p.cbm * odt.quantity, 4) as total_cbm
-	-- p.cbm * odt.quantity as total_cbm
-	FROM order_details od
-	INNER JOIN outbound_details odt ON od.outbound_id = odt.outbound_id
-	LEFT JOIN products p ON odt.item_id = p.id
-	WHERE order_id = ?`
+func (r *ShippingRepository) GetOrderDetailItem(orderID int) ([]OrderDetailItem, error) {
+	var orderDetailItems []OrderDetailItem
 
-	if err := r.db.Raw(sql, outboundID).Scan(&orderDetailItem).Error; err != nil {
+	sql := `
+		SELECT
+			od.outbound_id,
+			od.outbound_no,
+			od.deliv_to,
+			od.deliv_to_name,
+			od.deliv_city,
+			od.shipment_id,
+			od.qty_koli AS total_koli,
+			od.remarks,
+
+			-- Delivery Hub Assignment
+			COALESCE(NULLIF(od.delivery_mode, ''), 'DIRECT') AS delivery_mode,
+			od.delivery_hub_id,
+			ISNULL(od.delivery_hub_code, '') AS delivery_hub_code,
+			ISNULL(od.delivery_hub_name, '') AS delivery_hub_name,
+			ISNULL(od.delivery_hub_address, '') AS delivery_hub_address,
+			ISNULL(od.delivery_hub_city, '') AS delivery_hub_city,
+
+			-- Item Details
+			odt.item_code,
+			odt.quantity,
+			ISNULL(p.cbm, 0) AS cbm,
+			ROUND(ISNULL(p.cbm, 0) * odt.quantity, 4) AS total_cbm
+
+		FROM order_details od
+
+		INNER JOIN outbound_details odt
+			ON od.outbound_id = odt.outbound_id
+
+		LEFT JOIN products p
+			ON odt.item_id = p.id
+
+		WHERE od.order_id = ?
+	`
+
+	if err := r.db.Raw(sql, orderID).Scan(&orderDetailItems).Error; err != nil {
 		return nil, err
 	}
 
-	if len(orderDetailItem) == 0 {
+	if len(orderDetailItems) == 0 {
 		return []OrderDetailItem{}, nil
 	}
 
-	return orderDetailItem, nil
+	return orderDetailItems, nil
 }
+
+// func (r *ShippingRepository) GetOrderDetailItem(outboundID int) ([]OrderDetailItem, error) {
+// 	var orderDetailItem []OrderDetailItem
+// 	sql := `SELECT od.outbound_id,
+// 	od.outbound_no,
+// 	od.deliv_to,
+// 	od.deliv_to_name,
+// 	od.deliv_city,
+// 	od.shipment_id,
+// 	od.qty_koli as total_koli,
+// 	od.remarks,
+// 	odt.item_code,
+// 	odt.quantity,
+// 	p.cbm,
+// 	ROUND(p.cbm * odt.quantity, 4) as total_cbm
+// 	-- p.cbm * odt.quantity as total_cbm
+// 	FROM order_details od
+// 	INNER JOIN outbound_details odt ON od.outbound_id = odt.outbound_id
+// 	LEFT JOIN products p ON odt.item_id = p.id
+// 	WHERE order_id = ?`
+
+// 	if err := r.db.Raw(sql, outboundID).Scan(&orderDetailItem).Error; err != nil {
+// 		return nil, err
+// 	}
+
+// 	if len(orderDetailItem) == 0 {
+// 		return []OrderDetailItem{}, nil
+// 	}
+
+// 	return orderDetailItem, nil
+// }
 
 func (r *ShippingRepository) CalculatVasOutbound(outboundID int) ([]VasCalculate, error) {
 	var result []VasCalculate
