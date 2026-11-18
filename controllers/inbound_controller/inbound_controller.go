@@ -26,34 +26,35 @@ func NewInboundController(DB *gorm.DB) *InboundController {
 }
 
 type Inbound struct {
-	ID             int                       `json:"ID"`
-	InboundNo      string                    `json:"inbound_no"`
-	InboundDate    string                    `json:"inbound_date"`
-	Supplier       string                    `json:"supplier"`
-	PONumber       string                    `json:"po_number"`
-	Mode           string                    `json:"mode"`
-	Type           string                    `json:"type"`
-	Invoice        string                    `json:"invoice"`
-	Remarks        string                    `json:"remarks"`
-	Status         string                    `json:"status"`
-	Transporter    string                    `json:"transporter"`
-	NoTruck        string                    `json:"no_truck"`
-	Driver         string                    `json:"driver"`
-	Container      string                    `json:"container"`
-	OwnerCode      string                    `json:"owner_code"`
-	WhsCode        string                    `json:"whs_code"`
-	ReceiptID      string                    `json:"receipt_id"`
-	Origin         string                    `json:"origin"`
-	PoDate         string                    `json:"po_date"`
-	ArrivalTime    string                    `json:"arrival_time"`
-	StartUnloading string                    `json:"start_unloading"`
-	EndUnloading   string                    `json:"end_unloading"`
-	TruckSize      string                    `json:"truck_size"`
-	BLNo           string                    `json:"bl_no"`
-	Koli           int                       `json:"koli"`
-	References     []models.InboundReference `json:"references"`
-	Items          []InboundItem             `json:"items"`
-	ReceivedItems  []ItemInboundBarcode      `json:"received_items"`
+	ID                 int                       `json:"ID"`
+	InboundNo          string                    `json:"inbound_no"`
+	InboundDate        string                    `json:"inbound_date"`
+	Supplier           string                    `json:"supplier"`
+	PONumber           string                    `json:"po_number"`
+	Mode               string                    `json:"mode"`
+	Type               string                    `json:"type"`
+	Invoice            string                    `json:"invoice"`
+	DeliveryNoteNumber string                    `json:"delivery_note_number"`
+	Remarks            string                    `json:"remarks"`
+	Status             string                    `json:"status"`
+	Transporter        string                    `json:"transporter"`
+	NoTruck            string                    `json:"no_truck"`
+	Driver             string                    `json:"driver"`
+	Container          string                    `json:"container"`
+	OwnerCode          string                    `json:"owner_code"`
+	WhsCode            string                    `json:"whs_code"`
+	ReceiptID          string                    `json:"receipt_id"`
+	Origin             string                    `json:"origin"`
+	PoDate             string                    `json:"po_date"`
+	ArrivalTime        string                    `json:"arrival_time"`
+	StartUnloading     string                    `json:"start_unloading"`
+	EndUnloading       string                    `json:"end_unloading"`
+	TruckSize          string                    `json:"truck_size"`
+	BLNo               string                    `json:"bl_no"`
+	Koli               int                       `json:"koli"`
+	References         []models.InboundReference `json:"references"`
+	Items              []InboundItem             `json:"items"`
+	ReceivedItems      []ItemInboundBarcode      `json:"received_items"`
 }
 
 type InboundItem struct {
@@ -254,6 +255,7 @@ func (c *InboundController) CreateInbound(ctx *fiber.Ctx) error {
 	InboundHeader.ReceiptID = payload.ReceiptID
 	InboundHeader.PONumber = payload.PONumber
 	InboundHeader.InvoiceNo = payload.Invoice
+	InboundHeader.DeliveryNoteNumber = payload.DeliveryNoteNumber
 	InboundHeader.Supplier = payload.Supplier
 	InboundHeader.SupplierId = int(supplier.ID)
 	InboundHeader.Status = payload.Status
@@ -655,6 +657,7 @@ func (c *InboundController) UpdateInboundByID(ctx *fiber.Ctx) error {
 	InboundHeader.ReceiptID = payload.ReceiptID
 	InboundHeader.PONumber = payload.PONumber
 	InboundHeader.InvoiceNo = payload.Invoice
+	InboundHeader.DeliveryNoteNumber = payload.DeliveryNoteNumber
 	InboundHeader.Type = payload.Type
 	InboundHeader.Remarks = payload.Remarks
 	InboundHeader.UpdatedBy = userID
