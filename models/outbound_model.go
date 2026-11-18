@@ -48,6 +48,9 @@ type OutboundHeader struct {
 	DelivTo             string    `json:"deliv_to"`
 	DelivAddress        string    `json:"deliv_address"`
 	DelivCity           string    `json:"deliv_city"`
+	ActualDelivTo       string    `json:"actual_deliv_to"`
+	ActualDelivAddress  string    `json:"actual_deliv_address"`
+	ActualDelivCity     string    `json:"actual_deliv_city"`
 	Driver              string    `json:"driver"`
 	QtyKoli             int       `json:"qty_koli"`
 	QtyKoliSeal         int       `json:"qty_koli_seal"`

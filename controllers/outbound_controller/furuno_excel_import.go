@@ -44,6 +44,7 @@ import (
 //   Customer
 //   Serial/Production Number
 //   Name Warehouse
+//   Address Delivery Order
 //
 // ============================================================================
 
@@ -96,16 +97,17 @@ type FurunoExcelRowError struct {
 type FurunoOrderRow struct {
 	Row int
 
-	ItemCode      string
-	PartCode      string
-	ItemName      string
-	Quantity      float64
-	Unit          string
-	ShipmentID    string
-	OutboundDate  string
-	CustomerName  string
-	SerialNumber  string
-	WarehouseName string
+	ItemCode              string
+	PartCode              string
+	ItemName              string
+	Quantity              float64
+	Unit                  string
+	ShipmentID            string
+	OutboundDate          string
+	CustomerName          string
+	SerialNumber          string
+	WarehouseName         string
+	ActualDeliveryAddress string
 }
 
 // ============================================================================
@@ -135,6 +137,7 @@ var furunoRequiredHeaders = []string{
 	"serial/production number",
 	"name warehouse",
 	"part code",
+	"address delivery order",
 }
 
 // ============================================================================
@@ -762,6 +765,9 @@ func (c *OutboundController) CreateOutboundFromFurunoExcel(ctx *fiber.Ctx) error
 			),
 			DelivCity: customer.CustCity,
 
+			ActualDelivTo:      customer.CustomerCode,
+			ActualDelivAddress: firstItem.ActualDeliveryAddress,
+
 			CreatedBy: currentUserID,
 			UpdatedBy: currentUserID,
 
@@ -1315,6 +1321,14 @@ func parseFurunoRows(
 			),
 		)
 
+		actualDeliveyAddress := strings.TrimSpace(
+			getFurunoCell(
+				row,
+				headerMap,
+				"address delivery order",
+			),
+		)
+
 		// ================================================================
 		// IMPORTANT:
 		// Hanya Yusen WH
@@ -1329,6 +1343,22 @@ func parseFurunoRows(
 
 			continue
 		}
+
+		// ================================================================
+		// Actual Delivery Address
+		// ================================================================
+
+		// if actualDeliveyAddress == "" {
+
+		// 	errs = append(
+		// 		errs,
+		// 		FurunoValidationError{
+		// 			Row:     rowNum,
+		// 			Field:   "Address Delivery Order",
+		// 			Message: "Address Delivery Order cannot be empty",
+		// 		},
+		// 	)
+		// }
 
 		// ================================================================
 		// Shipment ID / Number
@@ -1533,17 +1563,18 @@ func parseFurunoRows(
 		result = append(
 			result,
 			FurunoOrderRow{
-				Row:           rowNum,
-				ItemCode:      itemCode,
-				PartCode:      partCode,
-				ItemName:      itemName,
-				Quantity:      qty,
-				Unit:          unit,
-				ShipmentID:    shipmentID,
-				OutboundDate:  parsedDate,
-				CustomerName:  customerName,
-				SerialNumber:  serialNumber,
-				WarehouseName: warehouseName,
+				Row:                   rowNum,
+				ItemCode:              itemCode,
+				PartCode:              partCode,
+				ItemName:              itemName,
+				Quantity:              qty,
+				Unit:                  unit,
+				ShipmentID:            shipmentID,
+				OutboundDate:          parsedDate,
+				CustomerName:          customerName,
+				SerialNumber:          serialNumber,
+				WarehouseName:         warehouseName,
+				ActualDeliveryAddress: actualDeliveyAddress,
 			},
 		)
 	}

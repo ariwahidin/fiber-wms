@@ -49,36 +49,37 @@ func NewOutboundController(db *gorm.DB, queryDB *gorm.DB) *OutboundController {
 }
 
 type Outbound struct {
-	ID              types.SnowflakeID `json:"ID"`
-	OutboundNo      string            `json:"outbound_no"`
-	OutboundDate    string            `json:"outbound_date"`
-	CustomerCode    string            `json:"customer_code"`
-	ShipmentID      string            `json:"shipment_id"`
-	Mode            string            `json:"mode"`
-	Status          string            `json:"status"`
-	WhsCode         string            `json:"whs_code"`
-	OwnerCode       string            `json:"owner_code"`
-	Remarks         string            `json:"remarks"`
-	TransporterCode string            `json:"transporter_code"`
-	PickerName      string            `json:"picker_name"`
-	CustAddress     string            `json:"cust_address"`
-	CustCity        string            `json:"cust_city"`
-	OrderType       string            `json:"order_type"`
-	PlanPickupDate  string            `json:"plan_pickup_date"`
-	PlanPickupTime  string            `json:"plan_pickup_time"`
-	RcvDoDate       string            `json:"rcv_do_date"`
-	RcvDoTime       string            `json:"rcv_do_time"`
-	StartPickTime   string            `json:"start_pick_time"`
-	EndPickTime     string            `json:"end_pick_time"`
-	DelivTo         string            `json:"deliv_to"`
-	DelivAddress    string            `json:"deliv_address"`
-	DelivCity       string            `json:"deliv_city"`
-	Driver          string            `json:"driver"`
-	QtyKoli         int               `json:"qty_koli"`
-	QtyKoliSeal     int               `json:"qty_koli_seal"`
-	TruckSize       string            `json:"truck_size"`
-	TruckNo         string            `json:"truck_no"`
-	Items           []OutboundItem    `json:"items"`
+	ID                 types.SnowflakeID `json:"ID"`
+	OutboundNo         string            `json:"outbound_no"`
+	OutboundDate       string            `json:"outbound_date"`
+	CustomerCode       string            `json:"customer_code"`
+	ShipmentID         string            `json:"shipment_id"`
+	Mode               string            `json:"mode"`
+	Status             string            `json:"status"`
+	WhsCode            string            `json:"whs_code"`
+	OwnerCode          string            `json:"owner_code"`
+	Remarks            string            `json:"remarks"`
+	TransporterCode    string            `json:"transporter_code"`
+	PickerName         string            `json:"picker_name"`
+	CustAddress        string            `json:"cust_address"`
+	CustCity           string            `json:"cust_city"`
+	OrderType          string            `json:"order_type"`
+	PlanPickupDate     string            `json:"plan_pickup_date"`
+	PlanPickupTime     string            `json:"plan_pickup_time"`
+	RcvDoDate          string            `json:"rcv_do_date"`
+	RcvDoTime          string            `json:"rcv_do_time"`
+	StartPickTime      string            `json:"start_pick_time"`
+	EndPickTime        string            `json:"end_pick_time"`
+	DelivTo            string            `json:"deliv_to"`
+	DelivAddress       string            `json:"deliv_address"`
+	DelivCity          string            `json:"deliv_city"`
+	Driver             string            `json:"driver"`
+	QtyKoli            int               `json:"qty_koli"`
+	QtyKoliSeal        int               `json:"qty_koli_seal"`
+	TruckSize          string            `json:"truck_size"`
+	TruckNo            string            `json:"truck_no"`
+	ActualDelivAddress string            `json:"actual_deliv_address"`
+	Items              []OutboundItem    `json:"items"`
 }
 
 type OutboundItem struct {
@@ -291,6 +292,7 @@ func (c *OutboundController) CreateOutbound(ctx *fiber.Ctx) error {
 	OutboundHeader.QtyKoli = payload.QtyKoli
 	OutboundHeader.QtyKoliSeal = payload.QtyKoliSeal
 	OutboundHeader.TruckSize = payload.TruckSize
+	OutboundHeader.ActualDelivAddress = payload.ActualDelivAddress
 	OutboundHeader.TruckNo = payload.TruckNo
 
 	res := tx.Create(&OutboundHeader)
@@ -1162,6 +1164,8 @@ func (c *OutboundController) UpdateOutboundByID(ctx *fiber.Ctx) error {
 	outboundHeader.DelivTo = deliveTo.CustomerCode
 	outboundHeader.DelivAddress = deliveTo.CustAddr1
 	outboundHeader.DelivCity = deliveTo.CustCity
+
+	outboundHeader.ActualDelivAddress = payload.ActualDelivAddress
 
 	outboundHeader.Driver = payload.Driver
 
