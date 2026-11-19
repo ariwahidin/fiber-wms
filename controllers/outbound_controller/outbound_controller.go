@@ -5095,6 +5095,21 @@ func (r *OutboundController) ProccesHandleOpen(ctx *fiber.Ctx) error {
 		})
 	}
 
+	// =====================================================
+	// DELETE PACKING NO IF EQUAL TO OUTBOUND NO
+	// =====================================================
+
+	if err := tx.Unscoped().
+		Where("packing_no = ?", outboundHeader.OutboundNo).
+		Delete(&models.OutboundPacking{}).Error; err != nil {
+
+		tx.Rollback()
+
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
 	/*
 		|--------------------------------------------------------------------------
 		| Update outbound status

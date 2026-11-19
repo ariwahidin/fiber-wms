@@ -267,17 +267,19 @@ func (c *MobileOutboundController) GetListOutboundDetail(ctx *fiber.Ctx) error {
 	// ============================================
 
 	type OutboundResult struct {
-		OutboundDetailID int     `json:"outbound_detail_id"`
-		WhsCode          string  `json:"whs_code"`
-		ItemCode         string  `json:"item_code"`
-		Barcode          string  `json:"barcode"`
-		Quantity         int     `json:"quantity"`
-		ItemName         string  `json:"item_name"`
-		HasSerial        string  `json:"has_serial"`
-		QtyScan          float64 `json:"scan_qty"`
-		UOM              string  `json:"uom"`
-		OwnerCode        string  `json:"owner_code"`
-		LotNumber        string  `json:"lot_number"`
+		OutboundDetailID  int     `json:"outbound_detail_id"`
+		WhsCode           string  `json:"whs_code"`
+		ItemCode          string  `json:"item_code"`
+		Barcode           string  `json:"barcode"`
+		UnitModel         string  `json:"unit_model"`
+		Quantity          int     `json:"quantity"`
+		ItemName          string  `json:"item_name"`
+		HasSerial         string  `json:"has_serial"`
+		QtyScan           float64 `json:"scan_qty"`
+		UOM               string  `json:"uom"`
+		OwnerCode         string  `json:"owner_code"`
+		LotNumber         string  `json:"lot_number"`
+		BundleProductCode string  `json:"bundle_product_code"`
 	}
 
 	var results []OutboundResult
@@ -370,7 +372,9 @@ func (c *MobileOutboundController) GetListOutboundDetail(ctx *fiber.Ctx) error {
 			COALESCE(ob.qty_scan, 0) AS qty_scan,
 			b.has_serial,
 			a.owner_code,
-			a.lot_number
+			a.lot_number,
+			a.bundle_product_code,
+			b.unit_model
 		FROM outbound_details a
 		INNER JOIN products b
 			ON a.item_id = b.id
@@ -390,6 +394,8 @@ func (c *MobileOutboundController) GetListOutboundDetail(ctx *fiber.Ctx) error {
 		opb.uom,
 		opb.item_name,
 		opb.lot_number,
+		opb.bundle_product_code,
+		opb.unit_model,
 		ROUND(
 			COALESCE(opb.qty_scan, 0) /
 			NULLIF(COALESCE(oc.conversion_rate, 1), 0),
@@ -886,7 +892,10 @@ func (c *MobileOutboundController) GetListOutboundBarcode(ctx *fiber.Ctx) error 
 
 	var outboundBarcodes []models.OutboundBarcode
 
-	if err := c.DB.Where("outbound_detail_id = ?", id).Find(&outboundBarcodes).Error; err != nil {
+	if err := c.DB.
+		Preload("Product").
+		Where("outbound_detail_id = ?", id).
+		Find(&outboundBarcodes).Error; err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 

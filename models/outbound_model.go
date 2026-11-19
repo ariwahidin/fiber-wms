@@ -295,7 +295,8 @@ type OutboundBarcode struct {
 	DeletedBy        int
 
 	OutboundHeader OutboundHeader `json:"Outbound" gorm:"foreignKey:OutboundId;references:ID"`
-	Product        Product        `json:"product" gorm:"foreignKey:ItemID;references:ID"`
+	// Product        Product        `json:"product" gorm:"foreignKey:ItemID;references:ID"`
+	Product Product `gorm:"foreignKey:ItemID;references:ID" json:"product"`
 }
 
 type OutboundPacking struct {
