@@ -1070,45 +1070,46 @@ func (r *OutboundRepository) GetPackingSummary() ([]PackingSummary, error) {
 }
 
 type PackingItem struct {
-	PackingNo       string    `json:"packing_no"`
-	PackingDate     time.Time `json:"packing_date"`
-	CustAddress     string    `json:"cust_address"`
-	CustCity        string    `json:"cust_city"`
-	DelivTo         string    `json:"deliv_to"`
-	DelivAddress    string    `json:"deliv_address"`
-	DelivCity       string    `json:"deliv_city"`
-	QtyKoli         int       `json:"qty_koli"`
-	QtyKoliSeal     int       `json:"qty_koli_seal"`
-	Remarks         string    `json:"remarks"`
-	PickerName      string    `json:"picker_name"`
-	PlanPickupDate  string    `json:"plan_pickup_date"`
-	PlanPickupTime  string    `json:"plan_pickup_time"`
-	ItemID          int       `json:"item_id"`
-	ItemCode        string    `json:"item_code"`
-	Quantity        int       `json:"quantity"`
-	Barcode         string    `json:"barcode"`
-	ItemName        string    `json:"item_name"`
-	CBM             float64   `json:"cbm"`
-	SerialNumber    string    `json:"serial_number"`
-	OutboundNo      string    `json:"outbound_no"`
-	CustomerCode    string    `json:"customer_code"`
-	OutboundDate    string    `json:"outbound_date"`
-	ShipmentID      string    `json:"shipment_id"`
-	CustomerName    string    `json:"customer_name"`
-	DelivToName     string    `json:"deliv_to_name"`
-	TransporterCode string    `json:"transporter_code"`
-	UomScan         string    `json:"uom_scan"`
-	QtyScan         int       `json:"qty_scan"`
-	BarcodeScan     string    `json:"barcode_scan"`
-	PackCtnNo       string    `json:"pack_ctn_no"`
-	UserDef1        string    `json:"user_def1"`
-	CtnLength       float64   `json:"ctn_length"`
-	CtnWidth        float64   `json:"ctn_width"`
-	CtnHeight       float64   `json:"ctn_height"`
-	CtnMaxWeight    float64   `json:"ctn_max_weight"`
-	CtnTareWeight   float64   `json:"ctn_tare_weight"`
-	CtnVolume       float64   `json:"ctn_volume"`
-	SerialRemarks   string    `json:"serial_remarks"`
+	PackingNo          string    `json:"packing_no"`
+	PackingDate        time.Time `json:"packing_date"`
+	CustAddress        string    `json:"cust_address"`
+	CustCity           string    `json:"cust_city"`
+	DelivTo            string    `json:"deliv_to"`
+	DelivAddress       string    `json:"deliv_address"`
+	DelivCity          string    `json:"deliv_city"`
+	QtyKoli            int       `json:"qty_koli"`
+	QtyKoliSeal        int       `json:"qty_koli_seal"`
+	Remarks            string    `json:"remarks"`
+	PickerName         string    `json:"picker_name"`
+	PlanPickupDate     string    `json:"plan_pickup_date"`
+	PlanPickupTime     string    `json:"plan_pickup_time"`
+	ItemID             int       `json:"item_id"`
+	ItemCode           string    `json:"item_code"`
+	Quantity           int       `json:"quantity"`
+	Barcode            string    `json:"barcode"`
+	ItemName           string    `json:"item_name"`
+	CBM                float64   `json:"cbm"`
+	SerialNumber       string    `json:"serial_number"`
+	OutboundNo         string    `json:"outbound_no"`
+	CustomerCode       string    `json:"customer_code"`
+	OutboundDate       string    `json:"outbound_date"`
+	ShipmentID         string    `json:"shipment_id"`
+	CustomerName       string    `json:"customer_name"`
+	DelivToName        string    `json:"deliv_to_name"`
+	ActualDelivAddress string    `json:"actual_deliv_address"`
+	TransporterCode    string    `json:"transporter_code"`
+	UomScan            string    `json:"uom_scan"`
+	QtyScan            int       `json:"qty_scan"`
+	BarcodeScan        string    `json:"barcode_scan"`
+	PackCtnNo          string    `json:"pack_ctn_no"`
+	UserDef1           string    `json:"user_def1"`
+	CtnLength          float64   `json:"ctn_length"`
+	CtnWidth           float64   `json:"ctn_width"`
+	CtnHeight          float64   `json:"ctn_height"`
+	CtnMaxWeight       float64   `json:"ctn_max_weight"`
+	CtnTareWeight      float64   `json:"ctn_tare_weight"`
+	CtnVolume          float64   `json:"ctn_volume"`
+	SerialRemarks      string    `json:"serial_remarks"`
 }
 
 func (r *OutboundRepository) GetPackingItemsList(outboundID int, packingNo string) ([]PackingItem, error) {
@@ -1123,6 +1124,7 @@ func (r *OutboundRepository) GetPackingItemsList(outboundID int, packingNo strin
                 e.deliv_to,
                 e.deliv_address,
                 e.deliv_city,
+				e.actual_deliv_address,
                 e.qty_koli,
                 e.qty_koli_seal,
                 e.remarks,
@@ -1172,6 +1174,7 @@ func (r *OutboundRepository) GetPackingItemsList(outboundID int, packingNo strin
                 e.deliv_to,
                 e.deliv_address,
                 e.deliv_city,
+				e.actual_deliv_address,
                 e.qty_koli,
                 e.qty_koli_seal,
                 e.remarks,
