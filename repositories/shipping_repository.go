@@ -76,7 +76,8 @@ func (r *ShippingRepository) GetAllOutboundList() ([]OutboundList, error) {
 			ps.qty_plan as total_qty,
 			odt.outbound_id as odt_id,
 			inpo.use_vas, 
-			a.order_type
+			a.order_type,
+			a.shipping_provider
             from outbound_headers a
             left join od on a.id = od.outbound_id
             LEFT JOIN ps ON a.id = ps.outbound_id
@@ -180,10 +181,28 @@ type OrderDetailItem struct {
 	Quantity    int     `json:"quantity"`
 	CBM         float64 `json:"cbm"`
 	TotalCBM    float64 `json:"total_cbm"`
+	LotNumber   string  `json:"lot_number"`
 }
 
 func (r *ShippingRepository) GetOrderDetailItem(outboundID int) ([]OrderDetailItem, error) {
 	var orderDetailItem []OrderDetailItem
+	// sql := `SELECT od.outbound_id,
+	// od.outbound_no,
+	// od.deliv_to,
+	// od.deliv_to_name,
+	// od.deliv_city,
+	// od.shipment_id,
+	// od.qty_koli as total_koli,
+	// od.remarks,
+	// odt.item_code,
+	// odt.quantity,
+	// p.cbm,
+	// ROUND(p.cbm * odt.quantity, 4) as total_cbm
+	// -- p.cbm * odt.quantity as total_cbm
+	// FROM order_details od
+	// INNER JOIN outbound_details odt ON od.outbound_id = odt.outbound_id
+	// LEFT JOIN products p ON odt.item_id = p.id
+	// WHERE order_id = ?`
 	sql := `SELECT od.outbound_id,
 	od.outbound_no,
 	od.deliv_to,
@@ -193,12 +212,13 @@ func (r *ShippingRepository) GetOrderDetailItem(outboundID int) ([]OrderDetailIt
 	od.qty_koli as total_koli,
 	od.remarks,
 	odt.item_code,
-	odt.quantity,
+	op.quantity,
 	p.cbm,
-	ROUND(p.cbm * odt.quantity, 4) as total_cbm
-	-- p.cbm * odt.quantity as total_cbm
+	op.lot_number,
+	ROUND(p.cbm * op.quantity, 4) as total_cbm
 	FROM order_details od
 	INNER JOIN outbound_details odt ON od.outbound_id = odt.outbound_id
+	LEFT JOIN outbound_pickings op ON odt.id = op.outbound_detail_id
 	LEFT JOIN products p ON odt.item_id = p.id
 	WHERE order_id = ?`
 

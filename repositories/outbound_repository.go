@@ -201,13 +201,13 @@ type OutboundList struct {
 	Source             string  `json:"source"`
 	RequirePickingScan bool    `json:"require_picking_scan"`
 	RequirePackingScan bool    `json:"require_packing_scan"`
+	ShippingProvider   string  `json:"shipping_provider"`
 }
 
 func (r *OutboundRepository) GetAllOutboundList() ([]OutboundList, error) {
 	var outboundList []OutboundList
 
 	sql := `WITH od AS (
-	-- select * from outbound_details
 	select outbound_id, count(outbound_id) as total_item, sum(p.cbm) as total_cbm,
     sum(quantity) as qty_req
     from outbound_details od
@@ -227,8 +227,6 @@ func (r *OutboundRepository) GetAllOutboundList() ([]OutboundList, error) {
 		INNER JOIN uom_conversions c on a.item_code = c.item_code and b.uom = c.from_uom
 	),
 	kd AS(
-		-- SELECT * FROM outbound_barcodes 
-		-- SELECT * FROM uom_conversions
 		SELECT outbound_id, SUM(qty_display) AS qty_pack
 		FROM obc
 		GROUP BY outbound_id
@@ -259,7 +257,8 @@ func (r *OutboundRepository) GetAllOutboundList() ([]OutboundList, error) {
 			a.qty_koli,
 			od.total_cbm,
 			od.total_item,
-			a.[source]
+			a.[source],
+			a.shipping_provider
             from outbound_headers a
             left join od on a.id = od.outbound_id
             LEFT JOIN ps ON a.id = ps.outbound_id
@@ -1397,7 +1396,7 @@ func (r *OutboundRepository) GetOutboundListWithFilter(params OutboundFilterPara
     WITH base AS (
         SELECT id, outbound_no, shipment_id, status, owner_code,
                outbound_date, order_type, customer_code, deliv_to,
-               qty_koli, [source]
+               qty_koli, [source], shipping_provider
         FROM outbound_headers
         WHERE deleted_at IS NULL
           AND outbound_date >= ` + startDate + `
@@ -1471,7 +1470,8 @@ func (r *OutboundRepository) GetOutboundListWithFilter(params OutboundFilterPara
         od.total_cbm,
         a.[source],
       	ipc.require_picking_scan,
-		ipc.require_packing_scan
+		ipc.require_packing_scan,
+		a.shipping_provider
     FROM base a
     LEFT JOIN od  ON a.id = od.outbound_id
     LEFT JOIN ps  ON a.id = ps.outbound_id

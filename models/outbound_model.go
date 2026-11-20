@@ -58,6 +58,9 @@ type OutboundHeader struct {
 	Source              string    `json:"source" gorm:"default:'MANUAL'"`
 	AwbNo               string    `json:"awb_no"`
 	ActionReason        string    `json:"action_reason"`
+	ShippingProvider    string    `json:"shipping_provider"`
+	DeliveryOption      string    `json:"delivery_option"`
+	TrackingID          string    `json:"tracking_id"`
 	CreatedBy           int
 	UpdatedBy           int
 	DeletedBy           int

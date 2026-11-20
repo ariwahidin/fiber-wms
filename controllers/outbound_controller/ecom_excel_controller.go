@@ -46,15 +46,18 @@ type EcommercePlatformConfig struct {
 
 // EcommerceOrderRow represents one parsed row from Excel
 type EcommerceOrderRow struct {
-	No          int
-	Date        string
-	Platform    string
-	OrderNumber string
-	AWBNumber   string
-	ProductName string
-	Qty         float64
-	SKU         string
-	Row         int
+	No               int
+	Date             string
+	Platform         string
+	OrderNumber      string
+	AWBNumber        string
+	ProductName      string
+	Qty              float64
+	SKU              string
+	Row              int
+	TrackingID       string
+	DeliveryOption   string
+	ShippingProvider string
 }
 
 // --- Platform Config Map ---
@@ -107,15 +110,18 @@ var ecommercePlatformConfigs = map[string]EcommercePlatformConfig{
 // -----------------------------------------------------------------------
 
 type PlatformExcelConfig struct {
-	SheetName   string // target sheet name (case-insensitive match)
-	HeaderRows  int    // number of rows to skip (1 = header only, 2 = header + description)
-	ColOrderNo  int
-	ColAWB      int
-	ColDate     int
-	ColSKU      int
-	ColProduct  int
-	ColQty      int
-	DateFormats []string
+	SheetName           string // target sheet name (case-insensitive match)
+	HeaderRows          int    // number of rows to skip (1 = header only, 2 = header + description)
+	ColOrderNo          int
+	ColAWB              int
+	ColDate             int
+	ColSKU              int
+	ColProduct          int
+	ColQty              int
+	DateFormats         []string
+	ColTrackingID       int
+	ColDeliveryOption   int
+	ColShippingProvider int
 }
 
 var platformExcelConfigs = map[string]PlatformExcelConfig{
@@ -133,6 +139,9 @@ var platformExcelConfigs = map[string]PlatformExcelConfig{
 			"2006-01-02 15:04:05",
 			"2006-01-02",
 		},
+		ColTrackingID:       3,
+		ColDeliveryOption:   5,
+		ColShippingProvider: 4,
 	},
 	"TOKOPEDIA": {
 		SheetName:  "OrderSKUList",
@@ -151,6 +160,9 @@ var platformExcelConfigs = map[string]PlatformExcelConfig{
 			"2006-01-02 15:04:05",
 			"2006-01-02",
 		},
+		ColTrackingID:       39,
+		ColDeliveryOption:   40,
+		ColShippingProvider: 41,
 	},
 }
 
@@ -416,6 +428,10 @@ func (c *OutboundController) CreateOutboundFromEcommerceExcel(ctx *fiber.Ctx) er
 		nowTime := now.Format("15:04")
 		defaultPickupTime := "16:00"
 
+		trackingID := orderItems[0].TrackingID
+		deliveryOptionn := orderItems[0].DeliveryOption
+		shippingProvider := orderItems[0].ShippingProvider
+
 		outboundHeader := models.OutboundHeader{
 			OutboundNo:     outboundNo,
 			OutboundDate:   orderItems[0].Date,
@@ -441,8 +457,13 @@ func (c *OutboundController) CreateOutboundFromEcommerceExcel(ctx *fiber.Ctx) er
 			RcvDoTime:      nowTime,
 			StartPickTime:  nowTime,
 			EndPickTime:    nowTime,
-			CreatedBy:      userID,
-			UpdatedBy:      userID,
+
+			TrackingID:       trackingID,
+			DeliveryOption:   deliveryOptionn,
+			ShippingProvider: shippingProvider,
+
+			CreatedBy: userID,
+			UpdatedBy: userID,
 		}
 
 		if err := tx.Create(&outboundHeader).Error; err != nil {
@@ -710,15 +731,27 @@ func (c *OutboundController) parseNativePlatformRows(
 			continue
 		}
 
+		// Tracking ID
+		trackingID := getCell(row, cfg.ColTrackingID)
+
+		// Delivery Option
+		deliveryOption := getCell(row, cfg.ColDeliveryOption)
+
+		// Shipping Provider
+		shippingProvider := getCell(row, cfg.ColShippingProvider)
+
 		result = append(result, EcommerceOrderRow{
-			Date:        parsedDate,
-			Platform:    platform,
-			OrderNumber: orderNumber,
-			AWBNumber:   strings.TrimSpace(getCell(row, cfg.ColAWB)),
-			ProductName: strings.TrimSpace(getCell(row, cfg.ColProduct)),
-			Qty:         qty,
-			SKU:         sku,
-			Row:         rowNum,
+			Date:             parsedDate,
+			Platform:         platform,
+			OrderNumber:      orderNumber,
+			AWBNumber:        strings.TrimSpace(getCell(row, cfg.ColAWB)),
+			ProductName:      strings.TrimSpace(getCell(row, cfg.ColProduct)),
+			Qty:              qty,
+			SKU:              sku,
+			Row:              rowNum,
+			TrackingID:       trackingID,
+			DeliveryOption:   deliveryOption,
+			ShippingProvider: shippingProvider,
 		})
 	}
 
