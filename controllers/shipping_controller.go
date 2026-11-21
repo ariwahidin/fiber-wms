@@ -406,33 +406,6 @@ func (c *ShippingController) GetOrderAndDetailByNo(ctx *fiber.Ctx) error {
 	})
 }
 
-// func (c *ShippingController) GetOrderAndDetailByNo(ctx *fiber.Ctx) error {
-// 	order_no := ctx.Params("order_no")
-// 	var OrderHeader models.OrderHeader
-// 	if err := c.DB.Debug().
-// 		Preload("Items").
-// 		First(&OrderHeader, "order_no = ?", order_no).Error; err != nil {
-// 		if errors.Is(err, gorm.ErrRecordNotFound) {
-// 			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Order not found"})
-// 		}
-// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-// 	}
-
-// 	shippingRepo := repositories.NewShippingRepository(c.DB)
-
-// 	orderDetailItems, err := shippingRepo.GetOrderDetailItem(int(OrderHeader.ID))
-// 	if err != nil {
-// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-// 	}
-
-// 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true,
-// 		"data": fiber.Map{
-// 			"order":        OrderHeader,
-// 			"detail_items": orderDetailItems},
-// 		"message": "Order found",
-// 	})
-// }
-
 func (c *ShippingController) UpdateOrderByID(ctx *fiber.Ctx) error {
 	order_no := ctx.Params("order_no")
 
@@ -645,8 +618,6 @@ func (c *ShippingController) DeleteItemOrderByID(ctx *fiber.Ctx) error {
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Delete Order successfully"})
 }
-
-// UpdateOrderStatus - Update status satu atau banyak order sekaligus
 func (c *ShippingController) UpdateOrderStatus(ctx *fiber.Ctx) error {
 	type StatusPayload struct {
 		OrderNos []string `json:"order_nos"` // bisa satu atau banyak

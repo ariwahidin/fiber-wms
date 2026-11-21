@@ -122,5 +122,10 @@ func MigrateBusinessUnit(db *gorm.DB) error {
 		&rpt_builder2.Rpt2Param{},
 		&rpt_builder2.Rpt2UserColumnPref{},
 		&rpt_builder2.Rpt2DownloadLog{},
+
+		// surat jalan
+		&models.SuratJalanHeader{},
+		&models.SuratJalanDetail{},
+		&models.SuratJalanPackage{},
 	)
 }
