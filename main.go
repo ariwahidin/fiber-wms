@@ -82,7 +82,18 @@ func main() {
 	}()
 
 	config.LoadConfig()
-	app := fiber.New()
+	// app := fiber.New()
+
+	app := fiber.New(fiber.Config{
+		EnableTrustedProxyCheck: true,
+
+		ProxyHeader: "X-Forwarded-For",
+
+		TrustedProxies: []string{
+			"127.0.0.1",
+			"::1",
+		},
+	})
 	config.SetupCORS(app)
 
 	// middleware logger custom

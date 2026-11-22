@@ -24,17 +24,17 @@ func NewPrintService(db *gorm.DB) *PrintService {
 // ============================================================
 
 type CreatePrintLogRequest struct {
-	DocumentType string `json:"documentType"`
-	DocumentNo   string `json:"documentNo"`
+	DocumentType string `json:"document_type"`
+	DocumentNo   string `json:"document_no"`
 	Module       string `json:"module"`
-	PrintMethod  string `json:"printMethod"`
-	PrintFormat  string `json:"printFormat"`
-	CopyCount    int    `json:"copyCount"`
-	PrinterName  string `json:"printerName"`
-	Workstation  string `json:"workstationName"`
+	PrintMethod  string `json:"print_method"`
+	PrintFormat  string `json:"print_format"`
+	CopyCount    int    `json:"copy_count"`
+	PrinterName  string `json:"printer_name"`
+	Workstation  string `json:"workstation_name"`
 	Reason       string `json:"reason"`
 	Status       string `json:"status"`
-	ErrorMessage string `json:"errorMessage"`
+	ErrorMessage string `json:"error_message"`
 }
 
 type CreatePrintLogParams struct {
