@@ -266,6 +266,12 @@ type OutboundBarcode struct {
 	CtnStatus        string  `json:"ctn_status" gorm:"default:'open'"`
 	PackageType      string  `json:"package_type"`
 	PackageQty       float64 `json:"package_qty"`
+	PcsPerCarton     float64 `json:"pcs_per_carton"`
+	PcsPerDozen      float64 `json:"pcs_per_dozen"`
+	PcsPerGross      float64 `json:"pcs_per_gross"`
+	PcsPerCase       float64 `json:"pcs_per_case"`
+	PcsPerSet        float64 `json:"pcs_per_set"`
+	PcsPerPack       float64 `json:"pcs_per_pack"`
 	CreatedBy        int
 	UpdatedBy        int
 	DeletedBy        int

@@ -15,28 +15,6 @@ func NewShippingRepository(db *gorm.DB) *ShippingRepository {
 	return &ShippingRepository{db: db}
 }
 
-// type OutboundList struct {
-// 	ID           uint    `json:"ID"`
-// 	OutboundNo   string  `json:"outbound_no"`
-// 	ShipmentID   string  `json:"shipment_id"`
-// 	OwnerCode    string  `json:"owner_code"`
-// 	OutboundDate string  `json:"outbound_date"`
-// 	CustomerCode string  `json:"customer_code"`
-// 	CustomerName string  `json:"customer_name"`
-// 	TotalItem    int     `json:"total_item"`
-// 	QtyReq       int     `json:"qty_req"`
-// 	QtyPlan      int     `json:"qty_plan"`
-// 	QtyPack      int     `json:"qty_pack"`
-// 	Status       string  `json:"status"`
-// 	TotalPrice   int     `json:"total_price"`
-// 	DelivTo      string  `json:"deliv_to"`
-// 	DelivToName  string  `json:"deliv_to_name"`
-// 	DelivAddress string  `json:"deliv_address"`
-// 	DelivCity    string  `json:"deliv_city"`
-// 	QtyKoli      int     `json:"qty_koli"`
-// 	TotalCBM     float64 `json:"total_cbm"`
-// }
-
 func (r *ShippingRepository) GetAllOutboundList() ([]OutboundList, error) {
 	var outboundList []OutboundList
 
@@ -87,6 +65,78 @@ func (r *ShippingRepository) GetAllOutboundList() ([]OutboundList, error) {
 			LEFT JOIN inventory_policies inpo ON a.owner_code = inpo.owner_code
 			WHERE a.status = 'complete'
 			AND odt.outbound_id IS NULL
+			order by a.id desc;`
+
+	if err := r.db.Raw(sql).Scan(&outboundList).Error; err != nil {
+		return nil, err
+	}
+
+	if len(outboundList) == 0 {
+		return []OutboundList{}, nil
+	}
+
+	return outboundList, nil
+}
+func (r *ShippingRepository) GetAllOutboundListAvailableForWorkOrder() ([]OutboundList, error) {
+	var outboundList []OutboundList
+
+	sql := `WITH od AS 
+	 (select outbound_id, count(outbound_id) as total_item, sum(p.cbm) as total_cbm,
+    sum(quantity) as qty_req
+    from outbound_details od
+	inner join products as p on od.item_id = p.id
+    group by outbound_id),
+   ps AS(
+		SELECT outbound_id, COUNT(item_id) AS total_item,  
+		SUM(quantity) AS qty_plan
+		FROM outbound_pickings
+		GROUP BY outbound_id
+	),
+	kd AS(
+		SELECT 
+		a.outbound_id, 
+		SUM(a.quantity) AS qty_pack, 
+		count( distinct a.pack_ctn_no) as total_ctn,
+		CAST(COALESCE(SUM(sjp.quantity), 0) AS int) AS qty_sj
+		FROM outbound_barcodes a
+		LEFT JOIN surat_jalan_packages sjp ON a.id = sjp.outbound_barcode_id AND sjp.outbound_id = a.outbound_id
+		GROUP BY a.outbound_id
+	)
+   select distinct a.id, a.outbound_no, 
+			a.shipment_id, 
+			a.status, a.owner_code, 
+			a.shipment_id,
+            a.outbound_date, a.customer_code,
+            od.total_item, 
+			od.qty_req, 
+			COALESCE(ps.qty_plan, 0) AS qty_plan,
+            COALESCE(kd.qty_pack, 0) AS qty_pack,
+			COALESCE(kd.qty_pack, 0) AS total_qty,
+			kd.qty_sj,
+			COALESCE(kd.qty_pack, 0) - kd.qty_sj AS qty_remaining,
+            cs.customer_name,
+			a.deliv_to,
+			cd.customer_name as deliv_to_name,
+			cd.cust_addr1 as deliv_address,
+			cd.cust_city as deliv_city,
+			COALESCE(kd.total_ctn, 0) as qty_koli,
+			ROUND(od.total_cbm, 4) as total_cbm,
+			od.total_item,
+			ps.qty_plan as total_qty,
+			odt.outbound_id as odt_id,
+			inpo.use_vas, 
+			a.order_type
+            from outbound_headers a
+            left join od on a.id = od.outbound_id
+            LEFT JOIN ps ON a.id = ps.outbound_id
+            LEFT JOIN kd ON a.id = kd.outbound_id
+            LEFT JOIN customers cs ON a.customer_code = cs.customer_code
+			LEFT JOIN customers cd ON a.deliv_to = cd.customer_code
+			LEFT JOIN order_details odt ON a.id = odt.outbound_id
+			LEFT JOIN inventory_policies inpo ON a.owner_code = inpo.owner_code
+			WHERE a.status = 'complete'
+			AND COALESCE(kd.qty_pack, 0) > kd.qty_sj
+			-- AND odt.outbound_id IS NULL
 			order by a.id desc;`
 
 	if err := r.db.Raw(sql).Scan(&outboundList).Error; err != nil {
@@ -166,21 +216,6 @@ order by oh.order_no DESC`
 
 	return orderList, nil
 }
-
-// type OrderDetailItem struct {
-// 	OutboundID  int     `json:"outbound_id"`
-// 	OutboundNo  string  `json:"outbound_no"`
-// 	DelivTo     string  `json:"deliv_to"`
-// 	DelivToName string  `json:"deliv_to_name"`
-// 	DelivCity   string  `json:"deliv_city"`
-// 	ShipmentID  string  `json:"shipment_id"`
-// 	TotalKoli   int     `json:"total_koli"`
-// 	Remarks     string  `json:"remarks"`
-// 	ItemCode    string  `json:"item_code"`
-// 	Quantity    int     `json:"quantity"`
-// 	CBM         float64 `json:"cbm"`
-// 	TotalCBM    float64 `json:"total_cbm"`
-// }
 
 type OrderDetailItem struct {
 	OutboundID  int    `json:"outbound_id"`

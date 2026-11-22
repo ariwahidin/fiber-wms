@@ -859,6 +859,12 @@ func (c *MobileOutboundController) ScanPicking(ctx *fiber.Ctx) error {
 				CtnTareWeight:    carton.TareWeight,
 				PackageType:      scanOutbound.PackageType,
 				PackageQty:       scanOutbound.PackageQty,
+				PcsPerCarton:     float64(product.QtyPerCarton),
+				PcsPerDozen:      float64(product.PcsPerDozen),
+				PcsPerGross:      float64(product.PcsPerGross),
+				PcsPerCase:       float64(product.PcsPerCase),
+				PcsPerSet:        float64(product.PcsPerSet),
+				PcsPerPack:       float64(product.PcsPerPack),
 				CreatedBy:        int(ctx.Locals("userID").(float64)),
 			}
 
@@ -934,6 +940,12 @@ func (c *MobileOutboundController) ScanPicking(ctx *fiber.Ctx) error {
 			CtnTareWeight: carton.TareWeight,
 			PackageType:   scanOutbound.PackageType,
 			PackageQty:    scanOutbound.PackageQty,
+			PcsPerCarton:  float64(product.QtyPerCarton),
+			PcsPerDozen:   float64(product.PcsPerDozen),
+			PcsPerGross:   float64(product.PcsPerGross),
+			PcsPerCase:    float64(product.PcsPerCase),
+			PcsPerSet:     float64(product.PcsPerSet),
+			PcsPerPack:    float64(product.PcsPerPack),
 			CreatedBy:     int(ctx.Locals("userID").(float64)),
 		}
 

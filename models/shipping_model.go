@@ -89,8 +89,10 @@ type OrderDetail struct {
 	OrderID uint   `json:"order_id"`
 	OrderNo string `json:"order_no"`
 
-	ShipmentID string            `json:"shipment_id" gorm:"type:nvarchar(100);uniqueIndex:ux_order_details_outbound_shipment"`
-	OutboundID types.SnowflakeID `json:"outbound_id" gorm:"uniqueIndex:ux_order_details_outbound_shipment"`
+	// ShipmentID string            `json:"shipment_id" gorm:"type:nvarchar(100);uniqueIndex:ux_order_details_outbound_shipment"`
+	ShipmentID string `json:"shipment_id" gorm:"type:nvarchar(100);index:idx_order_details_shipment_outbound,priority:1"`
+	// OutboundID types.SnowflakeID `json:"outbound_id" gorm:"uniqueIndex:ux_order_details_outbound_shipment"`
+	OutboundID types.SnowflakeID `json:"outbound_id" gorm:"index:idx_order_details_shipment_outbound,priority:2"`
 
 	DeliveryMode string `json:"delivery_mode" gorm:"type:nvarchar(20);not null;default:'DIRECT'"`
 
@@ -102,10 +104,14 @@ type OrderDetail struct {
 
 	OutboundNo   string  `json:"outbound_no"`
 	QtyKoli      int     `json:"qty_koli"`
+	QtyKoliSJ    int     `json:"qty_koli_sj"`
 	VasKoli      int     `json:"vas_koli"`
 	TotalItem    int     `json:"total_item"`
 	TotalQty     int     `json:"total_qty"`
 	TotalCBM     float64 `json:"total_cbm"`
+	TotalItemSJ  int     `json:"total_item_sj"`
+	TotalQtySJ   int     `json:"total_qty_sj"`
+	TotalCbmSJ   int     `json:"total_cbm_sj"`
 	DelivTo      string  `json:"deliv_to"`
 	DelivToName  string  `json:"deliv_to_name"`
 	DelivAddress string  `json:"deliv_address"`

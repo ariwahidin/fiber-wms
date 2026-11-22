@@ -29,6 +29,7 @@ func (SuratJalanHeader) TableName() string { return "surat_jalan_headers" }
 type SuratJalanDetail struct {
 	ID              uint64    `gorm:"primaryKey;autoIncrement" json:"id"`
 	SJID            uint64    `gorm:"not null;index" json:"sj_id"`
+	OrderID         uint64    `json:"order_id"`
 	OrderDetailID   string    `gorm:"size:64;not null" json:"order_detail_id"`
 	OutboundID      string    `gorm:"size:64;not null;index" json:"outbound_id"`
 	OutboundNo      string    `gorm:"size:50;not null;index" json:"outbound_no"`
@@ -44,9 +45,13 @@ func (SuratJalanDetail) TableName() string { return "surat_jalan_details" }
 
 type SuratJalanPackage struct {
 	ID                uint64     `gorm:"primaryKey;autoIncrement" json:"id"`
-	SJDetailID        uint64     `gorm:"not null;index" json:"sj_detail_id"`
+	OrderID           uint64     `json:"order_id"`
+	SJDetailID        uint64     `gorm:"not null" json:"sj_detail_id"`
 	OutboundBarcodeID uint64     `gorm:"not null;uniqueIndex" json:"outbound_barcode_id"`
-	IsActive          bool       `gorm:"not null;default:true;index" json:"is_active"`
+	OutboundID        uint64     `json:"outbound_id"`
+	ItemID            uint64     `json:"item_id"`
+	Quantity          float64    `gorm:"type:decimal(18,4)" json:"quantity"`
+	IsActive          bool       `gorm:"not null;default:true" json:"is_active"`
 	CreatedAt         time.Time  `json:"created_at"`
 	ReleasedAt        *time.Time `json:"released_at,omitempty"`
 }

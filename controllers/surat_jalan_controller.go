@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -40,27 +41,129 @@ func sjID(v interface{}) string { return fmt.Sprint(v) }
 
 // nextSJNo must be called inside the same SQL Server transaction used to insert the header.
 // The unique SJNo index plus UPDLOCK/HOLDLOCK serializes the daily sequence allocation.
+
+// func nextSJNo(tx *gorm.DB, now time.Time) (string, error) {
+// 	loc, err := time.LoadLocation("Asia/Jakarta")
+// 	if err != nil {
+// 		loc = time.FixedZone("WIB", 7*60*60)
+// 	}
+
+// 	date := now.In(loc).Format("20060102")
+// 	prefix := "YIID-PILOT-" + date + "-"
+
+// 	var last string
+
+// 	err = tx.Raw(`
+// 		SELECT TOP 1 sj_no
+// 		FROM surat_jalan_headers WITH (UPDLOCK, HOLDLOCK)
+// 		WHERE sj_no >= ?
+// 		  AND sj_no < ?
+// 		ORDER BY sj_no DESC
+// 	`, prefix, prefix+"~").Scan(&last).Error
+
+// 	if err != nil {
+// 		return "", err
+// 	}
+
+// 	next := 1
+
+// 	if last != "" {
+// 		lastNumber := strings.TrimPrefix(last, prefix)
+
+// 		n, parseErr := strconv.Atoi(lastNumber)
+// 		if parseErr != nil {
+// 			return "", fmt.Errorf("invalid SJ number format: %s", last)
+// 		}
+
+// 		next = n + 1
+// 	}
+
+// 	return fmt.Sprintf("%s%04d", prefix, next), nil
+// }
+
 func nextSJNo(tx *gorm.DB, now time.Time) (string, error) {
 	loc, err := time.LoadLocation("Asia/Jakarta")
 	if err != nil {
 		loc = time.FixedZone("WIB", 7*60*60)
 	}
+
 	date := now.In(loc).Format("20060102")
 	prefix := "YIID-PILOT-" + date + "-"
-	var last string
-	err = tx.Raw("SELECT TOP 1 sj_no FROM surat_jalan_headers WITH (UPDLOCK, HOLDLOCK) WHERE sj_no >= ? AND sj_no < ? ORDER BY sj_no DESC", prefix, prefix+"~").Scan(&last).Error
+	resource := "SJ_GENERATOR_" + date
+
+	// 1. Acquire exclusive application lock.
+	var lockResult struct {
+		LockResult int `gorm:"column:lock_result"`
+	}
+
+	err = tx.Raw(`
+        DECLARE @result INT;
+
+        EXEC @result = sys.sp_getapplock
+            @Resource = ?,
+            @LockMode = 'Exclusive',
+            @LockOwner = 'Transaction',
+            @LockTimeout = 15000;
+
+        SELECT CAST(@result AS INT) AS lock_result;
+    `, resource).Scan(&lockResult).Error
+
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("acquire SJ lock: %w", err)
 	}
+
+	if lockResult.LockResult < 0 {
+		return "", fmt.Errorf(
+			"SJ lock failed with result: %d",
+			lockResult.LockResult,
+		)
+	}
+
+	// 2. Read the latest SJ number.
+	var result struct {
+		LastSJ string `gorm:"column:last_sj"`
+	}
+
+	err = tx.Raw(`
+        SELECT ISNULL(MAX(sj_no), '') AS last_sj
+        FROM dbo.surat_jalan_headers
+        WHERE sj_no LIKE ?
+    `, prefix+"%").Scan(&result).Error
+
+	if err != nil {
+		return "", fmt.Errorf("read latest SJ number: %w", err)
+	}
+
+	// 3. Calculate next sequence.
 	next := 1
-	if last != "" {
-		var n int
-		if _, scanErr := fmt.Sscanf(last, prefix+"%d", &n); scanErr == nil {
-			next = n + 1
+
+	if result.LastSJ != "" {
+		lastNumber := strings.TrimPrefix(result.LastSJ, prefix)
+
+		if lastNumber == result.LastSJ {
+			return "", fmt.Errorf(
+				"invalid SJ prefix: %s",
+				result.LastSJ,
+			)
 		}
+
+		n, err := strconv.Atoi(lastNumber)
+		if err != nil {
+			return "", fmt.Errorf(
+				"invalid SJ sequence: %s",
+				result.LastSJ,
+			)
+		}
+
+		next = n + 1
 	}
-	return fmt.Sprintf("%s%04d", prefix, next), nil
+
+	// 4. Generate SJ number.
+	sjNo := fmt.Sprintf("%s%04d", prefix, next)
+
+	return sjNo, nil
 }
+
 func sjError(c *fiber.Ctx, code int, msg string, err error) error {
 	out := fiber.Map{"success": false, "message": msg}
 	if err != nil {
@@ -87,11 +190,15 @@ func (h *ShippingController) GetSuratJalanListByOrderNo(c *fiber.Ctx) error {
 func (h *ShippingController) GetAvailablePackages(c *fiber.Ctx) error {
 	orderNo := strings.TrimSpace(c.Params("order_no"))
 	var order models.OrderHeader
-	if err := h.DB.Where("order_no = ?", orderNo).First(&order).Error; err != nil {
+	if err := h.DB.
+		Where("order_no = ?", orderNo).
+		First(&order).Error; err != nil {
 		return sjError(c, 404, "SPK not found", err)
 	}
 	var details []models.OrderDetail
-	if err := h.DB.Where("order_id = ?", order.ID).Find(&details).Error; err != nil {
+	if err := h.DB.
+		Where("order_id = ?", order.ID).
+		Find(&details).Error; err != nil {
 		return sjError(c, 500, "Failed to get SPK DO list", err)
 	}
 	outboundNos := make([]string, 0, len(details))
@@ -103,15 +210,22 @@ func (h *ShippingController) GetAvailablePackages(c *fiber.Ctx) error {
 	if len(outboundNos) == 0 {
 		return c.JSON(fiber.Map{"success": true, "data": []interface{}{}})
 	}
-	reserved := h.DB.Table("surat_jalan_packages AS sjp").Select("sjp.outbound_barcode_id").Where("sjp.is_active = ?", true)
+	reserved := h.DB.Table("surat_jalan_packages AS sjp").
+		Select("sjp.outbound_barcode_id").
+		Where("sjp.is_active = ?", true)
 	if sjNo := strings.TrimSpace(c.Query("sj_no")); sjNo != "" {
-		reserved = reserved.Joins("JOIN surat_jalan_details AS sjd ON sjd.id = sjp.sj_detail_id").Joins("JOIN surat_jalan_headers AS sjh ON sjh.id = sjd.sj_id").Where("sjh.sj_no <> ?", sjNo)
+		reserved = reserved.
+			Joins("JOIN surat_jalan_details AS sjd ON sjd.id = sjp.sj_detail_id").
+			Joins("JOIN surat_jalan_headers AS sjh ON sjh.id = sjd.sj_id").
+			Where("sjh.sj_no <> ?", sjNo)
 	}
 	var packages []models.OutboundBarcode
-	err := h.DB.Preload("Product").
+	err := h.DB.Debug().
+		Preload("Product").
 		Preload("OutboundHeader").
 		Where("outbound_no IN ?", outboundNos).
-		Where("id NOT IN (?)", reserved).Order("outbound_no, carton_code, id").Find(&packages).Error
+		Where("id NOT IN (?)", reserved).
+		Order("outbound_no, carton_code, id").Find(&packages).Error
 	if err != nil {
 		return sjError(c, 500, "Failed to get available packages", err)
 	}
@@ -140,59 +254,128 @@ func (h *ShippingController) UpdateSuratJalan(c *fiber.Ctx) error {
 	return h.saveSJ(c, header.OrderNo, header.SJNo, p)
 }
 
-func (h *ShippingController) saveSJ(c *fiber.Ctx, orderNo, sjNo string, p sjPayload) error {
+func (h *ShippingController) saveSJ(
+	c *fiber.Ctx,
+	orderNo, sjNo string,
+	p sjPayload,
+) error {
+
 	if len(p.Items) == 0 {
 		return sjError(c, 400, "Select at least one DO and package", nil)
 	}
+
 	tx := h.DB.Begin()
 	if tx.Error != nil {
 		return sjError(c, 500, "Could not start transaction", tx.Error)
 	}
-	defer func() {
-		if r := recover(); r != nil {
-			tx.Rollback()
-		}
-	}()
-	var order models.OrderHeader
-	if err := tx.Where("order_no = ?", orderNo).First(&order).Error; err != nil {
+
+	header, err := h.saveSJTx(c, tx, orderNo, sjNo, p)
+	if err != nil {
 		tx.Rollback()
-		return sjError(c, 404, "SPK not found", err)
+		return err
 	}
+
+	if err := tx.Commit().Error; err != nil {
+		tx.Rollback()
+		return sjError(c, 500, "Failed to commit SJ", err)
+	}
+
+	return c.Status(201).JSON(fiber.Map{
+		"success": true,
+		"message": "SJ draft saved; packages reserved",
+		"data": fiber.Map{
+			"sj_no":  header.SJNo,
+			"status": header.Status,
+		},
+	})
+}
+
+func (h *ShippingController) saveSJTx(
+	c *fiber.Ctx,
+	tx *gorm.DB,
+	orderNo, sjNo string,
+	p sjPayload,
+) (*models.SuratJalanHeader, error) {
+
+	if len(p.Items) == 0 {
+		return nil, sjError(c, 400, "Select at least one DO and package", nil)
+	}
+
+	var order models.OrderHeader
+
+	if err := tx.Where("order_no = ?", orderNo).
+		First(&order).Error; err != nil {
+
+		return nil, sjError(c, 404, "SPK not found", err)
+	}
+
 	var header models.SuratJalanHeader
+
+	// =========================================
+	// LOAD EXISTING DRAFT OR CREATE NEW SJ
+	// =========================================
+
 	if sjNo != "" {
-		if err := tx.Where("sj_no = ?", sjNo).First(&header).Error; err != nil {
-			tx.Rollback()
-			return sjError(c, 404, "SJ not found", err)
+
+		if err := tx.Where("sj_no = ?", sjNo).
+			First(&header).Error; err != nil {
+
+			return nil, sjError(c, 404, "SJ not found", err)
 		}
+
 		if header.Status != "DRAFT" {
-			tx.Rollback()
-			return sjError(c, 500, "Only DRAFT SJ can be edited", nil)
+			return nil, sjError(c, 400, "Only DRAFT SJ can be edited", nil)
 		}
-		if err := tx.Unscoped().Where("sj_detail_id IN (SELECT id FROM surat_jalan_details WHERE sj_id = ?)", header.ID).Delete(&models.SuratJalanPackage{}).Error; err != nil {
-			tx.Rollback()
-			return sjError(c, 500, "Failed to replace package allocations", err)
+
+		if err := tx.Unscoped().
+			Where(
+				"sj_detail_id IN (SELECT id FROM surat_jalan_details WHERE sj_id = ?)",
+				header.ID,
+			).
+			Delete(&models.SuratJalanPackage{}).Error; err != nil {
+
+			return nil, sjError(c, 500, "Failed to replace package allocations", err)
 		}
-		if err := tx.Unscoped().Where("sj_id = ?", header.ID).Delete(&models.SuratJalanDetail{}).Error; err != nil {
-			tx.Rollback()
-			return sjError(c, 500, "Failed to replace SJ details", err)
+
+		if err := tx.Unscoped().
+			Where("sj_id = ?", header.ID).
+			Delete(&models.SuratJalanDetail{}).Error; err != nil {
+
+			return nil, sjError(c, 500, "Failed to replace SJ details", err)
 		}
+
 	} else {
+
 		sjNoGenerated, genErr := nextSJNo(tx, time.Now())
 		if genErr != nil {
-			tx.Rollback()
-			return sjError(c, 500, "Failed to generate SJ number", genErr)
+			return nil, sjError(c, 500, "Failed to generate SJ number", genErr)
 		}
-		header = models.SuratJalanHeader{SJNo: sjNoGenerated, OrderID: sjID(order.ID), OrderNo: order.OrderNo, Status: "DRAFT", CreatedBy: sjUserID(c), CreatedAt: time.Now()}
+
+		header = models.SuratJalanHeader{
+			SJNo:      sjNoGenerated,
+			OrderID:   sjID(order.ID),
+			OrderNo:   order.OrderNo,
+			Status:    "DRAFT",
+			CreatedBy: sjUserID(c),
+			CreatedAt: time.Now(),
+		}
 	}
+
+	// =========================================
+	// HEADER DATA
+	// =========================================
+
 	date := time.Now()
+
 	if p.SJDate != "" {
 		parsed, err := time.Parse("2006-01-02", p.SJDate)
 		if err != nil {
-			tx.Rollback()
-			return sjError(c, 400, "sj_date must use YYYY-MM-DD", err)
+			return nil, sjError(c, 400, "sj_date must use YYYY-MM-DD", err)
 		}
+
 		date = parsed
 	}
+
 	header.SJDate = date
 	header.Driver = p.Driver
 	header.DriverPhone = p.DriverPhone
@@ -204,62 +387,378 @@ func (h *ShippingController) saveSJ(c *fiber.Ctx, orderNo, sjNo string, p sjPayl
 	header.Remarks = p.Remarks
 	header.UpdatedBy = sjUserID(c)
 	header.UpdatedAt = time.Now()
+
 	if sjNo == "" {
+
 		if err := tx.Create(&header).Error; err != nil {
-			tx.Rollback()
-			return sjError(c, 500, "Failed to create SJ header", err)
+			return nil, sjError(c, 500, "Failed to create SJ header", err)
 		}
-	} else if err := tx.Save(&header).Error; err != nil {
-		tx.Rollback()
-		return sjError(c, 500, "Failed to update SJ header", err)
+
+	} else {
+
+		if err := tx.Save(&header).Error; err != nil {
+			return nil, sjError(c, 500, "Failed to update SJ header", err)
+		}
 	}
+
+	// =========================================
+	// LOAD SPK DETAILS
+	// =========================================
+
 	var orderDetails []models.OrderDetail
-	if err := tx.Where("order_id = ?", order.ID).Find(&orderDetails).Error; err != nil {
-		tx.Rollback()
-		return sjError(c, 500, "Failed to load SPK DOs", err)
+
+	if err := tx.Where("order_id = ?", order.ID).
+		Find(&orderDetails).Error; err != nil {
+
+		return nil, sjError(c, 500, "Failed to load SPK DOs", err)
 	}
-	detailByID := map[string]models.OrderDetail{}
+
+	detailByID := make(map[string]models.OrderDetail)
+
 	for _, d := range orderDetails {
 		detailByID[sjID(d.ID)] = d
 	}
-	seen := map[uint64]bool{}
+
+	// =========================================
+	// PROCESS SELECTED DO AND PACKAGES
+	// =========================================
+
+	seen := make(map[uint64]bool)
+
 	for _, selection := range p.Items {
+
 		detail, ok := detailByID[selection.OrderDetailID]
+
 		if !ok || detail.OutboundNo != selection.OutboundNo {
-			tx.Rollback()
-			return sjError(c, 400, "Selected DO does not belong to this SPK", nil)
+			return nil, sjError(c, 400, "Selected DO does not belong to this SPK", nil)
 		}
+
 		if len(selection.PackageIDs) == 0 {
-			tx.Rollback()
-			return sjError(c, 400, "Each selected DO must contain at least one package", nil)
+			return nil, sjError(c, 400, "Each selected DO must contain at least one package", nil)
 		}
-		sd := models.SuratJalanDetail{SJID: header.ID, OrderDetailID: selection.OrderDetailID, OutboundID: sjID(detail.OutboundID), OutboundNo: detail.OutboundNo, ShipmentID: detail.ShipmentID, DeliveryTo: detail.DelivTo, DeliveryToName: detail.DelivToName, DeliveryAddress: detail.DelivAddress, DeliveryCity: detail.DelivCity, CreatedAt: time.Now()}
+
+		sd := models.SuratJalanDetail{
+			SJID:            header.ID,
+			OrderID:         uint64(detail.OrderID),
+			OrderDetailID:   selection.OrderDetailID,
+			OutboundID:      sjID(detail.OutboundID),
+			OutboundNo:      detail.OutboundNo,
+			ShipmentID:      detail.ShipmentID,
+			DeliveryTo:      detail.DelivTo,
+			DeliveryToName:  detail.DelivToName,
+			DeliveryAddress: detail.DelivAddress,
+			DeliveryCity:    detail.DelivCity,
+			CreatedAt:       time.Now(),
+		}
+
 		if err := tx.Create(&sd).Error; err != nil {
-			tx.Rollback()
-			return sjError(c, 500, "Failed to create SJ DO detail", err)
+			return nil, sjError(c, 500, "Failed to create SJ DO detail", err)
 		}
+
+		// =====================================
+		// PACKAGE ALLOCATION
+		// =====================================
+
 		for _, packageID := range selection.PackageIDs {
+
 			if seen[packageID] {
-				tx.Rollback()
-				return sjError(c, 400, "Duplicate package ID in request", nil)
+				return nil, sjError(c, 400, "Duplicate package ID in request", nil)
 			}
+
 			seen[packageID] = true
+
 			var barcode models.OutboundBarcode
-			if err := tx.Where("id = ? AND outbound_no = ?", packageID, detail.OutboundNo).First(&barcode).Error; err != nil {
-				tx.Rollback()
-				return sjError(c, 400, "Package does not belong to selected DO", err)
+
+			if err := tx.Where(
+				"id = ? AND outbound_no = ?",
+				packageID,
+				detail.OutboundNo,
+			).First(&barcode).Error; err != nil {
+
+				return nil, sjError(c, 400, "Package does not belong to selected DO", err)
 			}
-			allocation := models.SuratJalanPackage{SJDetailID: sd.ID, OutboundBarcodeID: uint64(barcode.ID), IsActive: true, CreatedAt: time.Now()}
+
+			allocation := models.SuratJalanPackage{
+				SJDetailID:        sd.ID,
+				OrderID:           sd.OrderID,
+				OutboundBarcodeID: uint64(barcode.ID),
+				OutboundID:        uint64(barcode.OutboundId),
+				Quantity:          barcode.Quantity,
+				ItemID:            uint64(barcode.ItemID),
+				IsActive:          true,
+				CreatedAt:         time.Now(),
+			}
+
 			if err := tx.Create(&allocation).Error; err != nil {
-				tx.Rollback()
-				return sjError(c, 500, "Package already reserved by another active SJ", err)
+				return nil, sjError(c, 500, "Package already reserved by another active SJ", err)
 			}
 		}
+
+		// =====================================
+		// UPDATE SPK DO SUMMARY
+		// =====================================
+
+		if err := h.updateOrderDetailFromSJ(
+			tx,
+			uint(detail.ID),
+			sjUserID(c),
+		); err != nil {
+
+			return nil, sjError(c, 500, "Failed to update SPK DO summary", err)
+		}
 	}
-	if err := tx.Commit().Error; err != nil {
-		return sjError(c, 500, "Failed to commit SJ", err)
+
+	return &header, nil
+}
+
+// func (h *ShippingController) saveSJ(c *fiber.Ctx, orderNo, sjNo string, p sjPayload) error {
+// 	if len(p.Items) == 0 {
+// 		return sjError(c, 400, "Select at least one DO and package", nil)
+// 	}
+// 	tx := h.DB.Begin()
+// 	if tx.Error != nil {
+// 		return sjError(c, 500, "Could not start transaction", tx.Error)
+// 	}
+// 	defer func() {
+// 		if r := recover(); r != nil {
+// 			tx.Rollback()
+// 		}
+// 	}()
+// 	var order models.OrderHeader
+// 	if err := tx.Where("order_no = ?", orderNo).First(&order).Error; err != nil {
+// 		tx.Rollback()
+// 		return sjError(c, 404, "SPK not found", err)
+// 	}
+// 	var header models.SuratJalanHeader
+// 	if sjNo != "" {
+// 		if err := tx.Where("sj_no = ?", sjNo).First(&header).Error; err != nil {
+// 			tx.Rollback()
+// 			return sjError(c, 404, "SJ not found", err)
+// 		}
+// 		if header.Status != "DRAFT" {
+// 			tx.Rollback()
+// 			return sjError(c, 500, "Only DRAFT SJ can be edited", nil)
+// 		}
+// 		if err := tx.Unscoped().
+// 			Where("sj_detail_id IN (SELECT id FROM surat_jalan_details WHERE sj_id = ?)", header.ID).
+// 			Delete(&models.SuratJalanPackage{}).Error; err != nil {
+// 			tx.Rollback()
+// 			return sjError(c, 500, "Failed to replace package allocations", err)
+// 		}
+// 		if err := tx.Unscoped().Where("sj_id = ?", header.ID).Delete(&models.SuratJalanDetail{}).Error; err != nil {
+// 			tx.Rollback()
+// 			return sjError(c, 500, "Failed to replace SJ details", err)
+// 		}
+// 	} else {
+// 		sjNoGenerated, genErr := nextSJNo(tx, time.Now())
+// 		if genErr != nil {
+// 			tx.Rollback()
+// 			return sjError(c, 500, "Failed to generate SJ number", genErr)
+// 		}
+
+// 		fmt.Printf("[SJ DEBUG] Generated SJ Number: %s\n", sjNoGenerated)
+
+// 		header = models.SuratJalanHeader{
+// 			SJNo:      sjNoGenerated,
+// 			OrderID:   sjID(order.ID),
+// 			OrderNo:   order.OrderNo,
+// 			Status:    "DRAFT",
+// 			CreatedBy: sjUserID(c),
+// 			CreatedAt: time.Now(),
+// 		}
+// 	}
+// 	date := time.Now()
+// 	if p.SJDate != "" {
+// 		parsed, err := time.Parse("2006-01-02", p.SJDate)
+// 		if err != nil {
+// 			tx.Rollback()
+// 			return sjError(c, 400, "sj_date must use YYYY-MM-DD", err)
+// 		}
+// 		date = parsed
+// 	}
+// 	header.SJDate = date
+// 	header.Driver = p.Driver
+// 	header.DriverPhone = p.DriverPhone
+// 	header.TruckType = p.TruckType
+// 	header.TruckSize = p.TruckSize
+// 	header.TruckNo = p.TruckNo
+// 	header.TransporterCode = p.TransporterCode
+// 	header.TransporterName = p.TransporterName
+// 	header.Remarks = p.Remarks
+// 	header.UpdatedBy = sjUserID(c)
+// 	header.UpdatedAt = time.Now()
+// 	if sjNo == "" {
+// 		if err := tx.Create(&header).Error; err != nil {
+// 			tx.Rollback()
+// 			return sjError(c, 500, "Failed to create SJ header", err)
+// 		}
+// 	} else if err := tx.Save(&header).Error; err != nil {
+// 		tx.Rollback()
+// 		return sjError(c, 500, "Failed to update SJ header", err)
+// 	}
+// 	var orderDetails []models.OrderDetail
+// 	if err := tx.Where("order_id = ?", order.ID).Find(&orderDetails).Error; err != nil {
+// 		tx.Rollback()
+// 		return sjError(c, 500, "Failed to load SPK DOs", err)
+// 	}
+// 	detailByID := map[string]models.OrderDetail{}
+// 	for _, d := range orderDetails {
+// 		detailByID[sjID(d.ID)] = d
+// 	}
+// 	seen := map[uint64]bool{}
+// 	for _, selection := range p.Items {
+// 		detail, ok := detailByID[selection.OrderDetailID]
+// 		if !ok || detail.OutboundNo != selection.OutboundNo {
+// 			tx.Rollback()
+// 			return sjError(c, 400, "Selected DO does not belong to this SPK", nil)
+// 		}
+// 		if len(selection.PackageIDs) == 0 {
+// 			tx.Rollback()
+// 			return sjError(c, 400, "Each selected DO must contain at least one package", nil)
+// 		}
+// 		sd := models.SuratJalanDetail{
+// 			SJID:            header.ID,
+// 			OrderID:         uint64(detail.OrderID),
+// 			OrderDetailID:   selection.OrderDetailID,
+// 			OutboundID:      sjID(detail.OutboundID),
+// 			OutboundNo:      detail.OutboundNo,
+// 			ShipmentID:      detail.ShipmentID,
+// 			DeliveryTo:      detail.DelivTo,
+// 			DeliveryToName:  detail.DelivToName,
+// 			DeliveryAddress: detail.DelivAddress,
+// 			DeliveryCity:    detail.DelivCity,
+// 			CreatedAt:       time.Now(),
+// 		}
+// 		if err := tx.Create(&sd).Error; err != nil {
+// 			tx.Rollback()
+// 			return sjError(c, 500, "Failed to create SJ DO detail", err)
+// 		}
+// 		for _, packageID := range selection.PackageIDs {
+// 			if seen[packageID] {
+// 				tx.Rollback()
+// 				return sjError(c, 400, "Duplicate package ID in request", nil)
+// 			}
+// 			seen[packageID] = true
+// 			var barcode models.OutboundBarcode
+// 			if err := tx.Where("id = ? AND outbound_no = ?", packageID, detail.OutboundNo).First(&barcode).Error; err != nil {
+// 				tx.Rollback()
+// 				return sjError(c, 400, "Package does not belong to selected DO", err)
+// 			}
+// 			allocation := models.SuratJalanPackage{
+// 				SJDetailID:        sd.ID,
+// 				OrderID:           sd.OrderID,
+// 				OutboundBarcodeID: uint64(barcode.ID),
+// 				OutboundID:        uint64(barcode.OutboundId),
+// 				Quantity:          barcode.Quantity,
+// 				ItemID:            uint64(barcode.ItemID),
+// 				IsActive:          true,
+// 				CreatedAt:         time.Now(),
+// 			}
+// 			if err := tx.Create(&allocation).Error; err != nil {
+// 				tx.Rollback()
+// 				return sjError(c, 500, "Package already reserved by another active SJ", err)
+// 			}
+// 		}
+
+// 		if err := h.updateOrderDetailFromSJ(
+// 			tx,
+// 			uint(detail.ID),
+// 			sjUserID(c),
+// 		); err != nil {
+// 			tx.Rollback()
+// 			return sjError(c, 500, "Failed to update SPK DO summary", err)
+// 		}
+// 	}
+
+// 	if err := tx.Commit().Error; err != nil {
+// 		return sjError(c, 500, "Failed to commit SJ", err)
+// 	}
+// 	return c.Status(201).JSON(fiber.Map{"success": true, "message": "SJ draft saved; packages reserved", "data": fiber.Map{"sj_no": header.SJNo, "status": header.Status}})
+// }
+
+func (h *ShippingController) updateOrderDetailFromSJ(
+	tx *gorm.DB,
+	orderDetailID uint,
+	userID int,
+) error {
+
+	type SJSummary struct {
+		TotalKoli int64   `gorm:"column:total_koli"`
+		TotalItem int64   `gorm:"column:total_item"`
+		TotalQty  float64 `gorm:"column:total_qty"`
+		TotalCBM  float64 `gorm:"column:total_cbm"`
 	}
-	return c.Status(201).JSON(fiber.Map{"success": true, "message": "SJ draft saved; packages reserved", "data": fiber.Map{"sj_no": header.SJNo, "status": header.Status}})
+
+	var summary SJSummary
+
+	err := tx.Table("surat_jalan_packages AS sjp").
+		Select(`
+            COALESCE(
+                SUM(
+                    CASE
+                        WHEN ob.pcs_per_carton > 0
+                        THEN CEILING(
+                            ob.quantity / ob.pcs_per_carton
+                        )
+                        ELSE 0
+                    END
+                ), 0
+            ) AS total_koli,
+
+            COUNT(DISTINCT ob.item_id) AS total_item,
+
+            COALESCE(
+                SUM(ob.quantity), 0
+            ) AS total_qty,
+
+            COALESCE(
+                SUM(
+                    CASE
+                        WHEN ob.pcs_per_carton > 0
+                        THEN
+                            CEILING(
+                                ob.quantity / ob.pcs_per_carton
+                            ) * COALESCE(p.cbm_per_carton, 0)
+                        ELSE 0
+                    END
+                ), 0
+            ) AS total_cbm
+        `).
+		Joins(`
+            INNER JOIN surat_jalan_details AS sjd
+                ON sjd.id = sjp.sj_detail_id
+        `).
+		Joins(`
+            INNER JOIN surat_jalan_headers AS sjh
+                ON sjh.id = sjd.sj_id
+        `).
+		Joins(`
+            INNER JOIN outbound_barcodes AS ob
+                ON ob.id = sjp.outbound_barcode_id
+        `).
+		Joins(`
+            LEFT JOIN products AS p
+                ON p.id = ob.item_id
+        `).
+		Where("sjd.order_detail_id = ?", orderDetailID).
+		Where("sjp.is_active = ?", true).
+		Where("sjh.status <> ?", "CANCELLED").
+		Scan(&summary).Error
+
+	if err != nil {
+		return err
+	}
+
+	return tx.Model(&models.OrderDetail{}).
+		Where("id = ?", orderDetailID).
+		Updates(map[string]interface{}{
+			"qty_koli_sj":   summary.TotalKoli,
+			"total_item_sj": summary.TotalItem,
+			"total_qty_sj":  summary.TotalQty,
+			"total_cbm_sj":  summary.TotalCBM,
+			"updated_at":    time.Now(),
+			"updated_by":    userID,
+		}).Error
 }
 
 // DeleteSuratJalan permanently deletes a DRAFT SJ and its child rows.
@@ -277,7 +776,9 @@ func (h *ShippingController) DeleteSuratJalan(c *fiber.Ctx) error {
 		tx.Rollback()
 		return sjError(c, 409, "Only DRAFT SJ can be deleted", nil)
 	}
-	if err := tx.Unscoped().Where("sj_detail_id IN (SELECT id FROM surat_jalan_details WHERE sj_id = ?)", header.ID).Delete(&models.SuratJalanPackage{}).Error; err != nil {
+	if err := tx.Unscoped().
+		Where("sj_detail_id IN (SELECT id FROM surat_jalan_details WHERE sj_id = ?)", header.ID).
+		Delete(&models.SuratJalanPackage{}).Error; err != nil {
 		tx.Rollback()
 		return sjError(c, 500, "Failed to delete package allocations", err)
 	}
@@ -311,7 +812,9 @@ func (h *ShippingController) GetSuratJalanDetail(c *fiber.Ctx) error {
 	rows := make([]row, 0, len(details))
 	for _, d := range details {
 		var allocations []models.SuratJalanPackage
-		if err := h.DB.Where("sj_detail_id = ? AND is_active = 1", d.ID).Find(&allocations).Error; err != nil {
+		if err := h.DB.
+			Where("sj_detail_id = ? AND is_active = 1", d.ID).
+			Find(&allocations).Error; err != nil {
 			return sjError(c, 500, "Failed to get package allocations", err)
 		}
 		ids := make([]uint64, 0, len(allocations))
@@ -337,7 +840,13 @@ func (h *ShippingController) ReleaseSuratJalan(c *fiber.Ctx) error {
 	if hrow.Status != "DRAFT" {
 		return sjError(c, 500, "Only DRAFT SJ can be released", nil)
 	}
-	res := h.DB.Model(&models.SuratJalanHeader{}).Where("id = ? AND status = ?", hrow.ID, "DRAFT").Updates(map[string]interface{}{"status": "RELEASED", "updated_at": time.Now(), "updated_by": sjUserID(c)})
+	res := h.DB.Model(&models.SuratJalanHeader{}).
+		Where("id = ? AND status = ?", hrow.ID, "DRAFT").
+		Updates(map[string]interface{}{
+			"status":     "RELEASED",
+			"updated_at": time.Now(),
+			"updated_by": sjUserID(c),
+		})
 	if res.Error != nil {
 		return sjError(c, 500, "Failed to release SJ", res.Error)
 	}
@@ -362,7 +871,9 @@ func (h *ShippingController) CancelSuratJalan(c *fiber.Ctx) error {
 		tx.Rollback()
 		return c.JSON(fiber.Map{"success": true, "message": "SJ already cancelled"})
 	}
-	if err := tx.Unscoped().Where("sj_detail_id IN (SELECT id FROM surat_jalan_details WHERE sj_id = ?)", header.ID).Delete(&models.SuratJalanPackage{}).Error; err != nil {
+	if err := tx.Unscoped().
+		Where("sj_detail_id IN (SELECT id FROM surat_jalan_details WHERE sj_id = ?)", header.ID).
+		Delete(&models.SuratJalanPackage{}).Error; err != nil {
 		tx.Rollback()
 		return sjError(c, 500, "Failed to release package reservations", err)
 	}

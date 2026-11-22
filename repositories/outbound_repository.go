@@ -186,6 +186,8 @@ type OutboundList struct {
 	QtyReq             int     `json:"qty_req"`
 	QtyPlan            int     `json:"qty_plan"`
 	QtyPack            int     `json:"qty_pack"`
+	QtySj              int     `json:"qty_sj"`
+	QtyRemaining       int     `json:"qty_remaining"`
 	TotalQty           int     `json:"total_qty"`
 	Status             string  `json:"status"`
 	DeliveryStatus     string  `json:"delivery_status"`

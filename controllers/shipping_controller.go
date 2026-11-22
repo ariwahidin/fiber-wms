@@ -135,6 +135,21 @@ type Order struct {
 func (c *ShippingController) GetOutboundList(ctx *fiber.Ctx) error {
 
 	outboundRepo := repositories.NewShippingRepository(c.DB)
+	rawOutboundList, err := outboundRepo.GetAllOutboundListAvailableForWorkOrder()
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": "Outbound found",
+		"data":    rawOutboundList,
+	})
+}
+
+func (c *ShippingController) GetOutboundListAvailable(ctx *fiber.Ctx) error {
+
+	outboundRepo := repositories.NewShippingRepository(c.DB)
 	rawOutboundList, err := outboundRepo.GetAllOutboundList()
 	if err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
@@ -150,7 +165,10 @@ func (c *ShippingController) GetOutboundList(ctx *fiber.Ctx) error {
 func (c *ShippingController) CreateOrder(ctx *fiber.Ctx) error {
 	var payload Order
 
-	// Parse JSON payload
+	// =========================================
+	// PARSE PAYLOAD
+	// =========================================
+
 	if err := ctx.BodyParser(&payload); err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"success": false,
@@ -159,21 +177,47 @@ func (c *ShippingController) CreateOrder(ctx *fiber.Ctx) error {
 		})
 	}
 
+	if len(payload.Items) == 0 {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "At least one DO is required",
+		})
+	}
+
 	fmt.Println("Create Outbound Payload:", payload)
 
-	// return nil
-	// Mulai transaction
+	userID := int(ctx.Locals("userID").(float64))
+
+	// =========================================
+	// BEGIN TRANSACTION
+	// =========================================
+
 	tx := c.DB.Begin()
+
+	if tx.Error != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Could not start transaction",
+			"error":   tx.Error.Error(),
+		})
+	}
+
 	defer func() {
 		if r := recover(); r != nil {
 			tx.Rollback()
+			panic(r)
 		}
 	}()
 
-	// Generate Order No
+	// =========================================
+	// GENERATE SPK NUMBER
+	// =========================================
+
 	orderNo, err := GenerateOrderNo(tx)
+
 	if err != nil {
 		tx.Rollback()
+
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"success": false,
 			"message": "Failed to generate order no",
@@ -183,9 +227,14 @@ func (c *ShippingController) CreateOrder(ctx *fiber.Ctx) error {
 
 	shippingRepo := repositories.NewShippingRepository(tx)
 
-	// Insert To Order Header
+	// =========================================
+	// CREATE SPK HEADER
+	// =========================================
+
+	now := time.Now()
 
 	var orderHeader models.OrderHeader
+
 	orderHeader.OrderNo = orderNo
 	orderHeader.Driver = payload.Driver
 	orderHeader.DriverPhone = payload.DriverPhone
@@ -200,11 +249,13 @@ func (c *ShippingController) CreateOrder(ctx *fiber.Ctx) error {
 	orderHeader.LoadEndTime = payload.LoadEndTime
 	orderHeader.OrderType = payload.OrderType
 	orderHeader.Remarks = payload.Remarks
-	orderHeader.CreatedBy = int(ctx.Locals("userID").(float64))
-	orderHeader.CreatedAt = time.Now()
-	orderHeader.UpdatedAt = time.Now()
+	orderHeader.CreatedBy = userID
+	orderHeader.CreatedAt = now
+	orderHeader.UpdatedAt = now
+
 	if err := tx.Create(&orderHeader).Error; err != nil {
 		tx.Rollback()
+
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"success": false,
 			"message": "Failed to insert order header",
@@ -212,9 +263,16 @@ func (c *ShippingController) CreateOrder(ctx *fiber.Ctx) error {
 		})
 	}
 
-	// Insert To Order Items
+	// =========================================
+	// CREATE SPK DETAILS + VAS
+	// =========================================
+
+	var createdOrderDetails []models.OrderDetail
+
 	for _, item := range payload.Items {
+
 		var orderItem models.OrderDetail
+
 		orderItem.OrderID = orderHeader.ID
 		orderItem.OrderNo = orderHeader.OrderNo
 		orderItem.OutboundID = item.OutboundID
@@ -232,6 +290,7 @@ func (c *ShippingController) CreateOrder(ctx *fiber.Ctx) error {
 		orderItem.Remarks = item.Remarks
 		orderItem.OrderType = item.OrderType
 
+		// Delivery assignment
 		if err := applyDeliveryAssignment(tx, item, &orderItem); err != nil {
 			tx.Rollback()
 
@@ -242,11 +301,13 @@ func (c *ShippingController) CreateOrder(ctx *fiber.Ctx) error {
 			})
 		}
 
-		orderItem.CreatedBy = int(ctx.Locals("userID").(float64))
-		orderItem.CreatedAt = time.Now()
-		orderItem.UpdatedAt = time.Now()
-		if err := tx.Debug().Create(&orderItem).Error; err != nil {
+		orderItem.CreatedBy = userID
+		orderItem.CreatedAt = now
+		orderItem.UpdatedAt = now
+
+		if err := tx.Create(&orderItem).Error; err != nil {
 			tx.Rollback()
+
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 				"success": false,
 				"message": "Failed to insert order item",
@@ -254,53 +315,313 @@ func (c *ShippingController) CreateOrder(ctx *fiber.Ctx) error {
 			})
 		}
 
-		vasCalculated, err := shippingRepo.CalculatVasOutbound(int(item.OutboundID))
+		// Simpan detail SPK yang berhasil dibuat.
+		createdOrderDetails = append(createdOrderDetails, orderItem)
+
+		// =====================================
+		// CALCULATE VAS
+		// =====================================
+
+		vasCalculated, err := shippingRepo.CalculatVasOutbound(
+			int(item.OutboundID),
+		)
+
 		if err != nil {
 			tx.Rollback()
-			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"success": false,
+				"message": "Failed to calculate outbound VAS",
+				"error":   err.Error(),
+			})
 		}
+
 		if len(vasCalculated) > 0 {
-			for _, vas_item := range vasCalculated {
+
+			for _, vasItem := range vasCalculated {
+
 				newOutboundVas := models.OutboundVas{
-					OutboundID:   vas_item.OutboundID,
-					OutboundNo:   vas_item.OutboundNo,
-					OutboundDate: vas_item.OutboundDate,
-					QtyItem:      vas_item.QtyItem,
-					QtyKoli:      vas_item.VasKoli,
-					MainVasName:  vas_item.MainVasName,
-					DefaultPrice: vas_item.DefaultPrice,
-					IsKoli:       vas_item.IsKoli,
-					TotalPrice:   vas_item.TotalPrice,
-					CreatedBy:    int(ctx.Locals("userID").(float64)),
-					UpdatedBy:    int(ctx.Locals("userID").(float64)),
+					OutboundID:   vasItem.OutboundID,
+					OutboundNo:   vasItem.OutboundNo,
+					OutboundDate: vasItem.OutboundDate,
+					QtyItem:      vasItem.QtyItem,
+					QtyKoli:      vasItem.VasKoli,
+					MainVasName:  vasItem.MainVasName,
+					DefaultPrice: vasItem.DefaultPrice,
+					IsKoli:       vasItem.IsKoli,
+					TotalPrice:   vasItem.TotalPrice,
+					CreatedBy:    userID,
+					UpdatedBy:    userID,
 				}
 
-				if err := tx.Debug().Create(&newOutboundVas).Error; err != nil {
+				if err := tx.Create(&newOutboundVas).Error; err != nil {
 					tx.Rollback()
-					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+
+					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+						"success": false,
+						"message": "Failed to insert outbound VAS",
+						"error":   err.Error(),
+					})
 				}
 			}
 		}
 	}
 
-	// Commit
+	// =========================================
+	// BUILD AUTOMATIC SJ PAYLOAD
+	// =========================================
+
+	sjReq := sjPayload{
+		Driver:          orderHeader.Driver,
+		DriverPhone:     orderHeader.DriverPhone,
+		TruckType:       orderHeader.TruckType,
+		TruckSize:       orderHeader.TruckSize,
+		TruckNo:         orderHeader.TruckNo,
+		TransporterCode: orderHeader.TransporterCode,
+		TransporterName: orderHeader.TransporterName,
+		Remarks:         orderHeader.Remarks,
+	}
+
+	// =========================================
+	// GET ALL PACKAGES FOR EACH DO
+	// =========================================
+
+	for _, detail := range createdOrderDetails {
+
+		var packageIDs []uint64
+
+		err := tx.Model(&models.OutboundBarcode{}).
+			Where("outbound_no = ?", detail.OutboundNo).
+			Pluck("id", &packageIDs).Error
+
+		if err != nil {
+			tx.Rollback()
+
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"success": false,
+				"message": "Failed to load outbound packages",
+				"error":   err.Error(),
+			})
+		}
+
+		// SJ wajib memiliki minimal satu package per DO.
+		if len(packageIDs) == 0 {
+			tx.Rollback()
+
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"success": false,
+				"message": "Cannot create SJ because a DO has no packages",
+				"error":   fmt.Sprintf("No outbound packages found for DO %s", detail.OutboundNo),
+			})
+		}
+
+		sjReq.Items = append(sjReq.Items, sjPackageSelection{
+			OrderDetailID: sjID(detail.ID),
+			OutboundNo:    detail.OutboundNo,
+			PackageIDs:    packageIDs,
+		})
+	}
+
+	// =========================================
+	// CREATE SJ USING SAME TRANSACTION
+	// =========================================
+
+	sjHeader, err := c.saveSJTx(
+		ctx,
+		tx,
+		orderNo,
+		"",
+		sjReq,
+	)
+
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+
+	// =========================================
+	// COMMIT SPK + VAS + SJ
+	// =========================================
+
 	if err := tx.Commit().Error; err != nil {
 		tx.Rollback()
+
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"success": false,
-			"message": "Failed to commit transaction",
+			"message": "Failed to commit SPK and SJ transaction",
 			"error":   err.Error(),
 		})
 	}
 
+	// =========================================
+	// RESPONSE
+	// =========================================
+
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
 		"success": true,
-		"message": "Outbound created successfully",
+		"message": "SPK and Surat Jalan created successfully",
 		"data": fiber.Map{
-			"order_no": orderNo,
+			"order_no":  orderNo,
+			"sj_no":     sjHeader.SJNo,
+			"sj_status": sjHeader.Status,
 		},
 	})
 }
+
+// func (c *ShippingController) CreateOrder(ctx *fiber.Ctx) error {
+// 	var payload Order
+
+// 	// Parse JSON payload
+// 	if err := ctx.BodyParser(&payload); err != nil {
+// 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+// 			"success": false,
+// 			"message": "Invalid payload",
+// 			"error":   err.Error(),
+// 		})
+// 	}
+
+// 	fmt.Println("Create Outbound Payload:", payload)
+
+// 	// return nil
+// 	// Mulai transaction
+// 	tx := c.DB.Begin()
+// 	defer func() {
+// 		if r := recover(); r != nil {
+// 			tx.Rollback()
+// 		}
+// 	}()
+
+// 	// Generate Order No
+// 	orderNo, err := GenerateOrderNo(tx)
+// 	if err != nil {
+// 		tx.Rollback()
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+// 			"success": false,
+// 			"message": "Failed to generate order no",
+// 			"error":   err.Error(),
+// 		})
+// 	}
+
+// 	shippingRepo := repositories.NewShippingRepository(tx)
+
+// 	// Insert To Order Header
+
+// 	var orderHeader models.OrderHeader
+// 	orderHeader.OrderNo = orderNo
+// 	orderHeader.Driver = payload.Driver
+// 	orderHeader.DriverPhone = payload.DriverPhone
+// 	orderHeader.OrderDate = payload.OrderDate
+// 	orderHeader.TransporterCode = payload.TransporterCode
+// 	orderHeader.TransporterName = payload.TransporterName
+// 	orderHeader.TruckNo = payload.TruckNo
+// 	orderHeader.TruckSize = payload.TruckSize
+// 	orderHeader.TruckType = payload.TruckType
+// 	orderHeader.LoadDate = payload.LoadDate
+// 	orderHeader.LoadStartTime = payload.LoadStartTime
+// 	orderHeader.LoadEndTime = payload.LoadEndTime
+// 	orderHeader.OrderType = payload.OrderType
+// 	orderHeader.Remarks = payload.Remarks
+// 	orderHeader.CreatedBy = int(ctx.Locals("userID").(float64))
+// 	orderHeader.CreatedAt = time.Now()
+// 	orderHeader.UpdatedAt = time.Now()
+// 	if err := tx.Create(&orderHeader).Error; err != nil {
+// 		tx.Rollback()
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+// 			"success": false,
+// 			"message": "Failed to insert order header",
+// 			"error":   err.Error(),
+// 		})
+// 	}
+
+// 	// Insert To Order Items
+// 	for _, item := range payload.Items {
+// 		var orderItem models.OrderDetail
+// 		orderItem.OrderID = orderHeader.ID
+// 		orderItem.OrderNo = orderHeader.OrderNo
+// 		orderItem.OutboundID = item.OutboundID
+// 		orderItem.OutboundNo = item.OutboundNo
+// 		orderItem.ShipmentID = item.ShipmentID
+// 		orderItem.DelivTo = item.DelivTo
+// 		orderItem.DelivToName = item.DelivToName
+// 		orderItem.DelivAddress = item.DelivAddress
+// 		orderItem.DelivCity = item.DelivCity
+// 		orderItem.QtyKoli = item.QtyKoli
+// 		orderItem.VasKoli = item.VasKoli
+// 		orderItem.TotalItem = item.TotalItem
+// 		orderItem.TotalQty = item.TotalQty
+// 		orderItem.TotalCBM = item.TotalCBM
+// 		orderItem.Remarks = item.Remarks
+// 		orderItem.OrderType = item.OrderType
+
+// 		if err := applyDeliveryAssignment(tx, item, &orderItem); err != nil {
+// 			tx.Rollback()
+
+// 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+// 				"success": false,
+// 				"message": "Invalid delivery assignment",
+// 				"error":   err.Error(),
+// 			})
+// 		}
+
+// 		orderItem.CreatedBy = int(ctx.Locals("userID").(float64))
+// 		orderItem.CreatedAt = time.Now()
+// 		orderItem.UpdatedAt = time.Now()
+// 		if err := tx.Debug().Create(&orderItem).Error; err != nil {
+// 			tx.Rollback()
+// 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+// 				"success": false,
+// 				"message": "Failed to insert order item",
+// 				"error":   err.Error(),
+// 			})
+// 		}
+
+// 		vasCalculated, err := shippingRepo.CalculatVasOutbound(int(item.OutboundID))
+// 		if err != nil {
+// 			tx.Rollback()
+// 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+// 		}
+// 		if len(vasCalculated) > 0 {
+// 			for _, vas_item := range vasCalculated {
+// 				newOutboundVas := models.OutboundVas{
+// 					OutboundID:   vas_item.OutboundID,
+// 					OutboundNo:   vas_item.OutboundNo,
+// 					OutboundDate: vas_item.OutboundDate,
+// 					QtyItem:      vas_item.QtyItem,
+// 					QtyKoli:      vas_item.VasKoli,
+// 					MainVasName:  vas_item.MainVasName,
+// 					DefaultPrice: vas_item.DefaultPrice,
+// 					IsKoli:       vas_item.IsKoli,
+// 					TotalPrice:   vas_item.TotalPrice,
+// 					CreatedBy:    int(ctx.Locals("userID").(float64)),
+// 					UpdatedBy:    int(ctx.Locals("userID").(float64)),
+// 				}
+
+// 				if err := tx.Debug().Create(&newOutboundVas).Error; err != nil {
+// 					tx.Rollback()
+// 					return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+// 				}
+// 			}
+// 		}
+// 	}
+
+// 	// Commit
+// 	if err := tx.Commit().Error; err != nil {
+// 		tx.Rollback()
+// 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+// 			"success": false,
+// 			"message": "Failed to commit transaction",
+// 			"error":   err.Error(),
+// 		})
+// 	}
+
+// 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+// 		"success": true,
+// 		"message": "Work order created successfully",
+// 		"data": fiber.Map{
+// 			"order_no": orderNo,
+// 		},
+// 	})
+// }
 
 func (c *ShippingController) GetListOrder(ctx *fiber.Ctx) error {
 	orderRepo := repositories.NewShippingRepository(c.DB)
@@ -604,7 +925,7 @@ func (c *ShippingController) UpdateOrderByID(ctx *fiber.Ctx) error {
 		})
 	}
 
-	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Update Order successfully", "data": orderHeader})
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Work order updated successfully", "data": orderHeader})
 }
 
 func (c *ShippingController) DeleteItemOrderByID(ctx *fiber.Ctx) error {
