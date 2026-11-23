@@ -448,7 +448,7 @@ func (c *ShippingController) CreateOrder(ctx *fiber.Ctx) error {
 
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"success": false,
-			"message": "Failed to commit SPK and SJ transaction",
+			"message": "Failed to commit manifest and delivery note transaction",
 			"error":   err.Error(),
 		})
 	}
@@ -459,7 +459,7 @@ func (c *ShippingController) CreateOrder(ctx *fiber.Ctx) error {
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
 		"success": true,
-		"message": "SPK and Surat Jalan created successfully",
+		"message": "Manifest and delivery note created successfully",
 		"data": fiber.Map{
 			"order_no":  orderNo,
 			"sj_no":     sjHeader.SJNo,
@@ -925,7 +925,7 @@ func (c *ShippingController) UpdateOrderByID(ctx *fiber.Ctx) error {
 		})
 	}
 
-	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Work order updated successfully", "data": orderHeader})
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{"success": true, "message": "Manifest updated successfully", "data": orderHeader})
 }
 
 func (c *ShippingController) DeleteItemOrderByID(ctx *fiber.Ctx) error {
