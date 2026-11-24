@@ -203,24 +203,58 @@ func (r *ShippingRepository) GetOrderDetailItem(outboundID int) ([]OrderDetailIt
 	// INNER JOIN outbound_details odt ON od.outbound_id = odt.outbound_id
 	// LEFT JOIN products p ON odt.item_id = p.id
 	// WHERE order_id = ?`
-	sql := `SELECT od.outbound_id,
-	od.outbound_no,
-	od.deliv_to,
-	od.deliv_to_name,
-	od.deliv_city,
-	od.shipment_id,
-	od.qty_koli as total_koli,
-	od.remarks,
-	odt.item_code,
-	op.quantity,
-	p.cbm,
-	op.lot_number,
-	ROUND(p.cbm * op.quantity, 4) as total_cbm
-	FROM order_details od
-	INNER JOIN outbound_details odt ON od.outbound_id = odt.outbound_id
-	LEFT JOIN outbound_pickings op ON odt.id = op.outbound_detail_id
-	LEFT JOIN products p ON odt.item_id = p.id
-	WHERE order_id = ?`
+	// sql := `SELECT od.outbound_id,
+	// od.outbound_no,
+	// od.deliv_to,
+	// od.deliv_to_name,
+	// od.deliv_city,
+	// od.shipment_id,
+	// od.qty_koli as total_koli,
+	// od.remarks,
+	// odt.item_code,
+	// op.quantity,
+	// p.cbm,
+	// op.lot_number,
+	// ROUND(p.cbm * op.quantity, 4) as total_cbm
+	// FROM order_details od
+	// INNER JOIN outbound_details odt ON od.outbound_id = odt.outbound_id
+	// LEFT JOIN outbound_pickings op ON odt.id = op.outbound_detail_id
+	// LEFT JOIN products p ON odt.item_id = p.id
+	// WHERE order_id = ?`
+	sql := `SELECT
+    od.outbound_id,
+    od.outbound_no,
+    od.deliv_to,
+    od.deliv_to_name,
+    od.deliv_city,
+    od.shipment_id,
+    od.qty_koli AS total_koli,
+    od.remarks,
+    odt.item_code,
+    SUM(op.quantity) AS quantity,
+    p.cbm,
+    op.lot_number,
+    ROUND(p.cbm * SUM(op.quantity), 4) AS total_cbm
+FROM order_details od
+INNER JOIN outbound_details odt
+    ON od.outbound_id = odt.outbound_id
+LEFT JOIN outbound_pickings op
+    ON odt.id = op.outbound_detail_id
+LEFT JOIN products p
+    ON odt.item_id = p.id
+WHERE od.order_id = ?
+GROUP BY
+    od.outbound_id,
+    od.outbound_no,
+    od.deliv_to,
+    od.deliv_to_name,
+    od.deliv_city,
+    od.shipment_id,
+    od.qty_koli,
+    od.remarks,
+    odt.item_code,
+    p.cbm,
+    op.lot_number;`
 
 	if err := r.db.Raw(sql, outboundID).Scan(&orderDetailItem).Error; err != nil {
 		return nil, err
