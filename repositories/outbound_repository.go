@@ -407,52 +407,53 @@ func (r *OutboundRepository) GetOutboundPicking() ([]OutboundList, error) {
 }
 
 type PaperPickingSheet struct {
-	OrderType         string  `json:"order_type"`
-	OutboundNo        string  `json:"outbound_no"`
-	InventoryID       int     `json:"inventory_id,omitempty"`
-	ItemID            int     `json:"item_id"`
-	ItemCode          string  `json:"item_code"`
-	BundleProductCode string  `json:"product_bundling_code"`
-	Quantity          int     `json:"quantity"`
-	Uom               string  `json:"uom"`
-	Barcode           string  `json:"barcode"`
-	ItemName          string  `json:"item_name"`
-	UnitModel         string  `json:"unit_model"`
-	Pallet            string  `json:"pallet"`
-	Location          string  `json:"location"`
-	Cbm               float64 `json:"cbm"`
-	WhsCode           string  `json:"whs_code"`
-	RecDate           string  `json:"rec_date"`
-	OutboundDate      string  `json:"outbound_date"`
-	ShipmentID        string  `json:"shipment_id"`
-	CustomerCode      string  `json:"customer_code"`
-	CustomerName      string  `json:"customer_name"`
-	DelivTo           string  `json:"deliv_to"`
-	DelivToName       string  `json:"deliv_to_name"`
-	CustAddress       string  `json:"cust_address"`
-	CustCity          string  `json:"cust_city"`
-	DelivAddress      string  `json:"deliv_address"`
-	DelivCity         string  `json:"deliv_city"`
-	QtyKoli           int     `json:"qty_koli"`
-	QtyKoliSeal       int     `json:"qty_koli_seal"`
-	RemarksHeader     string  `json:"remarks_header"`
-	Remarks           string  `json:"remarks"`
-	PickerName        string  `json:"picker_name"`
-	PlanPickupDate    string  `json:"plan_pickup_date"`
-	PlanPickupTime    string  `json:"plan_pickup_time"`
-	TransporterCode   string  `json:"transporter_code"`
-	ProdDate          string  `json:"prod_date"`
-	ExpDate           string  `json:"exp_date"`
-	CaseNumber        string  `json:"case_number"`
-	LotNumber         string  `json:"lot_number"`
-	CartonNumber      string  `json:"carton_number"`
-	SerialNumber      string  `json:"serial_number"`
-	OwnerCode         string  `json:"owner_code"`
-	UseCartonNumber   bool    `json:"use_carton_number"`
-	UseFifo           bool    `json:"use_fifo"`
-	UseSerialNumber   bool    `json:"use_serial_number"`
-	QtyPerCarton      int     `json:"qty_per_carton"`
-	RemarksItem       string  `json:"remarks_item"`
+	OrderType          string  `json:"order_type"`
+	OutboundNo         string  `json:"outbound_no"`
+	InventoryID        int     `json:"inventory_id,omitempty"`
+	ItemID             int     `json:"item_id"`
+	ItemCode           string  `json:"item_code"`
+	BundleProductCode  string  `json:"product_bundling_code"`
+	Quantity           int     `json:"quantity"`
+	Uom                string  `json:"uom"`
+	Barcode            string  `json:"barcode"`
+	ItemName           string  `json:"item_name"`
+	UnitModel          string  `json:"unit_model"`
+	Pallet             string  `json:"pallet"`
+	Location           string  `json:"location"`
+	Cbm                float64 `json:"cbm"`
+	WhsCode            string  `json:"whs_code"`
+	RecDate            string  `json:"rec_date"`
+	OutboundDate       string  `json:"outbound_date"`
+	ShipmentID         string  `json:"shipment_id"`
+	CustomerCode       string  `json:"customer_code"`
+	CustomerName       string  `json:"customer_name"`
+	DelivTo            string  `json:"deliv_to"`
+	DelivToName        string  `json:"deliv_to_name"`
+	CustAddress        string  `json:"cust_address"`
+	CustCity           string  `json:"cust_city"`
+	DelivAddress       string  `json:"deliv_address"`
+	DelivCity          string  `json:"deliv_city"`
+	QtyKoli            int     `json:"qty_koli"`
+	QtyKoliSeal        int     `json:"qty_koli_seal"`
+	RemarksHeader      string  `json:"remarks_header"`
+	Remarks            string  `json:"remarks"`
+	PickerName         string  `json:"picker_name"`
+	PlanPickupDate     string  `json:"plan_pickup_date"`
+	PlanPickupTime     string  `json:"plan_pickup_time"`
+	TransporterCode    string  `json:"transporter_code"`
+	ProdDate           string  `json:"prod_date"`
+	ExpDate            string  `json:"exp_date"`
+	CaseNumber         string  `json:"case_number"`
+	LotNumber          string  `json:"lot_number"`
+	CartonNumber       string  `json:"carton_number"`
+	SerialNumber       string  `json:"serial_number"`
+	OwnerCode          string  `json:"owner_code"`
+	UseCartonNumber    bool    `json:"use_carton_number"`
+	UseFifo            bool    `json:"use_fifo"`
+	UseSerialNumber    bool    `json:"use_serial_number"`
+	QtyPerCarton       int     `json:"qty_per_carton"`
+	RemarksItem        string  `json:"remarks_item"`
+	ActualDelivAddress string  `json:"actual_deliv_address"`
 }
 
 func (r *OutboundRepository) GetPickingSheet(outbound_id int) ([]PaperPickingSheet, error) {
@@ -550,6 +551,7 @@ func (r *OutboundRepository) GetPickingSheet(outbound_id int) ([]PaperPickingShe
 			b.qty_per_carton,
 			e.remarks AS remarks_header,
 			od.remarks,
+			e.actual_deliv_address,
 			CASE WHEN SUM(a.quantity) / uc.conversion_rate <> b.qty_per_carton AND b.qty_per_carton > 0 AND c.carton_number <> '' THEN 'unboxing' ELSE '' END AS remarks_item
 
 		FROM outbound_pickings a
@@ -653,7 +655,8 @@ func (r *OutboundRepository) GetPickingSheet(outbound_id int) ([]PaperPickingShe
 			-- Policy
 			ips.use_carton_number,
 			ips.use_fifo,
-			ips.use_serial_number
+			ips.use_serial_number,
+			e.actual_deliv_address
 
 		ORDER BY
 			a.outbound_detail_id ASC
