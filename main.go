@@ -25,7 +25,6 @@ import (
 	"fiber-app/middleware"
 	"fiber-app/migration"
 	"fiber-app/routes"
-	scheduler "fiber-app/shceduler"
 	"fiber-app/wms/master/owner"
 	"fmt"
 	"log"
@@ -260,12 +259,12 @@ func main() {
 	fmt.Println("🚀 Server berjalan di port " + port)
 	fmt.Println("N8N token configured:", config.N8NIntegrationToken != "")
 
-	go func() {
-		time.Sleep(3 * time.Second)
-		if err := scheduler.StartShopeeScheduler(unitDB, reportDB); err != nil {
-			log.Printf("[Shopee] Auto-start skipped: %v", err)
-		}
-	}()
+	// go func() {
+	// 	time.Sleep(3 * time.Second)
+	// 	if err := scheduler.StartShopeeScheduler(unitDB, reportDB); err != nil {
+	// 		log.Printf("[Shopee] Auto-start skipped: %v", err)
+	// 	}
+	// }()
 
 	if err := app.Listen(":" + port); err != nil {
 		log.Fatal(err)

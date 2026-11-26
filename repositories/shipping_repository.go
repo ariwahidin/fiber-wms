@@ -218,14 +218,15 @@ order by oh.order_no DESC`
 }
 
 type OrderDetailItem struct {
-	OutboundID  int    `json:"outbound_id"`
-	OutboundNo  string `json:"outbound_no"`
-	DelivTo     string `json:"deliv_to"`
-	DelivToName string `json:"deliv_to_name"`
-	DelivCity   string `json:"deliv_city"`
-	ShipmentID  string `json:"shipment_id"`
-	TotalKoli   int    `json:"total_koli"`
-	Remarks     string `json:"remarks"`
+	OutboundID   int    `json:"outbound_id"`
+	OutboundNo   string `json:"outbound_no"`
+	DelivTo      string `json:"deliv_to"`
+	DelivAddress string `json:"deliv_address"`
+	DelivToName  string `json:"deliv_to_name"`
+	DelivCity    string `json:"deliv_city"`
+	ShipmentID   string `json:"shipment_id"`
+	TotalKoli    int    `json:"total_koli"`
+	Remarks      string `json:"remarks"`
 
 	DeliveryMode       string `json:"delivery_mode"`
 	DeliveryHubID      *uint  `json:"delivery_hub_id"`
@@ -249,6 +250,7 @@ func (r *ShippingRepository) GetOrderDetailItem(orderID int) ([]OrderDetailItem,
 			od.outbound_no,
 			od.deliv_to,
 			od.deliv_to_name,
+			od.deliv_address,
 			od.deliv_city,
 			od.shipment_id,
 			od.qty_koli AS total_koli,
